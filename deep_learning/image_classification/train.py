@@ -20,6 +20,7 @@ from torchmetrics.classification import (
 from torchvision import datasets
 
 import utils
+import explainability
 
 
 def train_one_epoch(
@@ -205,7 +206,7 @@ def main(args: argparse.Namespace) -> None:
 
     image_datasets = {
         x: datasets.ImageFolder(
-            os.path.join(args.dataset_name, x), data_transforms[x]
+            os.path.join(args.dataset_dir, x), data_transforms[x]
         )
         for x in ["train", "val"]
     }
@@ -353,7 +354,7 @@ def main(args: argparse.Namespace) -> None:
             json.dump(best_results, file)
             file.write("\n")
 
-        utils.process_results(args, model_name)
+        explainability.process_results(args, model_name)
 
 
 def get_args():
@@ -361,19 +362,19 @@ def get_args():
     Parse and return the command line arguments.
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset_name", default=None, type=str, help="Name of the dataset.")
+    parser.add_argument("--dataset_dir", default=None, type=str, help="Directory of the dataset.")
     parser.add_argument("--output_dir", default="output_results", type=str,
                         help="Directory to save the output files to.")
 
     parser.add_argument("--model", nargs="*", default=None, help="The name of the model to use")
     parser.add_argument("--model_size", type=str, default="small", help="Size of the model to use",
-                        choices=["tiny", "small", "base", "large"])
+                        choices=["nano", "tiny", "small", "base", "large"])
 
     parser.add_argument("--seed", default=999333666, type=int, help="Random seed.")
 
     parser.add_argument("--crop_size", default=224, type=int, help="Size to crop the input images to.")
     parser.add_argument("--val_resize", default=256, type=int, help="Size to resize the validation images to.")
-    parser.add_argument("--aug_type", default="trivial", type=str, help="Type of data augmentation to use.",
+    parser.add_argument("--aug_type", default="rand", type=str, help="Type of data augmentation to use.",
                         choices=["augmix", "rand", "trivial"])
     parser.add_argument("--interpolation", default="bicubic", type=str, help="Type of interpolation to use.",
                         choices=["nearest", "bilinear", "bicubic"])
@@ -392,14 +393,14 @@ def get_args():
     parser.add_argument("--sched_name", default="cosine", type=str, help="Name of the learning rate scheduler to use.")
     parser.add_argument("--lr", default=0.01, type=float, help="Initial learning rate.")
     parser.add_argument("--wd", default=1e-4, type=float, help="Weight decay.")
-    parser.add_argument("--step_size", default=3, type=int, help="Step size for the learning rate scheduler.")
+    parser.add_argument("--step_size", default=30, type=int, help="Step size for the learning rate scheduler.")
     parser.add_argument("--warmup_epochs", default=5, type=int, help="Number of epochs for the warmup period.")
     parser.add_argument("--warmup_decay", default=0.1, type=float, help="Decay rate for the warmup learning rate.")
     parser.add_argument("--gamma", default=0.1, type=float, help="Gamma for the learning rate scheduler.")
     parser.add_argument("--eta_min", default=1e-4, type=float,
                         help="Minimum learning rate for the learning rate scheduler.")
 
-    parser.add_argument("--sorting_metric", default="auc", type=str, help="Metric to sort the results by.",
+    parser.add_argument("--sorting_metric", default="f1", type=str, help="Metric to sort the results by.",
                         choices=["f1", "auc", "accuracy", "precision", "recall"])
 
     return parser.parse_args()
