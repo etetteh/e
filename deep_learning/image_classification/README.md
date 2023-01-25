@@ -23,7 +23,8 @@ The script makes use of the following libraries, which can be installed followin
 1. Python 3.10 or earlier. I recommend installing through [Miniconda](https://docs.conda.io/en/latest/miniconda.html) 
 2. Latest stable release of [Pytorch](https://pytorch.org/get-started/locally/). Earlier versions should be okay.
 3. Pre release version of (timm)[https://github.com/rwightman/pytorch-image-models]. Run 'pip install --pre timm' to install.
-4. (TorchMetrics)[https://torchmetrics.readthedocs.io/en/stable/]
+4. (TorchMetrics)[https://torchmetrics.readthedocs.io/en/stable/] for computing metrics
+5. (SHAP)[https://shap.readthedocs.io/en/latest/index.html#] for model explainability
 
 ## Usage
 The script uses models from the `timm` library.
