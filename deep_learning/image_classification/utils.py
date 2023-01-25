@@ -10,13 +10,9 @@ from glob import glob
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
-import pandas as pd
 import splitfolders
 import timm
 import torch
-from plotly import express as px
-from plotly import graph_objects as go
-from sklearn.metrics import auc
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from torch import nn
 from torch import optim
@@ -112,20 +108,78 @@ def get_data_augmentation(args) -> Dict[str, Callable]:
     return {"train": train_transform, "val": val_transform}
 
 
-def get_classes(dataset_name: str) -> List[str]:
+def convert_to_channels_first(image: torch.Tensor) -> torch.Tensor:
+    """
+    Converts an image tensor from channels last format to channels first format.
+    
+    Parameters:
+        - image (torch.Tensor): A 4-D or 3-D image tensor.
+
+    Returns:
+        - torch.Tensor: The image tensor in channels first format.
+    """
+    if image.dim() == 4:
+        image = image if image.shape[1] == 3 else image.permute(0, 3, 1, 2)
+    elif image.dim() == 3:
+        image = image if image.shape[0] == 3 else image.permute(2, 0, 1)
+    return image
+
+
+def convert_to_channels_last(image: torch.Tensor) -> torch.Tensor:
+    """
+    Converts an image tensor from channels first format to channels last format.
+    
+    Parameters:
+        - image (torch.Tensor): A 4-D or 3-D image tensor.
+
+    Returns:
+        - torch.Tensor: The image tensor in channels last format.
+    """
+    if image.dim() == 4:
+        image = image if image.shape[3] == 3 else image.permute(0, 2, 3, 1)
+    elif image.dim() == 3:
+        image = image if image.shape[2] == 3 else image.permute(1, 2, 0)
+    return image
+
+
+def get_explain_data_aug() -> Tuple[transforms.Compose, transforms.Compose]:
+    """
+    Returns the transforms for data augmentation used for explaining the model.
+
+    Returns:
+        - A tuple of two transforms representing the data augmentation transforms 
+        used for explanation and the inverse of those transforms.
+    """
+    transform = transforms.Compose([transforms.Lambda(convert_to_channels_first),
+        transforms.Lambda(lambda image: image * ( 1 / 255)),
+        transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
+        transforms.Lambda(convert_to_channels_last),
+    ])
+
+    inv_transform = transforms.Compose([
+        transforms.Lambda(convert_to_channels_first),
+        transforms.Normalize(
+            mean = (-1 * np.array(IMAGENET_DEFAULT_MEAN) / np.array(IMAGENET_DEFAULT_STD)).tolist(),
+            std = (1 / np.array(IMAGENET_DEFAULT_STD)).tolist()
+        ),
+        transforms.Lambda(convert_to_channels_last),
+    ])
+
+    return transform, inv_transform
+
+
+def get_classes(dataset_dir: str) -> List[str]:
     """
     Get a list of the classes in a dataset.
 
     Parameters:
-    - dataset_name: Name of the dataset.
+    - dataset_dir: Directory of the dataset.
 
     Returns:
     - A sorted list of the classes in the dataset.
     """
-    class_dirs = glob(os.path.join(f"{dataset_name}", "train/*"))
-
+    class_dirs = glob(os.path.join(dataset_dir, "train/*"))
     classes = [os.path.basename(class_dir) for class_dir in class_dirs]
-
     classes.sort()
 
     return classes
@@ -333,148 +387,6 @@ def get_logger(logger_name: str, log_file: str, log_level=logging.DEBUG,
     return logger
 
 
-def display_results_dataframe(output_dir: str, sorting_metric: str) -> pd.DataFrame:
-    """
-    Load the results from the results file, convert them to a DataFrame, and sort the DataFrame by a given metric.
-
-    Parameters:
-    - output_dir: Directory where the results file is stored.
-    - sorting_metric: Metric to sort the DataFrame by.
-
-    Returns:
-    - A sorted DataFrame of the results.
-    """
-    with open(f"{output_dir}/results.jsonl") as file_in:
-        results_list = [json.loads(line) for line in file_in]
-
-    results_df = pd.DataFrame(results_list)
-
-    sorted_results_df = results_df.sort_values(by=[sorting_metric], ascending=False)
-
-    return sorted_results_df
-
-
-def plot_confusion_matrix(results_df: pd.DataFrame, model_name: str, classes: List[str], output_dir: str) -> None:
-    """
-    Plot the confusion matrix for a given model.
-
-    Parameters:
-    - results_df: DataFrame of results.
-    - model_name: Name of the model to plot the confusion matrix for.
-    - classes: List of classes in the dataset.
-    """
-    cm = results_df[results_df["model"] == model_name]["confusion matrix"].iloc[0]
-
-    fig = px.imshow(cm,
-                    text_auto=True,
-                    aspect="auto",
-                    x=classes,
-                    y=classes,
-                    title=f"Confusion Matrix: {model_name}",
-                    labels={"x": "Predicted Condition", "y": "Actual Condition", "color": "Score"},
-                    )
-
-    fig.update_xaxes(side="top")
-    if output_dir:
-        fig.write_html(f"{output_dir}/{model_name}_confusion_matrix.html")
-
-
-def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str, output_dir: str) -> None:
-    """
-    Plots a Receiver Operating Characteristic (ROC) curve using the Plotly library.
-    The number of classes determines the format of the plot.
-    If there are 2 classes, it plots a single ROC curve with the area under the curve (AUC)
-    value displayed in the title.
-    If there are more than 2 classes, it plots multiple ROC curves, one for each class,
-    with the average AUC value displayed in the title.
-    The plot is displayed and can be saved to a html file if the output_dir is provided
-
-    Parameters:
-    - classes: a list of strings representing the names of different classes
-    - results_df: a DataFrame containing the results of the model(s) being plotted,
-        including the false positive rate (fpr) and true positive rate (tpr)
-    - model_name: a string representing the name of the model being plotted
-    - output_dir: a string representing the directory where the plot will be saved (if provided)
-
-    Returns:
-    None
-    """
-    num_classes = len(classes)
-
-    if num_classes < 2:
-        raise ValueError("Number of classes must be at least 2")
-
-    fig = go.Figure()
-    fig.add_shape(
-        type='line', line=dict(dash='dash'),
-        x0=0, x1=1, y0=0, y1=1
-    )
-    if num_classes == 2:
-        fpr = results_df[results_df["model"] == model_name]["fpr"].iloc[0]
-        tpr = results_df[results_df["model"] == model_name]["tpr"].iloc[0]
-
-        auc_val = auc(fpr, tpr)
-
-        fig.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines'))
-        title = f"{model_name} - ROC Curve (AUC={auc_val:.4f})"
-    else:
-        auc_list = []
-        for i in range(len(classes)):
-            fpr = results_df[results_df["model"] == model_name]["fpr"].iloc[0][i]
-            tpr = results_df[results_df["model"] == model_name]["tpr"].iloc[0][i]
-
-            auc_val = auc(fpr, tpr)
-
-            name = f"{classes[i]} (AUC={auc_val:.4f})"
-            fig.add_trace(go.Scatter(x=fpr, y=tpr, name=name, mode='lines'))
-
-            auc_list.append(auc_val)
-        title = f"{model_name} - "
-        f"ROC Curve (Average AUC={np.mean(auc_list):.4f})"
-
-    fig.update_layout(
-        title=title,
-        xaxis_title='False Positive Rate',
-        yaxis_title='True Positive Rate',
-        yaxis=dict(scaleanchor="x", scaleratio=1),
-        xaxis=dict(constrain='domain'),
-        width=750, height=750
-    )
-
-    if output_dir:
-        fig.write_html(f"{output_dir}/{model_name}_roc_curve.html")
-
-
-def process_results(args: argparse.Namespace, model_name: str) -> None:
-    """
-    Processes and saves the performance metrics and plots confusion matrix and ROC curve.
-
-    Args:
-    - args : a Namespace object containing the following attributes:
-        - output_dir : a string representing the directory where the results will be saved
-        - sorting_metric : a string representing the metric to sort the results by
-        - dataset_name : a string representing the name of the dataset
-        - logger : a logger object to log the results
-
-    Returns:
-    None
-    """
-    results_df = display_results_dataframe(output_dir=args.output_dir, sorting_metric=args.sorting_metric)
-    results_drop = results_df.drop(columns=["loss", "fpr", "tpr", "confusion matrix"])
-
-    results_drop = results_drop.reset_index(drop=True)
-
-    results_drop.to_json(path_or_buf=f"{args.output_dir}/performance_metrics.jsonl", orient="records", lines=True)
-
-    args.logger.info(f"\nPerformance against other models:\n{results_drop}\n")
-
-    classes = get_classes(args.dataset_name)
-
-    plot_confusion_matrix(results_df, model_name, classes, args.output_dir)
-
-    plot_roc_curve(classes, results_df, model_name, args.output_dir)
-
-
 class CreateImgSubclasses:
     def __init__(self, img_src: str, img_dest: str) -> None:
         """
@@ -494,7 +406,7 @@ class CreateImgSubclasses:
         Returns:
         - A list of the classes in the source directory.
         """
-        ls = glob(f"{self.img_src}/*")
+        ls = glob(os.path.join(self.img_src, "/*"))
 
         file_set = []
         pattern = r'[^A-Za-z]+'
@@ -529,10 +441,10 @@ class CreateImgSubclasses:
         If no class name is found in the file name, the file is not copied.
         """
         class_names = self.get_image_classes()
-        for file in glob(f"{self.img_src}/*"):
+        for file in glob(os.path.join(self.img_src, "/*")):
             for dir_name in class_names:
                 if dir_name in file:
-                    shutil.copy(file, f"{self.img_dest}/{dir_name}")
+                    shutil.copy(file, os.path.join(self.img_dest, dir_name))
                     break
 
 
