@@ -10,6 +10,57 @@
 * [License](#license)
 * [Citation](#citation)
 
+## Usage
+### Jan 25, 2023
+Added model explainability functionality using [SHAP](https://shap.readthedocs.io/en/latest/index.html#). You can now understand the decision or prediction made by the best performing model.
+
+Example: to explain the performance of `xcit_nano_12_p16_224_dist` on 4 samples of the validation data, run the following in a notebook
+```
+from explainability import explain_model
+
+class Args:
+    output_dir = <model_checkpoint_dir>
+    dataset_dir = <dataset_dir>
+    model_name = "xcit_nano_12_p16_224_dist"
+    dropout = 0.2
+    crop_size = 224
+    batch_size = 30
+    num_workers = 8
+    n_samples = 4
+    max_evals = 1000
+    topk = 4
+    
+args = Args()
+
+explain_model(
+    args = args
+)
+
+```
+
+The script uses models from the `timm` library.
+1. Specify any model you'd like to use. You can pass a single model name or a list of model names. Example:
+```
+python train.py --model beit_large_patch16_224.in22k_ft_in22k_in1k vit_large_patch14_clip_224.openai_ft_in1k
+```
+Please, ensure that when passing a list of models, all the models should have been trained on the same image size.
+
+2. Train all models with specific size and specific image size. This is useful for model selection. Example, to finetune all `tiny` models from the `timm` library that were pre-trained with image size 224, run
+```
+python train.py --model_size tiny --crop_size 224
+```
+You can also pass `nano`, `small`, `base`, `large` or `giant` to train all models with that respective size
+
+Run `python train.py --help` to see all the arguments you can pass during training
+
+**Results**
+The training script:
+* Checkpoints the model, which can be use to resume training
+* Saves the best model weights, which can be use for inference or deployment
+* Plots a confusion matrix and ROC curve of the best validation metrics
+
+All results are on the validation dataset, and are saved in the `output_dir` passed during training.
+
 ## Getting Started
 The goal of this project is to provide a simple but efficient approach to image classification research by leveraging SOTA image models
 
@@ -22,23 +73,9 @@ The goal of this project is to provide a simple but efficient approach to image 
 The script makes use of the following libraries, which can be installed following their respective instructions:
 1. Python 3.10 or earlier. I recommend installing through [Miniconda](https://docs.conda.io/en/latest/miniconda.html) 
 2. Latest stable release of [Pytorch](https://pytorch.org/get-started/locally/). Earlier versions should be okay.
-3. Pre release version of (timm)[https://github.com/rwightman/pytorch-image-models]. Run 'pip install --pre timm' to install.
-4. (TorchMetrics)[https://torchmetrics.readthedocs.io/en/stable/] for computing metrics
-5. (SHAP)[https://shap.readthedocs.io/en/latest/index.html#] for model explainability
-
-## Usage
-The script uses models from the `timm` library.
-1. Specify any model you'd like to use. You can pass a single model name or a list of model names. Example:
-`python train.py --model vit_base_patch16_clip_384.laion2b_ft_in1k maxvit_base_tf_512.in1k
-Please, ensure that when passing a list of models, all the models should have been trained on the same image size.
-
-2. Train all models with specific size and specific image size. This is useful for model selection. Example, to finetune all `tiny` models from the `timm` library that was pre-trained with image size 224, run
-```
-python train.py --model_size tiny --crop_size 224
-```
-You can also pass `small`, `base`, `large` or `giant` to train all models with that respective size
-
-3. Run `python train.py --help` to see all the arguments you can pass
+3. Pre release version of [timm](https://github.com/rwightman/pytorch-image-models). Run 'pip install --pre timm' to install.
+4. [TorchMetrics](https://torchmetrics.readthedocs.io/en/stable/) for computing metrics
+5. [SHAP](https://shap.readthedocs.io/en/latest/index.html#) for model explainability
 
 ## Documentation
 Comming soon!
