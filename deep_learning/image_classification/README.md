@@ -22,7 +22,6 @@ class Args:
     output_dir = <model_checkpoint_dir>
     dataset_dir = <dataset_dir>
     model_name = "xcit_nano_12_p16_224_dist"
-    dropout = 0.2
     crop_size = 224
     batch_size = 30
     num_workers = 8

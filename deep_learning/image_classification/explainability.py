@@ -36,7 +36,7 @@ def display_results_dataframe(output_dir: str, sorting_metric: str) -> pd.DataFr
 
     results_df = pd.DataFrame(results_list)
 
-    sorted_results_df = results_df.sort_values(by=[sorting_metric], ascending=False)
+    sorted_results_df = results_df.sort_values(by = [sorting_metric], ascending = False)
 
     return sorted_results_df
 
@@ -53,15 +53,15 @@ def plot_confusion_matrix(results_df: pd.DataFrame, model_name: str, classes: Li
     cm = results_df[results_df["model"] == model_name]["confusion matrix"].iloc[0]
 
     fig = px.imshow(cm,
-                    text_auto=True,
-                    aspect="auto",
-                    x=classes,
-                    y=classes,
-                    title=f"Confusion Matrix: {model_name}",
-                    labels={"x": "Predicted Condition", "y": "Actual Condition", "color": "Score"},
+                    text_auto = True,
+                    aspect = "auto",
+                    x = classes,
+                    y = classes,
+                    title = f"Confusion Matrix: {model_name}",
+                    labels = {"x": "Predicted Condition", "y": "Actual Condition", "color": "Score"},
                     )
 
-    fig.update_xaxes(side="top")
+    fig.update_xaxes(side = "top")
     if output_dir:
         fig.write_html(os.path.join(output_dir, f"{model_name}_confusion_matrix.html"))
 
@@ -93,8 +93,9 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
 
     fig = go.Figure()
     fig.add_shape(
-        type='line', line=dict(dash='dash'),
-        x0=0, x1=1, y0=0, y1=1
+        type = 'line', 
+        line = dict(dash = 'dash'),
+        x0 = 0, x1 = 1, y0 = 0, y1 = 1
     )
     if num_classes == 2:
         fpr = results_df[results_df["model"] == model_name]["fpr"].iloc[0]
@@ -102,8 +103,8 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
 
         auc_val = auc(fpr, tpr)
 
-        fig.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines'))
-        title = f"{model_name} - ROC Curve (AUC={auc_val:.4f})"
+        fig.add_trace(go.Scatter(x = fpr, y = tpr, mode = 'lines'))
+        title = f"{model_name} - ROC Curve (AUC = {auc_val:.4f})"
     else:
         auc_list = []
         for i in range(len(classes)):
@@ -112,19 +113,19 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
 
             auc_val = auc(fpr, tpr)
 
-            name = f"{classes[i]} (AUC={auc_val:.4f})"
-            fig.add_trace(go.Scatter(x=fpr, y=tpr, name=name, mode='lines'))
+            name = f"{classes[i]} (AUC = {auc_val:.4f})"
+            fig.add_trace(go.Scatter(x = fpr, y = tpr, name = name, mode = 'lines'))
 
             auc_list.append(auc_val)
-        title = f"{model_name} - ROC Curve (Average AUC={np.mean(auc_list):.4f})"
+        title = f"{model_name} - ROC Curve (Average AUC = {np.mean(auc_list):.4f})"
 
     fig.update_layout(
-        title=title,
-        xaxis_title='False Positive Rate',
-        yaxis_title='True Positive Rate',
-        yaxis=dict(scaleanchor="x", scaleratio=1),
-        xaxis=dict(constrain='domain'),
-        width=750, height=750
+        title = title,
+        xaxis_title = 'False Positive Rate',
+        yaxis_title = 'True Positive Rate',
+        yaxis = dict(scaleanchor = "x", scaleratio = 1),
+        xaxis = dict(constrain = 'domain'),
+        width = 750, height = 750
     )
 
     if output_dir:
@@ -146,12 +147,12 @@ def process_results(args: argparse.Namespace, model_name: str) -> None:
     Returns:
     None
     """
-    results_df = display_results_dataframe(output_dir=args.output_dir, sorting_metric=args.sorting_metric)
-    results_drop = results_df.drop(columns=["loss", "fpr", "tpr", "confusion matrix"])
+    results_df = display_results_dataframe(output_dir = args.output_dir, sorting_metric = args.sorting_metric)
+    results_drop = results_df.drop(columns = ["loss", "fpr", "tpr", "confusion matrix"])
 
-    results_drop = results_drop.reset_index(drop=True)
+    results_drop = results_drop.reset_index(drop = True)
 
-    results_drop.to_json(path_or_buf=os.path.join(args.output_dir, "performance_metrics.jsonl"), orient="records", lines=True)
+    results_drop.to_json(path_or_buf = os.path.join(args.output_dir, "performance_metrics.jsonl"), orient = "records", lines = True)
 
     if args.model and len(args.model) == 1:
         args.logger.info(f"\nModel performance:\n{results_drop}\n")
@@ -199,37 +200,40 @@ def explain_model(args: argparse.Namespace) -> None:
     transform, inv_transform = utils.get_explain_data_aug()
     classes = utils.get_classes(args.dataset_dir)
 
-    train_data = torchvision.datasets.ImageFolder(os.path.join(args.dataset_dir, "val"), 
-                                                transform=torchvision.transforms.Compose([
-                                                    torchvision.transforms.RandomResizedCrop(args.crop_size),
-                                                    torchvision.transforms.PILToTensor(),
-                                                ])
-                                                )
+    train_data = torchvision.datasets.ImageFolder(os.path.join(args.dataset_dir, "val"),
+                                            transform = torchvision.transforms.Compose([
+                                            torchvision.transforms.RandomResizedCrop(args.crop_size),
+                                            torchvision.transforms.PILToTensor(),
+                                            ])
+                                            )
 
-    data_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
+    data_loader = DataLoader(train_data, batch_size = args.batch_size, shuffle = True, num_workers = args.num_workers)
 
     batch = next(iter(data_loader))
     images, labels = batch
     images = images.permute(0,2,3,1)
     images = transform(images)
     
-    model, _ = utils.get_model(args, model_name=args.model_name, num_classes=len(classes))
-    checkpoint = torch.load(os.path.join(args.output_dir, f"{args.model_name}_best_model.pth"),
-                            map_location="cpu")
-    model.load_state_dict(checkpoint)
-    model.to(device)
+    model = torch.jit.load(os.path.join(args.output_dir, f"{args.model_name}_best_model.pth"))
     model.eval()
+    model.to(device)
 
-    masker_blur = shap.maskers.Image(f"blur{args.crop_size, args.crop_size}", images[0].shape)
-    explainer = shap.Explainer(predict, masker_blur, output_names=classes)
+    masker_blur = shap.maskers.Image(f"blur{args.crop_size//2, args.crop_size//2}", images[0].shape)
+    explainer = shap.Explainer(predict, masker_blur, output_names = classes)
 
-    shap_values = explainer(images[:args.n_samples], max_evals=args.max_evals, batch_size=args.batch_size,
-                        outputs=shap.Explanation.argsort.flip[:args.topk])
+    shap_values = explainer(images[:args.n_samples], 
+                            max_evals = args.max_evals, 
+                            batch_size = args.batch_size,
+                            outputs = shap.Explanation.argsort.flip[:args.topk]
+                        )
+
     shap_values.data = inv_transform(shap_values.data).cpu().numpy()
     shap_values.values = [val for val in np.moveaxis(shap_values.values,-1, 0)]
 
-    shap.image_plot(shap_values=shap_values.values,
-                    pixel_values=shap_values.data,
-                    labels=shap_values.output_names,
-                    true_labels=[classes[idx] for idx in labels[:args.n_samples]],
+    shap.image_plot(shap_values = shap_values.values,
+                    pixel_values = shap_values.data,
+                    labels = shap_values.output_names,
+                    true_labels = [classes[idx] for idx in labels[:len(labels)]],
+                    aspect = 0.15,
+                    hspace = 0.15,
                 )
