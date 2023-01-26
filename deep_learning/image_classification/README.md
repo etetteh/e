@@ -83,6 +83,7 @@ Comming soon!
 ## License
 
 ## Citation
+```
 @misc{etetteh2023,
   author = {Enoch Tetteh},
   title = {Low Code Machine Learning And Deep Learning},
@@ -92,3 +93,4 @@ Comming soon!
   doi = {},
   howpublished = {\url{https://github.com/etetteh/low-code-ml-dl}}
 } 
+```
