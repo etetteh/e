@@ -165,21 +165,20 @@ def process_results(args: argparse.Namespace, model_name: str) -> None:
     plot_roc_curve(classes, results_df, model_name, args.output_dir)
 
 
-def explain_model(args: argparse.Namespace, dataset_dir: str, model_name: str, crop_size: int, batch_size: int, 
-                  num_workers: int, n_samples: int, max_evals: int, topk: int):
+def explain_model(args: argparse.Namespace) -> None:
     """
     Explain the predictions of a given model on a dataset using SHAP values.
     
     Parameters:
     - args (argparse.Namespace): Arguments passed to the script.
-    - dataset_dir (str): Directory of the dataset to use.
-    - model_name (str): Name of the model to use.
-    - crop_size (int): Size of the random crop applied to the images.
-    - batch_size (int): Batch size for data loading.
-    - num_workers (int): Number of workers for data loading.
-    - n_samples (int): Number of samples to explain.
-    - max_evals (int): Maximum number of evaluations for SHAP.
-    - topk (int): Number of top-k predictions to plot.
+        - dataset_dir (str): Directory of the dataset to use.
+        - model_name (str): Name of the model to use.
+        - crop_size (int): Size of the random crop applied to the images.
+        - batch_size (int): Batch size for data loading.
+        - num_workers (int): Number of workers for data loading.
+        - n_samples (int): Number of samples to explain.
+        - max_evals (int): Maximum number of evaluations for SHAP.
+        - topk (int): Number of top-k predictions to plot.
     """
     def predict(img: np.ndarray) -> torch.Tensor:
         """
@@ -198,39 +197,39 @@ def explain_model(args: argparse.Namespace, dataset_dir: str, model_name: str, c
         
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     transform, inv_transform = utils.get_explain_data_aug()
-    classes = utils.get_classes(dataset_dir)
+    classes = utils.get_classes(args.dataset_dir)
 
-    train_data = torchvision.datasets.ImageFolder(os.path.join(dataset_dir, "val"), 
+    train_data = torchvision.datasets.ImageFolder(os.path.join(args.dataset_dir, "val"), 
                                                 transform=torchvision.transforms.Compose([
-                                                    torchvision.transforms.RandomResizedCrop(crop_size),
+                                                    torchvision.transforms.RandomResizedCrop(args.crop_size),
                                                     torchvision.transforms.PILToTensor(),
                                                 ])
                                                 )
 
-    data_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    data_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
 
     batch = next(iter(data_loader))
     images, labels = batch
     images = images.permute(0,2,3,1)
     images = transform(images)
     
-    model, _ = utils.get_model(args, model_name=model_name, num_classes=len(classes))
-    checkpoint = torch.load(os.path.join(args.output_dir, f"{model_name}_best_model.pth"),
+    model, _ = utils.get_model(args, model_name=args.model_name, num_classes=len(classes))
+    checkpoint = torch.load(os.path.join(args.output_dir, f"{args.model_name}_best_model.pth"),
                             map_location="cpu")
     model.load_state_dict(checkpoint)
     model.to(device)
     model.eval()
 
-    masker_blur = shap.maskers.Image(f"blur{crop_size, crop_size}", images[0].shape)
+    masker_blur = shap.maskers.Image(f"blur{args.crop_size, args.crop_size}", images[0].shape)
     explainer = shap.Explainer(predict, masker_blur, output_names=classes)
 
-    shap_values = explainer(images[:n_samples], max_evals=max_evals, batch_size=batch_size,
-                        outputs=shap.Explanation.argsort.flip[:topk])
+    shap_values = explainer(images[:args.n_samples], max_evals=args.max_evals, batch_size=args.batch_size,
+                        outputs=shap.Explanation.argsort.flip[:args.topk])
     shap_values.data = inv_transform(shap_values.data).cpu().numpy()
     shap_values.values = [val for val in np.moveaxis(shap_values.values,-1, 0)]
 
     shap.image_plot(shap_values=shap_values.values,
                     pixel_values=shap_values.data,
                     labels=shap_values.output_names,
-                    true_labels=[classes[idx] for idx in labels[:n_samples]],
+                    true_labels=[classes[idx] for idx in labels[:args.n_samples]],
                 )
