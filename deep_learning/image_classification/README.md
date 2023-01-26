@@ -53,10 +53,10 @@ You can also pass `nano`, `small`, `base`, `large` or `giant` to train all model
 
 Run `python train.py --help` to see all the arguments you can pass during training
 
-**Results**
+**Results**\
 The training script:
-* Checkpoints the model, which can be use to resume training
-* Saves the best model weights, which can be use for inference or deployment
+* Checkpoints the model, which can be used to resume training
+* Saves the best model weights, which can be used for inference or deployment
 * Plots a confusion matrix and ROC curve of the best validation metrics
 
 All results are on the validation dataset, and are saved in the `output_dir` passed during training.
