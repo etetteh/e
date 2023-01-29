@@ -147,8 +147,8 @@ def evaluate(
     model.eval()
     with torch.no_grad():
         for image, target in val_loader:
-            image, target = image.to(device, non_blocking = True), target.to(device, non_blocking=True)
-            output = model(image.contiguous(memory_format = torch.channels_last))
+            image, target = image.to(device, non_blocking=True), target.to(device, non_blocking=True)
+            output = model(image.contiguous(memory_format=torch.channels_last))
             _ = criterion(output, target)
 
             if len(val_loader.dataset.classes) == 2:
@@ -219,12 +219,12 @@ def main(args: argparse.Namespace) -> None:
     dataloaders = {
         x: data.DataLoader(
             image_datasets[x],
-            batch_size = args.batch_size,
-            sampler = samplers[x],
-            num_workers = args.num_workers,
-            worker_init_fn = utils.set_seed_for_worker,
-            generator = g,
-            pin_memory = True,
+            batch_size=args.batch_size,
+            sampler=samplers[x],
+            num_workers=args.num_workers,
+            worker_init_fn=utils.set_seed_for_worker,
+            generator=g,
+            pin_memory=True,
         )
         for x in ["train", "val"]
     }
@@ -233,7 +233,7 @@ def main(args: argparse.Namespace) -> None:
 
     train_weights = utils.get_class_weights(train_loader)
 
-    criterion = torch.nn.CrossEntropyLoss(weight = train_weights, label_smoothing = args.label_smoothing).to(device)
+    criterion = torch.nn.CrossEntropyLoss(weight=train_weights, label_smoothing=args.label_smoothing).to(device)
     val_criterion = torch.nn.CrossEntropyLoss().to(device)
 
     num_classes = len(train_loader.dataset.classes)
@@ -273,7 +273,7 @@ def main(args: argparse.Namespace) -> None:
         pass
 
     for i, model_name in enumerate(args.models):
-        model, name = utils.get_model(args, model_name = model_name, num_classes = num_classes)
+        model, name = utils.get_model(args, model_name=model_name, num_classes=num_classes)
         model.to(device)
 
         params = utils.get_trainable_params(model)
@@ -286,7 +286,7 @@ def main(args: argparse.Namespace) -> None:
 
         checkpoint_file = os.path.join(args.output_dir, f"{name}_checkpoint.pth")
         if os.path.isfile(checkpoint_file):
-            checkpoint = torch.load(checkpoint_file, map_location = "cpu")
+            checkpoint = torch.load(checkpoint_file, map_location="cpu")
 
             model.load_state_dict(checkpoint["model"])
             optimizer.load_state_dict(checkpoint["optimizer"])
@@ -303,7 +303,7 @@ def main(args: argparse.Namespace) -> None:
 
         start_time = time.time()
 
-        utils.heading(f"Training a {name} model: Model {i+1} of {len(args.models)}")
+        utils.heading(f"Training a {name} model: Model {i + 1} of {len(args.models)}")
 
         for epoch in range(start_epoch, args.epochs):
             train_one_epoch(args, epoch, train_loader, model, optimizer, criterion, train_metrics, device)
@@ -364,47 +364,48 @@ def get_args():
     """
     Parse and return the command line arguments.
     """
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset_dir", default = None, type = str, help = "Directory of the dataset.")
-    parser.add_argument("--output_dir", default = "output_results", type = str,
-                        help = "Directory to save the output files to.")
+    parser = argparse.ArgumentParser(description="Image Classification")
 
-    parser.add_argument("--model", nargs = "*", default = None, help = "The name of the model to use")
-    parser.add_argument("--model_size", type = str, default = "small", help = "Size of the model to use",
-                        choices = ["nano", "tiny", "small", "base", "large"])
+    parser.add_argument("--dataset_dir", required=True, type=str, help="Directory of the dataset.")
+    parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
 
-    parser.add_argument("--seed", default = 999333666, type = int, help = "Random seed.")
+    parser.add_argument("--model", nargs="*", default=None, help="The name of the model to use")
+    parser.add_argument("--model_size", type=str, default="small", help="Size of the model to use",
+                        choices=["nano", "tiny", "small", "base", "large"])
 
-    parser.add_argument("--crop_size", default = 224, type = int, help = "Size to crop the input images to.")
-    parser.add_argument("--val_resize", default = 256, type = int, help = "Size to resize the validation images to.")
-    parser.add_argument("--aug_type", default = "rand", type = str, help = "Type of data augmentation to use.",
-                        choices = ["augmix", "rand", "trivial"])
-    parser.add_argument("--interpolation", default = "bicubic", type = str, help = "Type of interpolation to use.",
-                        choices = ["nearest", "bilinear", "bicubic"])
-    parser.add_argument("--hflip", default = 0.5, type = float,
-                        help = "Probability of randomly horizontally flipping the input data.")
+    parser.add_argument("--seed", default=999333666, type=int, help="Random seed.")
 
-    parser.add_argument("--batch_size", default = 16, type = int, help = "Batch size for training and evaluation.")
-    parser.add_argument("--num_workers", default=4, type=int, help = "Number of workers for data loading.")
-    parser.add_argument("--epochs", default = 9, type = int, help = "Number of epochs to train.")
+    parser.add_argument("--crop_size", default=224, type=int, help="Size to crop the input images to.")
+    parser.add_argument("--val_resize", default=256, type=int, help="Size to resize the validation images to.")
+    parser.add_argument("--mag_bins", default=31, type=int, help="Number of magnitude bins.")
+    parser.add_argument("--aug_type", default="rand", type=str, help="Type of data augmentation to use.",
+                        choices=["augmix", "rand", "trivial"])
+    parser.add_argument("--interpolation", default="bilinear", type=str, help="Type of interpolation to use.",
+                        choices=["nearest", "bicubic", "bilinear"])
+    parser.add_argument("--hflip", default=0.5, type=float,
+                        help="Probability of randomly horizontally flipping the input data.")
 
-    parser.add_argument("--dropout", type = float, default = 0.2, help = "Dropout rate for classifier head")
-    parser.add_argument("--label_smoothing", default = 0.1, type = float, help = "Amount of label smoothing to use.")
+    parser.add_argument("--batch_size", default=16, type=int, help="Batch size for training and evaluation.")
+    parser.add_argument("--num_workers", default=4, type=int, help="Number of workers for data loading.")
+    parser.add_argument("--epochs", default=100, type=int, help="Number of epochs to train.")
 
-    parser.add_argument("--opt_name", default = "adamw", type = str, help = "Name of the optimizer to use.",
+    parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate for classifier head")
+    parser.add_argument("--label_smoothing", default=0.1, type=float, help="Amount of label smoothing to use.")
+
+    parser.add_argument("--opt_name", default="adamw", type=str, help="Name of the optimizer to use.",
                         choices=["adamw", "sgd"])
-    parser.add_argument("--sched_name", default = "cosine", type = str, help = "Name of the learning rate scheduler to use.")
-    parser.add_argument("--lr", default = 0.01, type = float, help = "Initial learning rate.")
-    parser.add_argument("--wd", default = 1e-4, type = float, help = "Weight decay.")
-    parser.add_argument("--step_size", default = 30, type = int, help = "Step size for the learning rate scheduler.")
-    parser.add_argument("--warmup_epochs", default = 5, type = int, help = "Number of epochs for the warmup period.")
-    parser.add_argument("--warmup_decay", default = 0.1, type = float, help = "Decay rate for the warmup learning rate.")
-    parser.add_argument("--gamma", default = 0.1, type = float, help = "Gamma for the learning rate scheduler.")
-    parser.add_argument("--eta_min", default = 1e-4, type = float,
-                        help = "Minimum learning rate for the learning rate scheduler.")
+    parser.add_argument("--sched_name", default="cosine", type=str, help="Name of the learning rate scheduler to use.")
+    parser.add_argument("--lr", default=0.01, type=float, help="Initial learning rate.")
+    parser.add_argument("--wd", default=1e-4, type=float, help="Weight decay.")
+    parser.add_argument("--step_size", default=30, type=int, help="Step size for the learning rate scheduler.")
+    parser.add_argument("--warmup_epochs", default=5, type=int, help="Number of epochs for the warmup period.")
+    parser.add_argument("--warmup_decay", default=0.1, type=float, help="Decay rate for the warmup learning rate.")
+    parser.add_argument("--gamma", default=0.1, type=float, help="Gamma for the learning rate scheduler.")
+    parser.add_argument("--eta_min", default=1e-4, type=float,
+                        help="Minimum learning rate for the learning rate scheduler.")
 
-    parser.add_argument("--sorting_metric", default = "f1", type = str, help = "Metric to sort the results by.",
-                        choices = ["f1", "auc", "accuracy", "precision", "recall"])
+    parser.add_argument("--sorting_metric", default="f1", type=str, help="Metric to sort the results by.",
+                        choices=["f1", "auc", "accuracy", "precision", "recall"])
 
     return parser.parse_args()
 
@@ -413,7 +414,7 @@ if __name__ == "__main__":
     args = get_args()
 
     if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir, exist_ok = True)
+        os.makedirs(args.output_dir, exist_ok=True)
         print(f"Output directory created: {os.path.abspath(args.output_dir)}")
     else:
         print(f"Output directory already exist at: {os.path.abspath(args.output_dir)}")
@@ -430,4 +431,3 @@ if __name__ == "__main__":
                                    f"{args.output_dir}/training_logs.log")
 
     main(args)
-
