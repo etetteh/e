@@ -2,7 +2,7 @@
 
 ## Table of Contents
 
-* [Getting Started](getting-started)
+* [Getting Started](#getting-started)
     * [Prerequisites](#prerequisites)
     * [Installation](#installation)
     * [Usage](#usage)
@@ -11,23 +11,38 @@
 * [Citation](#citation)
 
 ## Usage
+### Jan 29, 2023
+Added **hyperparameter tuning** functionality using [Ray Tune](https://www.ray.io/ray-tune).\
+Example: to tune the batch size, learning rate and weight decay (passing tune_opt by default tunes the learning rate and weight decay, and also momentum in the case of using SGD optimizer) using population based training algorithm, run:
+```
+python tune.py \
+    --name <experiment name> \
+    --output_dir <model_checkpoint_dir> \
+    --dataset_dir <dataset_dir> \
+    --model <name of model> \
+    --tune_batch_size \
+    --tune_opt \
+    --pbt 
+```
+
 ### Jan 25, 2023
-Added model explainability functionality using [SHAP](https://shap.readthedocs.io/en/latest/index.html#). You can now understand the decision or prediction made by the best performing model.
+Added **model explainability** functionality using [SHAP](https://shap.readthedocs.io/en/latest/index.html#). You can now understand the decision or prediction made by the best performing model.
 
 Example: to explain the performance of `xcit_nano_12_p16_224_dist` on 4 samples of the validation data, run the following in a notebook
 ```
 from explainability import explain_model
 
 class Args:
-    output_dir = <model_checkpoint_dir>
-    dataset_dir = <dataset_dir>
-    model_name = "xcit_nano_12_p16_224_dist"
-    crop_size = 224
-    batch_size = 30
-    num_workers = 8
-    n_samples = 4
-    max_evals = 1000
-    topk = 4
+    def __init__(self):
+        self.output_dir = "<model_checkpoint_dir>"
+        self.dataset_dir = "<dataset_dir>"
+        self.model = "xcit_nano_12_p16_224_dist"
+        self.crop_size = 224
+        self.batch_size = 30
+        self.num_workers = 8
+        self.n_samples = 4
+        self.max_evals = 1000
+        self.topk = 4
     
 args = Args()
 
@@ -40,13 +55,16 @@ explain_model(
 The script uses models from the `timm` library.
 1. Specify any model you'd like to use. You can pass a single model name or a list of model names. Example:
 ```
-python train.py --model beit_large_patch16_224.in22k_ft_in22k_in1k vit_large_patch14_clip_224.openai_ft_in1k
+python train.py \
+--model beit_large_patch16_224 vit_large_patch14_clip_224
 ```
 Please, ensure that when passing a list of models, all the models should have been trained on the same image size.
 
-2. Train all models with specific size and specific image size. This is useful for model selection. Example, to finetune all `tiny` models from the `timm` library that were pre-trained with image size 224, run
+2Train all models with specific size and specific image size. This is useful for model selection. Example, to finetune all `tiny` models from the `timm` library that were pre-trained with image size 224, run
 ```
-python train.py --model_size tiny --crop_size 224
+python train.py \ 
+    --model_size tiny \
+    --crop_size 224
 ```
 You can also pass `nano`, `small`, `base`, `large` or `giant` to train all models with that respective size
 
@@ -77,7 +95,7 @@ The script makes use of the following libraries, which can be installed followin
 5. [SHAP](https://shap.readthedocs.io/en/latest/index.html#) for model explainability
 
 ## Documentation
-Comming soon!
+Coming soon!
 
 ## License
 
