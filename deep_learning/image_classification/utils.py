@@ -87,11 +87,11 @@ def get_data_augmentation(args) -> Dict[str, Callable]:
         transforms.RandomHorizontalFlip(args.hflip)
     ]
     if args.aug_type == "trivial":
-        train_aug.append(transforms.TrivialAugmentWide(interpolation = f.InterpolationMode(args.interpolation)))
+        train_aug.append(transforms.TrivialAugmentWide(num_magnitude_bins = args.mag_bins, interpolation = f.InterpolationMode(args.interpolation)))
     elif args.aug_type == "augmix":
         train_aug.append(transforms.AugMix(interpolation = f.InterpolationMode(args.interpolation)))
     elif args.aug_type == "rand":
-        train_aug.append(transforms.RandAugment(interpolation = f.InterpolationMode(args.interpolation)))
+        train_aug.append(transforms.RandAugment(num_magnitude_bins = args.mag_bins, interpolation = f.InterpolationMode(args.interpolation)))
     train_aug.extend([
         transforms.ToTensor(),
         transforms.Normalize(mean = IMAGENET_DEFAULT_MEAN, std = IMAGENET_DEFAULT_STD)
