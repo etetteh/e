@@ -357,7 +357,7 @@ def main(args: argparse.Namespace) -> None:
 
         explainability.process_results(args, model_name)
 
-    args.logger.info(f"All results have been saved in {os.path.abspath(args.output_dir)}")
+    args.logger.info(f"All results have been saved at {os.path.abspath(args.output_dir)}")
 
 
 def get_args():
