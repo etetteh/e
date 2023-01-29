@@ -38,32 +38,32 @@ def display_results_dataframe(output_dir: str, sorting_metric: str) -> pd.DataFr
     return sorted_results_df
 
 
-def plot_confusion_matrix(results_df: pd.DataFrame, model_name: str, classes: List[str], output_dir: str) -> None:
+def plot_confusion_matrix(results_df: pd.DataFrame, model: str, classes: List[str], output_dir: str) -> None:
     """
     Plot the confusion matrix for a given model.
 
     Parameters:
     - results_df: DataFrame of results.
-    - model_name: Name of the model to plot the confusion matrix for.
+    - model: Name of the model to plot the confusion matrix for.
     - classes: List of classes in the dataset.
     """
-    cm = results_df[results_df["model"] == model_name]["confusion matrix"].iloc[0]
+    cm = results_df[results_df["model"] == model]["confusion matrix"].iloc[0]
 
     fig = px.imshow(cm,
                     text_auto=True,
                     aspect="auto",
                     x=classes,
                     y=classes,
-                    title=f"Confusion Matrix: {model_name}",
+                    title=f"Confusion Matrix: {model}",
                     labels={"x": "Predicted Condition", "y": "Actual Condition", "color": "Score"},
                     )
 
     fig.update_xaxes(side="top")
     if output_dir:
-        fig.write_html(os.path.join(output_dir, f"{model_name}_confusion_matrix.html"))
+        fig.write_html(os.path.join(output_dir, f"{model}_confusion_matrix.html"))
 
 
-def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str, output_dir: str) -> None:
+def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model: str, output_dir: str) -> None:
     """
     Plots a Receiver Operating Characteristic (ROC) curve using the Plotly library.
     The number of classes determines the format of the plot.
@@ -77,7 +77,7 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
     - classes: a list of strings representing the names of different classes
     - results_df: a DataFrame containing the results of the model(s) being plotted,
         including the false positive rate (fpr) and true positive rate (tpr)
-    - model_name: a string representing the name of the model being plotted
+    - model: a string representing the name of the model being plotted
     - output_dir: a string representing the directory where the plot will be saved (if provided)
 
     Returns:
@@ -95,18 +95,18 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
         x0=0, x1=1, y0=0, y1=1
     )
     if num_classes == 2:
-        fpr = results_df[results_df["model"] == model_name]["fpr"].iloc[0]
-        tpr = results_df[results_df["model"] == model_name]["tpr"].iloc[0]
+        fpr = results_df[results_df["model"] == model]["fpr"].iloc[0]
+        tpr = results_df[results_df["model"] == model]["tpr"].iloc[0]
 
         auc_val = auc(fpr, tpr)
 
         fig.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines'))
-        title = f"{model_name} - ROC Curve (AUC = {auc_val:.4f})"
+        title = f"{model} - ROC Curve (AUC = {auc_val:.4f})"
     else:
         auc_list = []
         for i in range(len(classes)):
-            fpr = results_df[results_df["model"] == model_name]["fpr"].iloc[0][i]
-            tpr = results_df[results_df["model"] == model_name]["tpr"].iloc[0][i]
+            fpr = results_df[results_df["model"] == model]["fpr"].iloc[0][i]
+            tpr = results_df[results_df["model"] == model]["tpr"].iloc[0][i]
 
             auc_val = auc(fpr, tpr)
 
@@ -114,7 +114,7 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
             fig.add_trace(go.Scatter(x=fpr, y=tpr, name=name, mode='lines'))
 
             auc_list.append(auc_val)
-        title = f"{model_name} - ROC Curve (Average AUC = {np.mean(auc_list):.4f})"
+        title = f"{model} - ROC Curve (Average AUC = {np.mean(auc_list):.4f})"
 
     fig.update_layout(
         title=title,
@@ -126,10 +126,10 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
     )
 
     if output_dir:
-        fig.write_html(os.path.join(output_dir, f"{model_name}_roc_curve.html"))
+        fig.write_html(os.path.join(output_dir, f"{model}_roc_curve.html"))
 
 
-def process_results(args: argparse.Namespace, model_name: str) -> None:
+def process_results(args: argparse.Namespace, model: str) -> None:
     """
     Processes and saves the performance metrics and plots confusion matrix and ROC curve.
 
@@ -139,7 +139,7 @@ def process_results(args: argparse.Namespace, model_name: str) -> None:
         - sorting_metric : a string representing the metric to sort the results by
         - dataset_dir : a string representing the directory of the dataset
         - logger : a logger object to log the results
-    - model_name : name of model
+    - model : name of model
 
     Returns:
     None
@@ -159,9 +159,9 @@ def process_results(args: argparse.Namespace, model_name: str) -> None:
 
     classes = utils.get_classes(args.dataset_dir)
 
-    plot_confusion_matrix(results_df, model_name, classes, args.output_dir)
+    plot_confusion_matrix(results_df, model, classes, args.output_dir)
 
-    plot_roc_curve(classes, results_df, model_name, args.output_dir)
+    plot_roc_curve(classes, results_df, model, args.output_dir)
 
 
 def explain_model(args: argparse.Namespace) -> None:
@@ -171,7 +171,7 @@ def explain_model(args: argparse.Namespace) -> None:
     Parameters:
     - args (argparse.Namespace): Arguments passed to the script.
         - dataset_dir (str): Directory of the dataset to use.
-        - model_name (str): Name of the model to use.
+        - model (str): Name of the model to use.
         - crop_size (int): Size of the random crop applied to the images.
         - batch_size (int): Batch size for data loading.
         - num_workers (int): Number of workers for data loading.
@@ -213,7 +213,7 @@ def explain_model(args: argparse.Namespace) -> None:
     images = images.permute(0, 2, 3, 1)
     images = transform(images)
 
-    model = torch.jit.load(os.path.join(args.output_dir, f"{args.model_name}_best_model.pth"))
+    model = torch.jit.load(os.path.join(args.output_dir, f"{args.model}_best_model.pth"))
     model.eval()
     model.to(device)
 
