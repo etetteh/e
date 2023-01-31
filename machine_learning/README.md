@@ -13,7 +13,7 @@
 ## Usage
 
 ## Documentation
-Comming soon!
+Coming soon!
 
 ## License
 
