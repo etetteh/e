@@ -83,26 +83,28 @@ def get_data_augmentation(args) -> Dict[str, Callable]:
     - Dict[str, Callable]: A dictionary of data augmentation transforms for the training and validation sets.
     """
     train_aug = [
-        transforms.RandomResizedCrop(args.crop_size, interpolation = f.InterpolationMode(args.interpolation)),
+        transforms.RandomResizedCrop(args.crop_size, interpolation=f.InterpolationMode(args.interpolation)),
         transforms.RandomHorizontalFlip(args.hflip)
     ]
     if args.aug_type == "trivial":
-        train_aug.append(transforms.TrivialAugmentWide(num_magnitude_bins = args.mag_bins, interpolation = f.InterpolationMode(args.interpolation)))
+        train_aug.append(transforms.TrivialAugmentWide(num_magnitude_bins=args.mag_bins,
+                                                       interpolation=f.InterpolationMode(args.interpolation)))
     elif args.aug_type == "augmix":
-        train_aug.append(transforms.AugMix(interpolation = f.InterpolationMode(args.interpolation)))
+        train_aug.append(transforms.AugMix(interpolation=f.InterpolationMode(args.interpolation)))
     elif args.aug_type == "rand":
-        train_aug.append(transforms.RandAugment(num_magnitude_bins = args.mag_bins, interpolation = f.InterpolationMode(args.interpolation)))
+        train_aug.append(transforms.RandAugment(num_magnitude_bins=args.mag_bins,
+                                                interpolation=f.InterpolationMode(args.interpolation)))
     train_aug.extend([
         transforms.ToTensor(),
-        transforms.Normalize(mean = IMAGENET_DEFAULT_MEAN, std = IMAGENET_DEFAULT_STD)
+        transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD)
     ])
     train_transform = transforms.Compose(train_aug)
 
     val_transform = transforms.Compose([
-        transforms.Resize(args.val_resize, interpolation = f.InterpolationMode(args.interpolation)),
+        transforms.Resize(args.val_resize, interpolation=f.InterpolationMode(args.interpolation)),
         transforms.CenterCrop(args.crop_size),
         transforms.ToTensor(),
-        transforms.Normalize(mean = IMAGENET_DEFAULT_MEAN, std = IMAGENET_DEFAULT_STD)
+        transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD)
     ])
     return {"train": train_transform, "val": val_transform}
 
@@ -150,16 +152,16 @@ def get_explain_data_aug() -> Tuple[transforms.Compose, transforms.Compose]:
         used for explanation and the inverse of those transforms.
     """
     transform = transforms.Compose([transforms.Lambda(convert_to_channels_first),
-        transforms.Lambda(lambda image: image * ( 1 / 255)),
-        transforms.Normalize(mean = IMAGENET_DEFAULT_MEAN, std = IMAGENET_DEFAULT_STD),
-        transforms.Lambda(convert_to_channels_last),
-    ])
+                                    transforms.Lambda(lambda image: image * (1 / 255)),
+                                    transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
+                                    transforms.Lambda(convert_to_channels_last),
+                                    ])
 
     inv_transform = transforms.Compose([
         transforms.Lambda(convert_to_channels_first),
         transforms.Normalize(
-            mean = (-1 * np.array(IMAGENET_DEFAULT_MEAN) / np.array(IMAGENET_DEFAULT_STD)).tolist(),
-            std = (1 / np.array(IMAGENET_DEFAULT_STD)).tolist()
+            mean=(-1 * np.array(IMAGENET_DEFAULT_MEAN) / np.array(IMAGENET_DEFAULT_STD)).tolist(),
+            std=(1 / np.array(IMAGENET_DEFAULT_STD)).tolist()
         ),
         transforms.Lambda(convert_to_channels_last),
     ])
@@ -218,8 +220,8 @@ def create_linear_head(args: argparse.Namespace, num_ftrs: int, num_classes: int
     nn.Sequential: A sequential container with a dropout and linear layer
     """
     return nn.Sequential(
-        nn.Dropout(p = args.dropout),
-        nn.Linear(num_ftrs, num_classes, bias = True)
+        nn.Dropout(p=args.dropout),
+        nn.Linear(num_ftrs, num_classes, bias=True)
     )
 
 
@@ -237,7 +239,7 @@ def get_model(args, model_name: str, num_classes: int) -> Tuple[nn.Module, str]:
     Returns:
         Tuple[nn.Module, str]: A tuple containing the modified model and the model name.
     """
-    model = timm.create_model(model_name, pretrained = True, scriptable = True, exportable = True)
+    model = timm.create_model(model_name, pretrained=True, scriptable=True, exportable=True)
     freeze_params(model)
     if hasattr(model.head, "in_features"):
         num_ftrs = model.head.in_features
@@ -249,7 +251,7 @@ def get_model(args, model_name: str, num_classes: int) -> Tuple[nn.Module, str]:
         model.head.fc = create_linear_head(args, num_ftrs, num_classes)
         if hasattr(model, "head_dist"):
             model.head_dist = create_linear_head(args, num_ftrs, num_classes)
-    model = model.to(memory_format = torch.channels_last)
+    model = model.to(memory_format=torch.channels_last)
     return model, model_name
 
 
@@ -310,14 +312,14 @@ def get_optimizer(args, params: List[nn.Parameter]) -> Union[optim.SGD, optim.Ad
     optimizer = get_optimizer(args, model.parameters())
     """
     if args.opt_name == "sgd":
-        return optim.SGD(params, lr = args.lr, weight_decay = args.wd, momentum = 0.9)
+        return optim.SGD(params, lr=args.lr, weight_decay=args.wd, momentum=0.9)
     elif args.opt_name == "adamw":
-        return optim.AdamW(params, lr = args.lr, weight_decay = args.wd)
+        return optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
     return None
 
 
 def get_lr_scheduler(args, optimizer) -> Union[optim.lr_scheduler.LinearLR, optim.lr_scheduler.StepLR,
-optim.lr_scheduler.CosineAnnealingLR, optim.lr_scheduler.SequentialLR, None]:
+                                               optim.lr_scheduler.CosineAnnealingLR, optim.lr_scheduler.SequentialLR, None]:
     """
     This function returns a learning rate scheduler object based on the provided scheduling algorithm name.
 
@@ -338,22 +340,22 @@ optim.lr_scheduler.CosineAnnealingLR, optim.lr_scheduler.SequentialLR, None]:
     Example:
     scheduler = get_lr_scheduler(args, optimizer)
     """
-    warmup_lr = optim.lr_scheduler.LinearLR(optimizer, start_factor = args.warmup_decay, total_iters = args.warmup_epochs)
+    warmup_lr = optim.lr_scheduler.LinearLR(optimizer, start_factor=args.warmup_decay, total_iters=args.warmup_epochs)
     if args.sched_name == "step":
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = args.step_size, gamma = args.gamma)
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
     elif args.sched_name == "cosine":
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max = args.epochs - args.warmup_epochs,
-                                                         eta_min = args.eta_min)
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs - args.warmup_epochs,
+                                                         eta_min=args.eta_min)
     else:
         return None
 
-    lr_scheduler = optim.lr_scheduler.SequentialLR(optimizer, schedulers = [warmup_lr, scheduler],
-                                                   milestones = [args.warmup_epochs])
+    lr_scheduler = optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_lr, scheduler],
+                                                   milestones=[args.warmup_epochs])
     return lr_scheduler
 
 
-def get_logger(logger_name: str, log_file: str, log_level = logging.DEBUG,
-               console_level = logging.INFO) -> logging.Logger:
+def get_logger(logger_name: str, log_file: str, log_level=logging.DEBUG,
+               console_level=logging.INFO) -> logging.Logger:
     """
     Creates a logger with a specified name, log file, and log level.
     The logger logs messages to a file and to the console.
@@ -376,7 +378,7 @@ def get_logger(logger_name: str, log_file: str, log_level = logging.DEBUG,
     console_handler = logging.StreamHandler()
     console_handler.setLevel(console_level)
 
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
     file_handler.setFormatter(formatter)
     console_handler.setFormatter(formatter)
@@ -431,7 +433,7 @@ class CreateImgSubclasses:
         - "birds"
         """
         for fdir in class_names:
-            os.makedirs(os.path.join(self.img_dest, fdir), exist_ok = True)
+            os.makedirs(os.path.join(self.img_dest, fdir), exist_ok=True)
 
     def copy_img_to_dirs(self):
         """Copy images from `self.img_src` to corresponding class directories in `self.img_dest`.
@@ -463,4 +465,4 @@ def create_train_val_test_splits(img_src: str, img_dest: str) -> None:
     - "test"
     And will save the images in the appropriate directories based on the train-val-test split ratio.
     """
-    splitfolders.ratio(img_src, output = img_dest, seed = 333777999, ratio = (0.8, 0.1, 0.1))
+    splitfolders.ratio(img_src, output=img_dest, seed=333777999, ratio=(0.8, 0.1, 0.1))
