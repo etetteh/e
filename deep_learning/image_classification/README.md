@@ -112,19 +112,7 @@ python train.py \
 17                   xcit_tiny_12_p16_224_dist    0.9164  0.9795  0.9148  0.9164     0.9147   3m 18s
 ```
 
-<div style="clear: both;"></div>
-
-<div style="float:left; width: 33%;">
-  <img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/confusion_matrix.png" height="500" width="500" title="Sample Confusion Matrix" alt="Sample Confusion Matrix"/>
-</div>
-
-<div style="float:left; width: 33%;">
-  <img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/roc_curve.png" height="500" width="500" title="Sample ROC Curve" alt="Sample ROC Curve">
-</div>
-
-<div style="float:left; width: 33%;">
-  <img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/model_explainability.png" height="500" width="500" title="Sample Model Explainability" alt="Sample Model Explainability">
-</div>
+<img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/confusion_matrix.png" height="450" width="337.5"><img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/roc_curve.png" height="450" width="337"><img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/model_explainability.png" height="450" width="337.5">
 
 
 ## Getting Started
