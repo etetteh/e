@@ -213,7 +213,12 @@ def explain_model(args: argparse.Namespace) -> None:
     images = images.permute(0, 2, 3, 1)
     images = transform(images)
 
-    model = torch.jit.load(os.path.join(args.output_dir, f"{args.model}_best_model.pth"))
+    model, _ = utils.get_model(args, model_name=args.model, num_classes=len(data_loader.dataset.classes))
+
+    checkpoint_file = os.path.join(os.path.join(args.output_dir, f"{args.model}_best_model.pth"))
+    checkpoint = torch.load(checkpoint_file, map_location="cpu")
+    model.load_state_dict(checkpoint)
+
     model.eval()
     model.to(device)
 
