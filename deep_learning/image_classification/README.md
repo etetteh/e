@@ -43,6 +43,7 @@ class Args:
         self.n_samples = 4
         self.max_evals = 1000
         self.topk = 4
+        self.dropout = 0.2
     
 args = Args()
 
@@ -77,6 +78,64 @@ The training script:
 * Plots a confusion matrix and ROC curve of the best validation metrics
 
 All results are on the validation dataset, and are saved in the `output_dir` passed during training.
+
+**Sample output on the validation set after running:**
+```
+python train.py \
+    --dataset_dir weather_data \ 
+    --model_size tiny \
+    --crop_size 224 \ 
+    --epochs 12 \
+    --output_dir sample_run0
+```
+
+```
+                                         model  accuracy     auc      f1  recall  precision     time
+0                        swinv2_cr_tiny_ns_224    0.9917  1.0000  0.9922  0.9917     0.9931  16m 55s
+1           vit_tiny_r_s16_p8_224.augreg_in21k    0.9917  0.9996  0.9922  0.9917     0.9931   0m 27s
+2                 swin_tiny_patch4_window7_224    0.9762  0.9964  0.9746  0.9762     0.9743    5m 6s
+3    vit_tiny_patch16_224.augreg_in21k_ft_in1k    0.9650  0.9970  0.9635  0.9650     0.9633   4m 18s
+4                     xcit_tiny_24_p8_224_dist    0.9595  0.9948  0.9565  0.9595     0.9584  32m 22s
+5                        deit_tiny_patch16_224    0.9579  0.9942  0.9560  0.9579     0.9550   4m 42s
+6                             swin_s3_tiny_224    0.9567  0.9946  0.9553  0.9567     0.9560   7m 32s
+7                         xcit_tiny_24_p16_224    0.9533  0.9951  0.9552  0.9533     0.9580   2m 52s
+8            vit_tiny_patch16_224.augreg_in21k    0.9517  0.9969  0.9549  0.9517     0.9628   5m 11s
+9                     xcit_tiny_12_p8_224_dist    0.9498  0.9947  0.9546  0.9498     0.9628  13m 11s
+10             deit_tiny_distilled_patch16_224    0.9495  0.9930  0.9473  0.9495     0.9479   0m 41s
+11                   xcit_tiny_24_p16_224_dist    0.9450  0.9931  0.9460  0.9450     0.9472   8m 23s
+12  vit_tiny_r_s16_p8_224.augreg_in21k_ft_in1k    0.9417  0.9961  0.9453  0.9417     0.9563   2m 23s
+13                     maxvit_tiny_tf_224.in1k    0.9479  0.9906  0.9449  0.9479     0.9425  21m 29s
+14                        xcit_tiny_12_p16_224    0.9279  0.9816  0.9299  0.9279     0.9330   1m 26s
+15                         xcit_tiny_24_p8_224    0.9300  0.9865  0.9295  0.9300     0.9322  26m 24s
+16                         xcit_tiny_12_p8_224    0.9264  0.9925  0.9265  0.9264     0.9299   2m 59s
+17                   xcit_tiny_12_p16_224_dist    0.9164  0.9795  0.9148  0.9164     0.9147   3m 18s
+```
+
+<!-- Column 1 -->
+<div style="float:left; width: 33%;">
+  <img src="deep_learning/image_classification/plots/confusion_matrix.png" alt="Plot 1">
+</div>
+
+<!-- Column 2 -->
+<div style="float:left; width: 33%;">
+  <img src="deep_learning/image_classification/plots/roc_curve.png" alt="Plot 2">
+</div>
+
+<!-- Column 3 -->
+<div style="float:left; width: 33%;">
+  <img src="deep_learning/image_classification/plots/model_explainability.png" alt="Plot 3">
+</div>
+
+<!-- Clearfix -->
+<div style="clear: both;"></div>
+
+[//]: # (<img height="500" src="&quot;deep_learning/image_classification/plots/confusion_matrix.png&quot;" width="500" title="Sample Confusion Matrix" alt="Sample Confusion Matrix"/>)
+
+[//]: # ()
+[//]: # (<img height="500" src="&quot;deep_learning/image_classification/plots/roc_curve.png&quot;" width="500" title="Sample ROC Curve" alt="Sample ROC Curve"/>)
+
+[//]: # ()
+[//]: # (<img height="500" src="&quot;deep_learning/image_classification/plots/model_explainability.png&quot;" width="500" title="Sample Model Explainability" alt="Sample Model Explainability"/>)
 
 ## Getting Started
 The goal of this project is to provide a simple but efficient approach to image classification research by leveraging SOTA image models
