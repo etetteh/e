@@ -112,43 +112,20 @@ python train.py \
 17                   xcit_tiny_12_p16_224_dist    0.9164  0.9795  0.9148  0.9164     0.9147   3m 18s
 ```
 
-[//]: # (<!-- Column 1 -->)
+<div style="clear: both;"></div>
 
-[//]: # (<div style="float:left; width: 33%;">)
+<div style="float:left; width: 33%;">
+  <img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/confusion_matrix.png" height="500" width="500" title="Sample Confusion Matrix" alt="Sample Confusion Matrix"/>
+</div>
 
-[//]: # (  <img src="deep_learning/image_classification/plots/confusion_matrix.png" alt="Plot 1">)
+<div style="float:left; width: 33%;">
+  <img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/roc_curve.png" height="500" width="500" title="Sample ROC Curve" alt="Sample ROC Curve">
+</div>
 
-[//]: # (</div>)
+<div style="float:left; width: 33%;">
+  <img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/model_explainability.png" height="500" width="500" title="Sample Model Explainability" alt="Sample Model Explainability">
+</div>
 
-[//]: # ()
-[//]: # (<!-- Column 2 -->)
-
-[//]: # (<div style="float:left; width: 33%;">)
-
-[//]: # (  <img src="deep_learning/image_classification/plots/roc_curve.png" alt="Plot 2">)
-
-[//]: # (</div>)
-
-[//]: # ()
-[//]: # (<!-- Column 3 -->)
-
-[//]: # (<div style="float:left; width: 33%;">)
-
-[//]: # (  <img src="deep_learning/image_classification/plots/model_explainability.png" alt="Plot 3">)
-
-[//]: # (</div>)
-
-[//]: # (<!-- Clearfix -->)
-
-[//]: # (<div style="clear: both;"></div>)
-
-<img height="500" src="&quot;deep_learning/image_classification/plots/confusion_matrix.png&quot;" width="500" title="Sample Confusion Matrix" alt="Sample Confusion Matrix"/>
-
-
-<img height="500" src="&quot;deep_learning/image_classification/plots/roc_curve.png&quot;" width="500" title="Sample ROC Curve" alt="Sample ROC Curve"/>
-
-
-<img height="500" src="&quot;deep_learning/image_classification/plots/model_explainability.png&quot;" width="500" title="Sample Model Explainability" alt="Sample Model Explainability"/>
 
 ## Getting Started
 The goal of this project is to provide a simple but efficient approach to image classification research by leveraging SOTA image models
