@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import time
+from copy import deepcopy
 from typing import Tuple
 
 import torch
@@ -318,8 +319,8 @@ def main(args: argparse.Namespace) -> None:
                 fpr, tpr, _ = roc
                 fpr, tpr = [ff.detach().tolist() for ff in fpr], [tt.detach().tolist() for tt in tpr]
 
-                best_model_state = torch.jit.script(model)
-                best_model_state.save(os.path.join(args.output_dir, f"{name}_best_model.pth"))
+                best_model_state = deepcopy(model.state_dict())
+                torch.save(best_model_state, os.path.join(args.output_dir, f"{name}_best_model.pth"))
 
                 best_results = {
                     "model": name,
@@ -380,7 +381,7 @@ def get_args():
     parser.add_argument("--mag_bins", default=31, type=int, help="Number of magnitude bins.")
     parser.add_argument("--aug_type", default="rand", type=str, help="Type of data augmentation to use.",
                         choices=["augmix", "rand", "trivial"])
-    parser.add_argument("--interpolation", default="bilinear", type=str, help="Type of interpolation to use.",
+    parser.add_argument("--interpolation", default="bicubic", type=str, help="Type of interpolation to use.",
                         choices=["nearest", "bicubic", "bilinear"])
     parser.add_argument("--hflip", default=0.5, type=float,
                         help="Probability of randomly horizontally flipping the input data.")
