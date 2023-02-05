@@ -79,6 +79,7 @@ The training script:
 
 All results are on the validation dataset, and are saved in the `output_dir` passed during training.
 
+
 **Sample output on the validation set after running:**
 ```
 python train.py \
@@ -111,31 +112,43 @@ python train.py \
 17                   xcit_tiny_12_p16_224_dist    0.9164  0.9795  0.9148  0.9164     0.9147   3m 18s
 ```
 
-<!-- Column 1 -->
-<div style="float:left; width: 33%;">
-  <img src="deep_learning/image_classification/plots/confusion_matrix.png" alt="Plot 1">
-</div>
+[//]: # (<!-- Column 1 -->)
 
-<!-- Column 2 -->
-<div style="float:left; width: 33%;">
-  <img src="deep_learning/image_classification/plots/roc_curve.png" alt="Plot 2">
-</div>
+[//]: # (<div style="float:left; width: 33%;">)
 
-<!-- Column 3 -->
-<div style="float:left; width: 33%;">
-  <img src="deep_learning/image_classification/plots/model_explainability.png" alt="Plot 3">
-</div>
+[//]: # (  <img src="deep_learning/image_classification/plots/confusion_matrix.png" alt="Plot 1">)
 
-<!-- Clearfix -->
-<div style="clear: both;"></div>
-
-[//]: # (<img height="500" src="&quot;deep_learning/image_classification/plots/confusion_matrix.png&quot;" width="500" title="Sample Confusion Matrix" alt="Sample Confusion Matrix"/>)
+[//]: # (</div>)
 
 [//]: # ()
-[//]: # (<img height="500" src="&quot;deep_learning/image_classification/plots/roc_curve.png&quot;" width="500" title="Sample ROC Curve" alt="Sample ROC Curve"/>)
+[//]: # (<!-- Column 2 -->)
+
+[//]: # (<div style="float:left; width: 33%;">)
+
+[//]: # (  <img src="deep_learning/image_classification/plots/roc_curve.png" alt="Plot 2">)
+
+[//]: # (</div>)
 
 [//]: # ()
-[//]: # (<img height="500" src="&quot;deep_learning/image_classification/plots/model_explainability.png&quot;" width="500" title="Sample Model Explainability" alt="Sample Model Explainability"/>)
+[//]: # (<!-- Column 3 -->)
+
+[//]: # (<div style="float:left; width: 33%;">)
+
+[//]: # (  <img src="deep_learning/image_classification/plots/model_explainability.png" alt="Plot 3">)
+
+[//]: # (</div>)
+
+[//]: # (<!-- Clearfix -->)
+
+[//]: # (<div style="clear: both;"></div>)
+
+<img height="500" src="&quot;deep_learning/image_classification/plots/confusion_matrix.png&quot;" width="500" title="Sample Confusion Matrix" alt="Sample Confusion Matrix"/>
+
+
+<img height="500" src="&quot;deep_learning/image_classification/plots/roc_curve.png&quot;" width="500" title="Sample ROC Curve" alt="Sample ROC Curve"/>
+
+
+<img height="500" src="&quot;deep_learning/image_classification/plots/model_explainability.png&quot;" width="500" title="Sample Model Explainability" alt="Sample Model Explainability"/>
 
 ## Getting Started
 The goal of this project is to provide a simple but efficient approach to image classification research by leveraging SOTA image models
