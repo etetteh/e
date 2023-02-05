@@ -251,7 +251,11 @@ def get_model(args, model_name: str, num_classes: int) -> Tuple[nn.Module, str]:
         model.head.fc = create_linear_head(args, num_ftrs, num_classes)
         if hasattr(model, "head_dist"):
             model.head_dist = create_linear_head(args, num_ftrs, num_classes)
-    model = model.to(memory_format=torch.channels_last)
+
+    if torch.__version__.startswith("2"):
+        model = torch.compile(model.to(memory_format=torch.channels_last))
+    else:
+        model = model.to(memory_format=torch.channels_last)
     return model, model_name
 
 
