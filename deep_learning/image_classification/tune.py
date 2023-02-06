@@ -121,7 +121,7 @@ def main(config: dict, args: argparse.Namespace) -> None:
     train_metrics = metric_collection
     val_metrics = metric_collection
 
-    model, name = utils.get_model(args, model_name=args.model, num_classes=num_classes)
+    model = utils.get_model(args, model_name=args.model_name, num_classes=num_classes)
     model.to(device)
 
     params = utils.get_trainable_params(model)
@@ -143,7 +143,7 @@ def main(config: dict, args: argparse.Namespace) -> None:
             lr_scheduler.eta_min = config["eta_min"]
 
     checkpoint_dir = args.output_dir
-    checkpoint_file = os.path.join(checkpoint_dir, f"{name}_checkpoint")
+    checkpoint_file = os.path.join(checkpoint_dir, "best_model.pth")
     if os.path.isfile(checkpoint_file):
         checkpoint = torch.load(checkpoint_file, map_location="cpu")
         model.load_state_dict(checkpoint["model"])
@@ -167,7 +167,7 @@ def main(config: dict, args: argparse.Namespace) -> None:
         )
 
         with tune.checkpoint_dir(epoch) as checkpoint_dir:
-            path = os.path.join(checkpoint_dir, f"{name}_checkpoint")
+            path = os.path.join(checkpoint_dir, "best_model.pth")
             torch.save(
                 {"model": model.state_dict(),
                  "optimizer": optimizer.state_dict(),
@@ -333,7 +333,7 @@ def get_args():
     parser.add_argument("--dataset_dir", required=True, type=str, help="Directory of the dataset.")
     parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
 
-    parser.add_argument("--model", required=True, type=str, help="The name of the model to use")
+    parser.add_argument("--model_name", required=True, type=str, help="The name of the model to use")
 
     parser.add_argument("--seed", default=999333666, type=int, help="Random seed.")
 
