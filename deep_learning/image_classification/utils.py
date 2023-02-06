@@ -256,7 +256,7 @@ def get_model(args, model_name: str, num_classes: int) -> Tuple[nn.Module, str]:
         model = torch.compile(model.to(memory_format=torch.channels_last))
     else:
         model = model.to(memory_format=torch.channels_last)
-    return model, model_name
+    return model
 
 
 def freeze_params(model: nn.Module) -> None:
