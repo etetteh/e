@@ -274,7 +274,10 @@ def main(args: argparse.Namespace) -> None:
         pass
 
     for i, model_name in enumerate(args.models):
-        model, name = utils.get_model(args, model_name=model_name, num_classes=num_classes)
+        if not os.path.exists(os.path.join(args.output_dir, model_name)):
+            os.makedirs(os.path.join(args.output_dir, model_name), exist_ok=True)
+
+        model = utils.get_model(args, model_name=model_name, num_classes=num_classes)
         model.to(device)
 
         params = utils.get_trainable_params(model)
@@ -285,7 +288,7 @@ def main(args: argparse.Namespace) -> None:
         best_f1 = 0.0
         best_results = {}
 
-        checkpoint_file = os.path.join(args.output_dir, f"{name}_checkpoint.pth")
+        checkpoint_file = os.path.join(args.output_dir, model_name, "checkpoint.pth")
         if os.path.isfile(checkpoint_file):
             checkpoint = torch.load(checkpoint_file, map_location="cpu")
 
@@ -304,7 +307,7 @@ def main(args: argparse.Namespace) -> None:
 
         start_time = time.time()
 
-        utils.heading(f"Training a {name} model: Model {i + 1} of {len(args.models)}")
+        utils.heading(f"Training a {model_name} model: Model {i + 1} of {len(args.models)}")
 
         for epoch in range(start_epoch, args.epochs):
             train_one_epoch(args, epoch, train_loader, model, optimizer, criterion, train_metrics, device)
@@ -320,10 +323,10 @@ def main(args: argparse.Namespace) -> None:
                 fpr, tpr = [ff.detach().tolist() for ff in fpr], [tt.detach().tolist() for tt in tpr]
 
                 best_model_state = deepcopy(model.state_dict())
-                torch.save(best_model_state, os.path.join(args.output_dir, f"{name}_best_model.pth"))
+                torch.save({"model": best_model_state}, os.path.join(args.output_dir, model_name, "best_model.pth"))
 
                 best_results = {
-                    "model": name,
+                    "model": model_name,
                     "loss": round(loss, 4),
                     "accuracy": round(acc, 4),
                     "fpr": fpr,
@@ -333,7 +336,6 @@ def main(args: argparse.Namespace) -> None:
                     "recall": round(recall, 4),
                     "precision": round(prec, 4),
                     "confusion matrix": cm.tolist(),
-                    "time": f"{(time.time() - start_time) // 60:.0f}m {(time.time() - start_time) % 60:.0f}s"
                 }
 
             checkpoint = {
@@ -345,12 +347,12 @@ def main(args: argparse.Namespace) -> None:
                 "lr_scheduler": lr_scheduler.state_dict(),
                 "best_results": best_results,
             }
-            torch.save(checkpoint, os.path.join(args.output_dir, f"{name}_checkpoint.pth"))
+            torch.save(checkpoint, os.path.join(args.output_dir, model_name, "checkpoint.pth"))
 
         elapsed_time = time.time() - start_time
 
-        args.logger.info(f"{name} Training complete in {elapsed_time // 60:.0f}m {elapsed_time % 60:.0f}s")
-        args.logger.info(f"{name} Best Val F1-score {best_f1:.4f}\n")
+        args.logger.info(f"{model_name} Training complete in {elapsed_time // 60:.0f}m {elapsed_time % 60:.0f}s")
+        args.logger.info(f"{model_name} Best Val F1-score {best_f1:.4f}\n")
 
         with open(f"{args.output_dir}/results.jsonl", "+a") as file:
             json.dump(best_results, file)
@@ -370,7 +372,7 @@ def get_args():
     parser.add_argument("--dataset_dir", required=True, type=str, help="Directory of the dataset.")
     parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
 
-    parser.add_argument("--model", nargs="*", default=None, help="The name of the model to use")
+    parser.add_argument("--model_name", nargs="*", default=None, help="The name of the model to use")
     parser.add_argument("--model_size", type=str, default="small", help="Size of the model to use",
                         choices=["nano", "tiny", "small", "base", "large"])
 
@@ -381,7 +383,7 @@ def get_args():
     parser.add_argument("--mag_bins", default=31, type=int, help="Number of magnitude bins.")
     parser.add_argument("--aug_type", default="rand", type=str, help="Type of data augmentation to use.",
                         choices=["augmix", "rand", "trivial"])
-    parser.add_argument("--interpolation", default="bicubic", type=str, help="Type of interpolation to use.",
+    parser.add_argument("--interpolation", default="bilinear", type=str, help="Type of interpolation to use.",
                         choices=["nearest", "bicubic", "bilinear"])
     parser.add_argument("--hflip", default=0.5, type=float,
                         help="Probability of randomly horizontally flipping the input data.")
@@ -418,11 +420,11 @@ if __name__ == "__main__":
         os.makedirs(args.output_dir, exist_ok=True)
         print(f"Output directory created: {os.path.abspath(args.output_dir)}")
     else:
-        print(f"Output directory already exist at: {os.path.abspath(args.output_dir)}")
+        print(f"Output directory already exists at: {os.path.abspath(args.output_dir)}")
 
-    if args.model is not None:
-        if type(args.model) == list:
-            args.models = args.model
+    if args.model_name is not None:
+        if type(args.model_name) == list:
+            args.models = args.model_name
         else:
             args.models = [args.model]
     else:
