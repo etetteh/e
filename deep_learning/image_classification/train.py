@@ -277,7 +277,7 @@ def main(args: argparse.Namespace) -> None:
         if not os.path.exists(os.path.join(args.output_dir, model_name)):
             os.makedirs(os.path.join(args.output_dir, model_name), exist_ok=True)
 
-        model = utils.get_model(args, model_name=model_name, num_classes=num_classes)
+        model = utils.get_model(model_name=model_name, num_classes=num_classes, dropout=args.dropout)
         model.to(device)
 
         params = utils.get_trainable_params(model)
