@@ -121,7 +121,7 @@ def main(config: dict, args: argparse.Namespace) -> None:
     train_metrics = metric_collection
     val_metrics = metric_collection
 
-    model = utils.get_model(args, model_name=args.model_name, num_classes=num_classes)
+    model = utils.get_model(model_name=args.model_name, num_classes=num_classes, dropout=args.dropout)
     model.to(device)
 
     params = utils.get_trainable_params(model)
