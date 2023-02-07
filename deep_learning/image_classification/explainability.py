@@ -231,8 +231,12 @@ def explain_model(args: argparse.Namespace) -> None:
                             outputs=shap.Explanation.argsort.flip[:args.topk]
                             )
 
-    shap_values.data = inv_transform(shap_values.data).cpu().numpy()
-    shap_values.values = [val for val in np.moveaxis(shap_values.values, -1, 0)]
+    if args.n_samples == 1:
+        shap_values.data = inv_transform(shap_values.data).cpu().numpy()[0]
+        shap_values.values = [val for val in np.moveaxis(shap_values.values[0], -1, 0)]
+    else:
+        shap_values.data = inv_transform(shap_values.data).cpu().numpy()
+        shap_values.values = [val for val in np.moveaxis(shap_values.values, -1, 0)]
 
     shap.image_plot(shap_values=shap_values.values,
                     pixel_values=shap_values.data,
