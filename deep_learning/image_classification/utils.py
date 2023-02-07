@@ -1,4 +1,3 @@
-import argparse
 import logging
 import os
 import random
@@ -225,7 +224,7 @@ def create_linear_head(num_ftrs: int, num_classes: int, dropout: float) -> nn.Se
     )
 
 
-def get_model(model_name: str, num_classes: int, dropout: float) -> Tuple[nn.Module, str]:
+def get_model(model_name: str, num_classes: int, dropout: float) -> nn.Module:
     """Returns a pretrained model with a new head and the model name.
 
     The head of the model is replaced with a new linear layer with the given
@@ -323,7 +322,7 @@ def get_optimizer(args, params: List[nn.Parameter]) -> Union[optim.SGD, optim.Ad
 
 
 def get_lr_scheduler(args, optimizer) -> Union[optim.lr_scheduler.LinearLR, optim.lr_scheduler.StepLR,
-                                               optim.lr_scheduler.CosineAnnealingLR, optim.lr_scheduler.SequentialLR, None]:
+                                        optim.lr_scheduler.CosineAnnealingLR, optim.lr_scheduler.SequentialLR, None]:
     """
     This function returns a learning rate scheduler object based on the provided scheduling algorithm name.
 
