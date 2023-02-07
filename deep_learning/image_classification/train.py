@@ -278,7 +278,7 @@ def main(args: argparse.Namespace) -> None:
             os.makedirs(os.path.join(args.output_dir, model_name), exist_ok=True)
 
         model = utils.get_model(model_name=model_name, num_classes=num_classes, dropout=args.dropout)
-        model.to(device)
+        model = model.to(device)
 
         params = utils.get_trainable_params(model)
         optimizer = utils.get_optimizer(args, params)
@@ -414,23 +414,23 @@ def get_args():
 
 
 if __name__ == "__main__":
-    args = get_args()
+    cfgs = get_args()
 
-    if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir, exist_ok=True)
-        print(f"Output directory created: {os.path.abspath(args.output_dir)}")
+    if not os.path.exists(cfgs.output_dir):
+        os.makedirs(cfgs.output_dir, exist_ok=True)
+        print(f"Output directory created: {os.path.abspath(cfgs.output_dir)}")
     else:
-        print(f"Output directory already exists at: {os.path.abspath(args.output_dir)}")
+        print(f"Output directory already exists at: {os.path.abspath(cfgs.output_dir)}")
 
-    if args.model_name is not None:
-        if type(args.model_name) == list:
-            args.models = args.model_name
+    if cfgs.model_name is not None:
+        if type(cfgs.model_name) == list:
+            cfgs.models = cfgs.model_name
         else:
-            args.models = [args.model]
+            cfgs.models = [cfgs.model]
     else:
-        args.models = sorted(utils.get_model_names(args.crop_size, args.model_size))
+        cfgs.models = sorted(utils.get_model_names(cfgs.crop_size, cfgs.model_size))
 
-    args.logger = utils.get_logger(f"Training and Evaluation of Image Classifiers",
-                                   f"{args.output_dir}/training_logs.log")
+    cfgs.logger = utils.get_logger(f"Training and Evaluation of Image Classifiers",
+                                   f"{cfgs.output_dir}/training_logs.log")
 
-    main(args)
+    main(cfgs)
