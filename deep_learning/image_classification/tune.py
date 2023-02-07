@@ -393,5 +393,5 @@ def get_args():
 
 
 if __name__ == "__main__":
-    args = get_args()
-    tune_params(args)
+    cfgs = get_args()
+    tune_params(cfgs)
