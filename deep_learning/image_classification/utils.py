@@ -207,32 +207,32 @@ def get_model_names(image_size: int, model_size: str) -> List[str]:
     return training_models
 
 
-def create_linear_head(args: argparse.Namespace, num_ftrs: int, num_classes: int) -> nn.Sequential:
+def create_linear_head(num_ftrs: int, num_classes: int, dropout: float) -> nn.Sequential:
     """
     Creates a new linear head for the given number of classes and dropout rate.
 
     Parameters:
     num_ftrs (int): The number of input features for the linear head
     num_classes (int): The number of output classes for the linear head
-    args (argparse.Namespace): The parsed command line arguments containing the settings for the dropout rate
+    dropout (float): The dropout rate
 
     Returns:
     nn.Sequential: A sequential container with a dropout and linear layer
     """
     return nn.Sequential(
-        nn.Dropout(p=args.dropout),
+        nn.Dropout(p=dropout),
         nn.Linear(num_ftrs, num_classes, bias=True)
     )
 
 
-def get_model(args, model_name: str, num_classes: int) -> Tuple[nn.Module, str]:
+def get_model(model_name: str, num_classes: int, dropout: float) -> Tuple[nn.Module, str]:
     """Returns a pretrained model with a new head and the model name.
 
     The head of the model is replaced with a new linear layer with the given
     number of classes.
 
     Parameters:
-        args (argparse.Namespace): The parsed command line arguments containing the settings for the model.
+        dropout (float): The dropout rate
         model_name (str): The name of the model to be created using the `timm` library.
         num_classes (int): The number of classes for the new head of the model.
 
@@ -243,14 +243,14 @@ def get_model(args, model_name: str, num_classes: int) -> Tuple[nn.Module, str]:
     freeze_params(model)
     if hasattr(model.head, "in_features"):
         num_ftrs = model.head.in_features
-        model.head = create_linear_head(args, num_ftrs, num_classes)
+        model.head = create_linear_head(num_ftrs, num_classes, dropout)
         if hasattr(model, "head_dist"):
-            model.head_dist = create_linear_head(args, num_ftrs, num_classes)
+            model.head_dist = create_linear_head(num_ftrs, num_classes, dropout)
     else:
         num_ftrs = model.head.fc.in_features
-        model.head.fc = create_linear_head(args, num_ftrs, num_classes)
+        model.head.fc = create_linear_head(num_ftrs, num_classes, dropout)
         if hasattr(model, "head_dist"):
-            model.head_dist = create_linear_head(args, num_ftrs, num_classes)
+            model.head_dist = create_linear_head(num_ftrs, num_classes, dropout)
 
     if torch.__version__.startswith("2"):
         model = torch.compile(model.to(memory_format=torch.channels_last))
