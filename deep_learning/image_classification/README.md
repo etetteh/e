@@ -11,24 +11,42 @@
 * [Citation](#citation)
 
 ## Usage
+### Feb 07, 2023
+Added <span style="color:green;font-weight:700;font-size:16px"> inference.py </span> to save the best model in [ONNX](https://onnx.ai/) format, and run inference on a single image.\
+<span style="color:red;font-weight:700;font-size:15px">
+    Example:
+</span>
+ to predict the class and probability score of an image using a `swinv2_cr_tiny_ns_224` model, run
+```
+python inference.py \
+    --model_name swinv2_cr_tiny_ns_224 \
+    --img_path <path/to/image> \
+    --checkpoint_path <path/to/best/checkpoint> \
+    --dataset_dir <path/to/dataset/dir>
+```
+
 ### Jan 29, 2023
-Added **hyperparameter tuning** functionality using [Ray Tune](https://www.ray.io/ray-tune).\
-Example: to tune the batch size, learning rate and weight decay (passing tune_opt by default tunes the learning rate and weight decay, and also momentum in the case of using SGD optimizer) using population based training algorithm, run:
+Added <span style="color:green;font-weight:700;font-size:16px"> hyperparameter tuning </span> functionality using [Ray Tune](https://www.ray.io/ray-tune).\
+<span style="color:red;font-weight:700;font-size:15px">
+    Example:
+</span> to tune the batch size, learning rate and weight decay (passing tune_opt by default tunes the learning rate and weight decay, and also momentum in the case of using SGD optimizer) using population based training algorithm and a `swinv2_cr_tiny_ns_224` model, run:
 ```
 python tune.py \
     --name <experiment name> \
     --output_dir <model_checkpoint_dir> \
     --dataset_dir <dataset_dir> \
-    --model <name of model> \
+    --model_name swinv2_cr_tiny_ns_224 \
     --tune_batch_size \
     --tune_opt \
     --pbt 
 ```
 
 ### Jan 25, 2023
-Added **model explainability** functionality using [SHAP](https://shap.readthedocs.io/en/latest/index.html#). You can now understand the decision or prediction made by the best performing model.
+Added <span style="color:green;font-weight:700;font-size:16px">model explainability </span> functionality using [SHAP](https://shap.readthedocs.io/en/latest/index.html#). You can now understand the decision or prediction made by the best performing model.\
+<span style="color:red;font-weight:700;font-size:15px">
+    Example:
+</span> to explain the performance of a `swinv2_cr_tiny_ns_224` model on 4 samples of the validation data, run the following in a notebook
 
-Example: to explain the performance of `xcit_nano_12_p16_224_dist` on 4 samples of the validation data, run the following in a notebook
 ```
 from explainability import explain_model
 
@@ -36,7 +54,7 @@ class Args:
     def __init__(self):
         self.output_dir = "<model_checkpoint_dir>"
         self.dataset_dir = "<dataset_dir>"
-        self.model = "xcit_nano_12_p16_224_dist"
+        self.model_name = "swinv2_cr_tiny_ns_224"
         self.crop_size = 224
         self.batch_size = 30
         self.num_workers = 8
@@ -50,18 +68,23 @@ args = Args()
 explain_model(
     args = args
 )
-
 ```
-
-The script uses models from the `timm` library.
-1. Specify any model you'd like to use. You can pass a single model name or a list of model names. Example:
+\
+The train script uses models from the [timm](https://github.com/rwightman/pytorch-image-models) library.
+1. Specify any model you'd like to use. You can pass a single model name or a list of model names.\
+<span style="color:red;font-weight:700;font-size:15px">
+  Example:
+</span> to train with the models `swinv2_cr_tiny_ns_224` and `vit_large_patch14_clip_224`, run
 ```
 python train.py \
---model beit_large_patch16_224 vit_large_patch14_clip_224
+    --model_name swinv2_cr_tiny_ns_224 vit_large_patch14_clip_224
 ```
 Please, ensure that when passing a list of models, all the models should have been trained on the same image size.
 
-2Train all models with specific size and specific image size. This is useful for model selection. Example, to finetune all `tiny` models from the `timm` library that were pre-trained with image size 224, run
+2. Train all models with specific size and specific image size. This is useful for model selection.\
+<span style="color:red;font-weight:700;font-size:15px">
+    Example:
+</span> to finetune all `tiny` models from the `timm` library that were pre-trained with image size 224, run
 ```
 python train.py \ 
     --model_size tiny \
@@ -71,48 +94,52 @@ You can also pass `nano`, `small`, `base`, `large` or `giant` to train all model
 
 Run `python train.py --help` to see all the arguments you can pass during training
 
-**Results**\
+### **Results**
 The training script:
 * Checkpoints the model, which can be used to resume training
 * Saves the best model weights, which can be used for inference or deployment
 * Plots a confusion matrix and ROC curve of the best validation metrics
 
-All results are on the validation dataset, and are saved in the `output_dir` passed during training.
+All results are on the validation dataset, and are saved in `output_dir/<model_name>`.
 
 
-**Sample output on the validation set after running:**
+<span style="color:red;font-weight:700;font-size:18px">
+    Example:
+</span> Sample output on the validation set after running
+
 ```
 python train.py \
     --dataset_dir weather_data \ 
     --model_size tiny \
     --crop_size 224 \ 
-    --epochs 12 \
     --output_dir sample_run0
 ```
 
 ```
-                                         model  accuracy     auc      f1  recall  precision     time
-0                        swinv2_cr_tiny_ns_224    0.9917  1.0000  0.9922  0.9917     0.9931  16m 55s
-1           vit_tiny_r_s16_p8_224.augreg_in21k    0.9917  0.9996  0.9922  0.9917     0.9931   0m 27s
-2                 swin_tiny_patch4_window7_224    0.9762  0.9964  0.9746  0.9762     0.9743    5m 6s
-3    vit_tiny_patch16_224.augreg_in21k_ft_in1k    0.9650  0.9970  0.9635  0.9650     0.9633   4m 18s
-4                     xcit_tiny_24_p8_224_dist    0.9595  0.9948  0.9565  0.9595     0.9584  32m 22s
-5                        deit_tiny_patch16_224    0.9579  0.9942  0.9560  0.9579     0.9550   4m 42s
-6                             swin_s3_tiny_224    0.9567  0.9946  0.9553  0.9567     0.9560   7m 32s
-7                         xcit_tiny_24_p16_224    0.9533  0.9951  0.9552  0.9533     0.9580   2m 52s
-8            vit_tiny_patch16_224.augreg_in21k    0.9517  0.9969  0.9549  0.9517     0.9628   5m 11s
-9                     xcit_tiny_12_p8_224_dist    0.9498  0.9947  0.9546  0.9498     0.9628  13m 11s
-10             deit_tiny_distilled_patch16_224    0.9495  0.9930  0.9473  0.9495     0.9479   0m 41s
-11                   xcit_tiny_24_p16_224_dist    0.9450  0.9931  0.9460  0.9450     0.9472   8m 23s
-12  vit_tiny_r_s16_p8_224.augreg_in21k_ft_in1k    0.9417  0.9961  0.9453  0.9417     0.9563   2m 23s
-13                     maxvit_tiny_tf_224.in1k    0.9479  0.9906  0.9449  0.9479     0.9425  21m 29s
-14                        xcit_tiny_12_p16_224    0.9279  0.9816  0.9299  0.9279     0.9330   1m 26s
-15                         xcit_tiny_24_p8_224    0.9300  0.9865  0.9295  0.9300     0.9322  26m 24s
-16                         xcit_tiny_12_p8_224    0.9264  0.9925  0.9265  0.9264     0.9299   2m 59s
-17                   xcit_tiny_12_p16_224_dist    0.9164  0.9795  0.9148  0.9164     0.9147   3m 18s
+                                         model  accuracy     auc      f1  recall  precision
+0           vit_tiny_r_s16_p8_224.augreg_in21k    1.0000  0.9998  1.0000  1.0000     1.0000
+1                        swinv2_cr_tiny_ns_224    1.0000  0.9999  1.0000  1.0000     1.0000
+2                 swin_tiny_patch4_window7_224    0.9917  0.9988  0.9909  0.9917     0.9904
+3                             swin_s3_tiny_224    0.9817  0.9970  0.9817  0.9817     0.9817
+4                     xcit_tiny_12_p8_224_dist    0.9762  0.9965  0.9746  0.9762     0.9743
+5   vit_tiny_r_s16_p8_224.augreg_in21k_ft_in1k    0.9750  0.9983  0.9737  0.9750     0.9745
+6            vit_tiny_patch16_224.augreg_in21k    0.9750  0.9988  0.9737  0.9750     0.9745
+7              deit_tiny_distilled_patch16_224    0.9762  0.9968  0.9736  0.9762     0.9732
+8    vit_tiny_patch16_224.augreg_in21k_ft_in1k    0.9717  0.9963  0.9724  0.9717     0.9735
+9                         xcit_tiny_24_p16_224    0.9690  0.9949  0.9664  0.9690     0.9648
+10                       deit_tiny_patch16_224    0.9679  0.9960  0.9660  0.9679     0.9654
+11                    xcit_tiny_24_p8_224_dist    0.9650  0.9959  0.9658  0.9650     0.9676
+12                     maxvit_tiny_tf_224.in1k    0.9674  0.9953  0.9651  0.9674     0.9639
+13                   xcit_tiny_24_p16_224_dist    0.9662  0.9960  0.9650  0.9662     0.9641
+14                        xcit_tiny_12_p16_224    0.9579  0.9920  0.9570  0.9579     0.9564
+15                         xcit_tiny_12_p8_224    0.9579  0.9970  0.9570  0.9579     0.9564
+16                         xcit_tiny_24_p8_224    0.9467  0.9931  0.9486  0.9467     0.9520
+17                   xcit_tiny_12_p16_224_dist    0.9290  0.9857  0.9295  0.9290     0.9303
+
 ```
 
-<img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/confusion_matrix.png" height="450" width="337.5"><img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/roc_curve.png" height="450" width="337"><img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/model_explainability.png" height="450" width="337.5">
+<img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/model_explainability.png" height="550" width="900">
+<img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/confusion_matrix.png" height="500" width="450"><img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/roc_curve.png" height="500" width="450">
 
 
 ## Getting Started
@@ -127,9 +154,10 @@ The goal of this project is to provide a simple but efficient approach to image 
 The script makes use of the following libraries, which can be installed following their respective instructions:
 1. Python 3.10 or earlier. I recommend installing through [Miniconda](https://docs.conda.io/en/latest/miniconda.html) 
 2. Latest stable release of [Pytorch](https://pytorch.org/get-started/locally/). Earlier versions should be okay.
-3. Pre release version of [timm](https://github.com/rwightman/pytorch-image-models). Run 'pip install --pre timm' to install.
+3. Pre release version of [timm](https://github.com/rwightman/pytorch-image-models). Run `pip install --pre timm` to install.
 4. [TorchMetrics](https://torchmetrics.readthedocs.io/en/stable/) for computing metrics
 5. [SHAP](https://shap.readthedocs.io/en/latest/index.html#) for model explainability
+6. [ONNX](https://onnx.ai/) for model exporting for inferencing
 
 ## Documentation
 Coming soon!
