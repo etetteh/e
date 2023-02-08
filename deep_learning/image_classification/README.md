@@ -85,16 +85,18 @@ Please, ensure that when passing a list of models, all the models should have be
 <span style="color:red;font-weight:700;font-size:15px">
     Example:
 </span> to finetune all `tiny` models from the `timm` library that were pre-trained with image size 224, run
+
 ```
 python train.py \ 
     --model_size tiny \
     --crop_size 224
 ```
+
 You can also pass `nano`, `small`, `base`, `large` or `giant` to train all models with that respective size
 
 Run `python train.py --help` to see all the arguments you can pass during training
 
-### **Results**
+### **Sample Results**
 The training script:
 * Checkpoints the model, which can be used to resume training
 * Saves the best model weights, which can be used for inference or deployment
@@ -105,7 +107,7 @@ All results are on the validation dataset, and are saved in `output_dir/<model_n
 
 <span style="color:red;font-weight:700;font-size:18px">
     Example:
-</span> Sample output on the validation set after running
+</span> Sample output on the validation set after running the following code is shown below
 
 ```
 python train.py \
@@ -138,8 +140,12 @@ python train.py \
 
 ```
 
+Model explaination
 <img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/model_explainability.png" height="550" width="900">
-<img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/confusion_matrix.png" height="500" width="450"><img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/roc_curve.png" height="500" width="450">
+
+<img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/confusion_matrix.png" height="550" width="900">
+
+<img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/roc_curve.png" height="550" width="900">
 
 
 ## Getting Started
