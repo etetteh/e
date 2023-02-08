@@ -140,7 +140,7 @@ python train.py \
 
 ```
 
-Model explaination
+Model explanation
 <img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/model_explainability.png" height="550" width="900">
 
 <img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/confusion_matrix.png" height="550" width="900">
@@ -160,10 +160,10 @@ The goal of this project is to provide a simple but efficient approach to image 
 The script makes use of the following libraries, which can be installed following their respective instructions:
 1. Python 3.10 or earlier. I recommend installing through [Miniconda](https://docs.conda.io/en/latest/miniconda.html) 
 2. Latest stable release of [Pytorch](https://pytorch.org/get-started/locally/). Earlier versions should be okay.
-3. Pre release version of [timm](https://github.com/rwightman/pytorch-image-models). Run `pip install --pre timm` to install.
+3. Pre-release version of [timm](https://github.com/rwightman/pytorch-image-models). Run `pip install --pre timm` to install.
 4. [TorchMetrics](https://torchmetrics.readthedocs.io/en/stable/) for computing metrics
 5. [SHAP](https://shap.readthedocs.io/en/latest/index.html#) for model explainability
-6. [ONNX](https://onnx.ai/) for model exporting for inferencing
+6. [ONNX](https://onnx.ai/) for model exporting to run inference
 
 ## Documentation
 Coming soon!
