@@ -142,6 +142,38 @@ def convert_to_channels_last(image: torch.Tensor) -> torch.Tensor:
     return image
 
 
+def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dropout: float) -> None:
+    """Convert a PyTorch model to ONNX format.
+
+    Args:
+        model_name (str): The name of the model.
+        checkpoint_path (str): The path to the PyTorch checkpoint.
+        num_classes (int): The number of classes in the dataset.
+        dropout (float): The dropout rate to be used in the model.
+    """
+
+    model = get_model(model_name, num_classes, dropout)
+
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    model.load_state_dict(checkpoint["model"])
+    model.eval()
+
+    batch_size = 1
+    dummy_input = torch.randn(batch_size, 3, 224, 224, requires_grad=True)
+    filename = os.path.join(os.path.dirname(checkpoint_path), f"{model_name}.onnx")
+
+    torch.onnx.export(
+        model,
+        dummy_input,
+        filename,
+        export_params=True,
+        do_constant_folding=True,
+        input_names=["input"],
+        output_names=["output"],
+        dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
+    )
+
+
 def get_explain_data_aug() -> Tuple[transforms.Compose, transforms.Compose]:
     """
     Returns the transforms for data augmentation used for explaining the model.
@@ -250,11 +282,7 @@ def get_model(model_name: str, num_classes: int, dropout: float) -> nn.Module:
         model.head.fc = create_linear_head(num_ftrs, num_classes, dropout)
         if hasattr(model, "head_dist"):
             model.head_dist = create_linear_head(num_ftrs, num_classes, dropout)
-
-    if torch.__version__.startswith("2"):
-        model = torch.compile(model.to(memory_format=torch.channels_last))
-    else:
-        model = model.to(memory_format=torch.channels_last)
+    model = model.to(memory_format=torch.channels_last)
     return model
 
 
