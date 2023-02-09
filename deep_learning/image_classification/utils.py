@@ -160,7 +160,7 @@ def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dro
 
     batch_size = 1
     dummy_input = torch.randn(batch_size, 3, 224, 224, requires_grad=True)
-    filename = os.path.join(os.path.dirname(checkpoint_path), f"{model_name}.onnx")
+    filename = os.path.join(os.path.dirname(checkpoint_path), "best_model.onnx")
 
     torch.onnx.export(
         model,
