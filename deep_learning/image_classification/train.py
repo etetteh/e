@@ -289,6 +289,7 @@ def main(args: argparse.Namespace) -> None:
         best_results = {}
 
         checkpoint_file = os.path.join(args.output_dir, model_name, "checkpoint.pth")
+        best_model_file = os.path.join(args.output_dir, model_name, "best_model.pth")
         if os.path.isfile(checkpoint_file):
             checkpoint = torch.load(checkpoint_file, map_location="cpu")
 
@@ -323,7 +324,7 @@ def main(args: argparse.Namespace) -> None:
                 fpr, tpr = [ff.detach().tolist() for ff in fpr], [tt.detach().tolist() for tt in tpr]
 
                 best_model_state = deepcopy(model.state_dict())
-                torch.save({"model": best_model_state}, os.path.join(args.output_dir, model_name, "best_model.pth"))
+                torch.save({"model": best_model_state}, best_model_file)
 
                 best_results = {
                     "model": model_name,
@@ -350,15 +351,17 @@ def main(args: argparse.Namespace) -> None:
             torch.save(checkpoint, os.path.join(args.output_dir, model_name, "checkpoint.pth"))
 
         elapsed_time = time.time() - start_time
+        train_time = f"{elapsed_time // 60:.0f}m {elapsed_time % 60:.0f}s"
 
-        args.logger.info(f"{model_name} Training complete in {elapsed_time // 60:.0f}m {elapsed_time % 60:.0f}s")
-        args.logger.info(f"{model_name} Best Val F1-score {best_f1:.4f}\n")
+        args.logger.info(f"{model_name} training completed in {train_time}")
+        args.logger.info(f"{model_name} best Val F1-score {best_f1:.4f}\n")
 
         with open(f"{args.output_dir}/results.jsonl", "+a") as file:
             json.dump(best_results, file)
             file.write("\n")
 
         explainability.process_results(args, model_name)
+        utils.convert_to_onnx(model_name, best_model_file, num_classes, args.dropout)
 
     args.logger.info(f"All results have been saved at {os.path.abspath(args.output_dir)}")
 
