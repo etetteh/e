@@ -12,14 +12,14 @@
 
 ## Usage
 ### Feb 07, 2023
-Added <span style="color:green;font-weight:700;font-size:16px"> inference.py </span> to save the best model in [ONNX](https://onnx.ai/) format, and run inference on a single image.\
+Added <span style="color:green;font-weight:700;font-size:16px"> inference.py </span> to run inference on a single model using the best model saved in [ONNX](https://onnx.ai/) format.\
 <span style="color:red;font-weight:700;font-size:15px">
     Example:
 </span>
  to predict the class and probability score of an image using a `swinv2_cr_tiny_ns_224` model, run
 ```
 python inference.py \
-    --onnx_model_path  swinv2_cr_tiny_ns_224.onnx\
+    --onnx_model_path  swinv2_cr_tiny_ns_224/best_model.onnx \
     --img_path <path/to/image> \
     --dataset_dir <path/to/dataset/dir>
 ```
