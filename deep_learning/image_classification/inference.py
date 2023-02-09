@@ -1,6 +1,7 @@
 import argparse
-import os
 import torch
+import warnings
+
 import onnxruntime
 import torch.nn.functional as f
 from PIL import Image
@@ -70,6 +71,8 @@ def get_args():
 
 
 if __name__ == "__main__":
+    warnings.filterwarnings("ignore", category=UserWarning)
+
     args = get_args()
 
     result = run_one_inference(args.onnx_model_path, args.img_path, args.dataset_dir)

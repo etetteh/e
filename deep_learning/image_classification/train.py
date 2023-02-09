@@ -2,6 +2,8 @@ import argparse
 import json
 import os
 import time
+import warnings
+
 from copy import deepcopy
 from typing import Tuple
 
@@ -417,6 +419,8 @@ def get_args():
 
 
 if __name__ == "__main__":
+    warnings.filterwarnings("ignore")
+
     cfgs = get_args()
 
     if not os.path.exists(cfgs.output_dir):

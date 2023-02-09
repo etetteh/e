@@ -1,6 +1,7 @@
 from functools import partial
 import argparse
 import os
+import warnings
 
 import torch
 from torch.utils import data
@@ -393,5 +394,7 @@ def get_args():
 
 
 if __name__ == "__main__":
+    warnings.filterwarnings("ignore")
+
     cfgs = get_args()
     tune_params(cfgs)
