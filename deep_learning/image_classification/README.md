@@ -19,9 +19,8 @@ Added <span style="color:green;font-weight:700;font-size:16px"> inference.py </s
  to predict the class and probability score of an image using a `swinv2_cr_tiny_ns_224` model, run
 ```
 python inference.py \
-    --model_name swinv2_cr_tiny_ns_224 \
+    --onnx_model_path  swinv2_cr_tiny_ns_224.onnx\
     --img_path <path/to/image> \
-    --checkpoint_path <path/to/best/checkpoint> \
     --dataset_dir <path/to/dataset/dir>
 ```
 
