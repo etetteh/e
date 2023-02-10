@@ -13,8 +13,8 @@
 ## Usage
 
 ### Feb 10, 2023
-Added <span style="color:green;font-weight:700;font-size:16px"> app.py </span> to run inference with FastAPI on a single or multiple images by passing a JSON file.\
-Sample JSON file 
+Added <span style="color:green;font-weight:700;font-size:16px"> **app.py** </span> to run inference with [FastAPI](https://fastapi.tiangolo.com/) on a single or multiple images by passing a JSON file.\
+**Sample JSON file**
 ```
 {
   "onnx_model_path": "swinv2_cr_tiny_ns_224/best_model.onnx",
@@ -22,16 +22,15 @@ Sample JSON file
   "dataset_dir_or_classes_file": <path_to_dataset_dir_or_classes_file>
 }
 ```
-<span style="color:red;font-weight:700;font-size:15px">
-    Example: 
-</span>
- to predict the class and probability score of the images in the JSON file, run
+
+<span style="color:red;font-weight:700;font-size:15px">**Example**:</span>
+to predict the class and probability score of the images in the JSON file, run
 
 ```
 uvicorn app:app --reload
 ```
 
-Sample output:
+**Sample output**:
 ```
 [
   {
@@ -62,9 +61,9 @@ Sample output:
 ```
 
 ### Feb 07, 2023
-Added <span style="color:green;font-weight:700;font-size:16px"> inference.py </span> to run inference on a single image using the best model saved in [ONNX](https://onnx.ai/) format.\
+Added <span style="color:green;font-weight:700;font-size:16px"> **inference.py** </span> to run inference on a single image using the best model saved in [ONNX](https://onnx.ai/) format.\
 <span style="color:red;font-weight:700;font-size:15px">
-    Example:
+    **Example**:
 </span>
  to predict the class and probability score of an image using a `swinv2_cr_tiny_ns_224` model, run
 ```
@@ -75,9 +74,9 @@ python inference.py \
 ```
 Note that `dataset_dir_or_classes_file` takes as argument your dataset directory or a text file containing the classes 
 ### Jan 29, 2023
-Added <span style="color:green;font-weight:700;font-size:16px"> hyperparameter tuning </span> functionality using [Ray Tune](https://www.ray.io/ray-tune).\
+Added <span style="color:green;font-weight:700;font-size:16px"> **hyperparameter tuning** </span> functionality using [Ray Tune](https://www.ray.io/ray-tune).\
 <span style="color:red;font-weight:700;font-size:15px">
-    Example:
+    **Example**:
 </span> to tune the batch size, learning rate and weight decay (passing tune_opt by default tunes the learning rate and weight decay, and also momentum in the case of using SGD optimizer) using population based training algorithm and a `swinv2_cr_tiny_ns_224` model, run:
 ```
 python tune.py \
@@ -91,9 +90,9 @@ python tune.py \
 ```
 
 ### Jan 25, 2023
-Added <span style="color:green;font-weight:700;font-size:16px">model explainability </span> functionality using [SHAP](https://shap.readthedocs.io/en/latest/index.html#). You can now understand the decision or prediction made by the best performing model.\
+Added <span style="color:green;font-weight:700;font-size:16px"> **model explainability** </span> functionality using [SHAP](https://shap.readthedocs.io/en/latest/index.html#). You can now understand the decision or prediction made by the best performing model.\
 <span style="color:red;font-weight:700;font-size:15px">
-    Example:
+    **Example**:
 </span> to explain the performance of a `swinv2_cr_tiny_ns_224` model on 4 samples of the validation data, run the following in a notebook
 
 ```
@@ -155,7 +154,7 @@ The training script:
 All results are on the validation dataset, and are saved in `output_dir/<model_name>`.
 
 
-<span style="color:red;font-weight:700;font-size:18px">
+<span style="color:red;font-weight:700;font-size:15px">
     Example:
 </span> Sample output on the validation set after running the following code is shown below
 
@@ -214,6 +213,7 @@ The script makes use of the following libraries, which can be installed followin
 4. [TorchMetrics](https://torchmetrics.readthedocs.io/en/stable/) for computing metrics
 5. [SHAP](https://shap.readthedocs.io/en/latest/index.html#) for model explainability
 6. [ONNX](https://onnx.ai/) for model exporting to run inference
+7. [FastAPI](https://fastapi.tiangolo.com/) for running inference on single or multiple images 
 
 ## Documentation
 Coming soon!
