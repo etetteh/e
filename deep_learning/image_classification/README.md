@@ -20,10 +20,10 @@ Added <span style="color:green;font-weight:700;font-size:16px"> inference.py </s
 ```
 python inference.py \
     --onnx_model_path  swinv2_cr_tiny_ns_224/best_model.onnx \
-    --img_path <path/to/image> \
-    --dataset_dir <path/to/dataset/dir>
+    --img_path <path_to_image> \
+    --dataset_dir_or_classes_file <path_to_dataset_dir_or_classes_file>
 ```
-
+Note that `dataset_dir_or_classes_file` takes as argument your dataset directory or a text file containing the classes 
 ### Jan 29, 2023
 Added <span style="color:green;font-weight:700;font-size:16px"> hyperparameter tuning </span> functionality using [Ray Tune](https://www.ray.io/ray-tune).\
 <span style="color:red;font-weight:700;font-size:15px">
