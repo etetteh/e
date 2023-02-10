@@ -13,7 +13,7 @@
 ## Usage
 
 ### Feb 10, 2023
-Added <span style="color:green;font-weight:700;font-size:16px"> **app.py** </span> to run inference with [FastAPI](https://fastapi.tiangolo.com/) on a single or multiple images by passing a JSON file.\
+Added <span style="color:green;font-weight:700;font-size:16px"> [app.py](https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/app.py) </span> to run inference with [FastAPI](https://fastapi.tiangolo.com/) on a single or multiple images by passing a JSON file.\
 **Sample JSON file**
 ```
 {
@@ -61,7 +61,7 @@ uvicorn app:app --reload
 ```
 
 ### Feb 07, 2023
-Added <span style="color:green;font-weight:700;font-size:16px"> **inference.py** </span> to run inference on a single image using the best model saved in [ONNX](https://onnx.ai/) format.\
+Added <span style="color:green;font-weight:700;font-size:16px"> [inference.py](https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/inference.py) </span> to run inference on a single image using the best model saved in [ONNX](https://onnx.ai/) format.\
 <span style="color:red;font-weight:700;font-size:15px">
     **Example**:
 </span>
@@ -74,7 +74,7 @@ python inference.py \
 ```
 Note that `dataset_dir_or_classes_file` takes as argument your dataset directory or a text file containing the classes 
 ### Jan 29, 2023
-Added <span style="color:green;font-weight:700;font-size:16px"> **hyperparameter tuning** </span> functionality using [Ray Tune](https://www.ray.io/ray-tune).\
+Added <span style="color:green;font-weight:700;font-size:16px"> [tune.py](https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/tune.py) </span> for hyperparameter tuning functionality using [Ray Tune](https://www.ray.io/ray-tune).\
 <span style="color:red;font-weight:700;font-size:15px">
     **Example**:
 </span> to tune the batch size, learning rate and weight decay (passing tune_opt by default tunes the learning rate and weight decay, and also momentum in the case of using SGD optimizer) using population based training algorithm and a `swinv2_cr_tiny_ns_224` model, run:
@@ -90,7 +90,7 @@ python tune.py \
 ```
 
 ### Jan 25, 2023
-Added <span style="color:green;font-weight:700;font-size:16px"> **model explainability** </span> functionality using [SHAP](https://shap.readthedocs.io/en/latest/index.html#). You can now understand the decision or prediction made by the best performing model.\
+Added <span style="color:green;font-weight:700;font-size:16px"> [explainability.py](https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/explainability.py) </span> for model explainability functionality using [SHAP](https://shap.readthedocs.io/en/latest/index.html#). You can now understand the decision or prediction made by the best performing model.\
 <span style="color:red;font-weight:700;font-size:15px">
     **Example**:
 </span> to explain the performance of a `swinv2_cr_tiny_ns_224` model on 4 samples of the validation data, run the following in a notebook
@@ -143,16 +143,15 @@ python train.py \
 
 You can also pass `nano`, `small`, `base`, `large` or `giant` to train all models with that respective size
 
-Run `python train.py --help` to see all the arguments you can pass during training
+Run `python train.py --help` to see all the arguments you can pass during training. 
 
-### **Sample Results**
+
 The training script:
 * Checkpoints the model, which can be used to resume training
 * Saves the best model weights, which can be used for inference or deployment
 * Plots a confusion matrix and ROC curve of the best validation metrics
 
 All results are on the validation dataset, and are saved in `output_dir/<model_name>`.
-
 
 <span style="color:red;font-weight:700;font-size:15px">
     Example:
@@ -165,7 +164,7 @@ python train.py \
     --crop_size 224 \ 
     --output_dir sample_run0
 ```
-
+**Sample Results**:
 ```
                                          model  accuracy     auc      f1  recall  precision
 0           vit_tiny_r_s16_p8_224.augreg_in21k    1.0000  0.9998  1.0000  1.0000     1.0000
@@ -209,10 +208,10 @@ The goal of this project is to provide a simple but efficient approach to image 
 The script makes use of the following libraries, which can be installed following their respective instructions:
 1. Python 3.10 or earlier. I recommend installing through [Miniconda](https://docs.conda.io/en/latest/miniconda.html) 
 2. Latest stable release of [Pytorch](https://pytorch.org/get-started/locally/). Earlier versions should be okay.
-3. Pre-release version of [timm](https://github.com/rwightman/pytorch-image-models). Run `pip install --pre timm` to install.
+3. Pre-release version of [timm](https://github.com/rwightman/pytorch-image-models) for the models used in this research project
 4. [TorchMetrics](https://torchmetrics.readthedocs.io/en/stable/) for computing metrics
 5. [SHAP](https://shap.readthedocs.io/en/latest/index.html#) for model explainability
-6. [ONNX](https://onnx.ai/) for model exporting to run inference
+6. [ONNX](https://onnx.ai/) for exporting model for inference
 7. [FastAPI](https://fastapi.tiangolo.com/) for running inference on single or multiple images 
 
 ## Documentation
