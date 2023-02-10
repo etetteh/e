@@ -11,8 +11,58 @@
 * [Citation](#citation)
 
 ## Usage
+
+### Feb 10, 2023
+Added <span style="color:green;font-weight:700;font-size:16px"> app.py </span> to run inference with FastAPI on a single or multiple images by passing a JSON file.\
+Sample JSON file 
+```
+{
+  "onnx_model_path": "swinv2_cr_tiny_ns_224/best_model.onnx",
+  "img_paths": [<path_to_image1>, <path_to_image2>, <path_to_image3>, <path_to_image4>],
+  "dataset_dir_or_classes_file": <path_to_dataset_dir_or_classes_file>
+}
+```
+<span style="color:red;font-weight:700;font-size:15px">
+    Example: 
+</span>
+ to predict the class and probability score of the images in the JSON file, run
+
+```
+uvicorn app:app --reload
+```
+
+Sample output:
+```
+[
+  {
+    "image 0": {
+      "Predicted Label": "rain",
+      "Probability": 43.74
+    }
+  },
+  {
+    "image 1": {
+      "Predicted Label": "cloudy",
+      "Probability": 43.97
+    }
+  },
+  {
+    "image 2": {
+      "Predicted Label": "shine",
+      "Probability": 92.02
+    }
+  },
+  {
+    "image 3": {
+      "Predicted Label": "sunrise",
+      "Probability": 87.66
+    }
+  }
+]
+```
+
 ### Feb 07, 2023
-Added <span style="color:green;font-weight:700;font-size:16px"> inference.py </span> to run inference on a single model using the best model saved in [ONNX](https://onnx.ai/) format.\
+Added <span style="color:green;font-weight:700;font-size:16px"> inference.py </span> to run inference on a single image using the best model saved in [ONNX](https://onnx.ai/) format.\
 <span style="color:red;font-weight:700;font-size:15px">
     Example:
 </span>
@@ -68,7 +118,8 @@ explain_model(
     args = args
 )
 ```
-\
+
+### Jan 17, 2023
 The train script uses models from the [timm](https://github.com/rwightman/pytorch-image-models) library.
 1. Specify any model you'd like to use. You can pass a single model name or a list of model names.\
 <span style="color:red;font-weight:700;font-size:15px">
