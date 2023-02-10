@@ -191,8 +191,10 @@ python train.py \
 Model explanation
 <img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/model_explainability.png" height="550" width="900">
 
+Confusion Matrix
 <img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/confusion_matrix.png" height="550" width="900">
 
+ROC Curve
 <img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/roc_curve.png" height="550" width="900">
 
 
