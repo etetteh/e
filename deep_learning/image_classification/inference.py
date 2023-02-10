@@ -1,4 +1,5 @@
 import argparse
+import os
 import torch
 import warnings
 
@@ -11,14 +12,15 @@ import torchvision.transforms as transforms
 import utils
 
 
-def run_one_inference(onnx_model_path: str, img_path: str, dataset_dir: str) -> dict:
+def run_one_inference(onnx_model_path: str, img_path: str, dataset_dir_or_classes_file: str) -> dict:
     """
     Runs one inference on a given ONNX model and image.
 
     Parameters:
         onnx_model_path (str): Path to the ONNX model.
         img_path (str): Path to the image.
-        dataset_dir (str): Path to the directory containing the dataset classes.
+        dataset_dir_or_classes_file (str): Path to the directory containing the dataset classes or Path to a text file
+                                containing class names (each class name on a separate line).
 
     Returns:
         dict: A dictionary containing the predicted label and the associated probability.
@@ -37,7 +39,11 @@ def run_one_inference(onnx_model_path: str, img_path: str, dataset_dir: str) -> 
         """
         return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
-    classes = utils.get_classes(dataset_dir)
+    if os.path.isfile(dataset_dir_or_classes_file):
+        with open(dataset_dir_or_classes_file, "r") as file:
+            classes = sorted(file.read().splitlines())
+    else:
+        classes = utils.get_classes(dataset_dir_or_classes_file)
 
     # Preprocess the image
     transform_img = transforms.Compose([transforms.Resize([224, 224]), transforms.ToTensor()])
@@ -65,7 +71,8 @@ def get_args():
 
     parser.add_argument("--onnx_model_path", type=str, required=True, help="Path to the ONNX model")
     parser.add_argument("--img_path", type=str, required=True, help="Path to the image to be classified")
-    parser.add_argument("--dataset_dir", type=str, required=True, help="Path to the directory containing the dataset")
+    parser.add_argument("--dataset_dir_or_classes_file", type=str, required=True,
+            help="Path to the directory containing the dataset classes or Path to a text file containing class names")
 
     return parser.parse_args()
 
@@ -75,5 +82,5 @@ if __name__ == "__main__":
 
     args = get_args()
 
-    result = run_one_inference(args.onnx_model_path, args.img_path, args.dataset_dir)
+    result = run_one_inference(args.onnx_model_path, args.img_path, args.dataset_dir_or_classes_file)
     print(result)
