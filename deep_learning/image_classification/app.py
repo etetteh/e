@@ -20,11 +20,12 @@ app = FastAPI()
 def to_numpy(tensor: torch.Tensor) -> np.ndarray:
     """
     Convert tensor to numpy ndarray
-    Args:
-    tensor (torch.Tensor): torch tensor to be converted
+
+    Parameters:
+        - tensor (torch.Tensor): torch tensor to be converted
 
     Returns:
-    np.ndarray: numpy ndarray converted from tensor
+        - np.ndarray: numpy ndarray converted from tensor
     """
     return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
@@ -35,15 +36,15 @@ async def predict(file: UploadFile):
     Predict the label and confidence of the input image.
 
     Parameters:
-     - file (UploadFile): a JSON file containing the following keys:
-     - onnx_model_path (str): Path to ONNX model
-     - img_path (str): Path to input image
-     - dataset_dir_or_classes_file (str): Path to dataset directory or file with list of classes
+        - file (UploadFile): a JSON file containing the following keys:
+        - onnx_model_path (str): Path to ONNX model
+        - img_path (str): Path to input image
+        - dataset_dir_or_classes_file (str): Path to dataset directory or file with list of classes
 
     Returns:
-    dict: A dictionary containing the following keys:
-        "Predicted Label": str, the predicted label of the image
-        "Probability": float, the confidence of the prediction
+        - dict: A dictionary containing the following keys:
+            "Predicted Label": str, the predicted label of the image
+            "Probability": float, the confidence of the prediction
     """
     input_json = json.loads(await file.read())
     onnx_model_path = input_json['onnx_model_path']

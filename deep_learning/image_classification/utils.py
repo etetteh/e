@@ -1,3 +1,5 @@
+import hashlib
+import json
 import logging
 import os
 import random
@@ -18,23 +20,98 @@ from torchvision import transforms
 from torchvision.transforms import functional as f
 
 
-def header(*args):
+def header(*args: Union[str, int, float]):
+    """
+    Print one or more arguments to standard output as a single line of text.
+
+    Parameters
+        - args: The arguments to be printed
+    """
     msg = " ".join(map(str, args))
     sys.stdout.write(msg + "\n")
     sys.stdout.flush()
 
 
-def heading(message):
+def heading(message: str):
+    """
+    Print a formatted heading with a given message.
+
+    Parameters:
+         - message: The message to be included in the heading
+    """
     header("=" * 99)
     header(message)
     header("=" * 99)
+
+
+def get_run_id(run_ids: Dict[str, str], model_name: str) -> Optional[str]:
+    """
+    Get the run ID of a specific model from a dictionary of run IDs.
+
+    Parameters:
+        - run_ids: A dictionary mapping model names to run IDs
+        - model_name: The name of the model for which to retrieve the run ID
+    Return:
+         - The run ID of the specified model, or None if the model is not in the dictionary
+    """
+    try:
+        run_id = run_ids[model_name]
+    except KeyError:
+        return None
+    return run_id
+
+
+def write_json_file(dict_obj: Dict, file_path: str):
+    """
+    Write a dictionary object to a JSON file at the given file path.
+    If the file already exists, its content will be overwritten.
+
+    Parameters:
+        - dict_obj: The dictionary object to be written to the JSON file
+        - file_path: The path to the JSON file
+    """
+    with open(file_path, "w") as f:
+        json.dump(dict_obj, f)
+
+
+def append_dict_to_json_file(new_dict: Dict, file_path: str):
+    """
+    Add a dictionary to a JSON file at the given file path.
+    If the file does not exist, it will be created.
+
+    Parameters:
+        - new_dict: The dictionary to be added to the JSON file
+        - file_path: The path to the JSON file
+    """
+    try:
+        with open(file_path, "r") as json_file:
+            data = json.load(json_file)
+    except FileNotFoundError:
+        data = {}
+
+    data.update(new_dict)
+    with open(file_path, "w") as json_file:
+        json.dump(data, json_file)
+
+
+def load_json_file(file_path: str) -> Union[dict, list]:
+    """
+    Load a JSON file from the given file path and return the data as a dictionary or list.
+
+    Parameters:
+        - file_path: The path to the JSON file
+    Return:
+        - The data contained in the JSON file as a dictionary or list
+    """
+    with open(file_path, "r") as file:
+        return json.load(file)
 
 
 def set_seed_for_all(seed: int) -> None:
     """Sets the seed for NumPy, Python's random module, and PyTorch.
 
     Parameters:
-    - seed (int): The seed to be set.
+        - seed (int): The seed to be set.
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -47,10 +124,10 @@ def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
     If no worker ID is provided, uses the initial seed for PyTorch and returns None.
 
     Parameters:
-    - worker_id (Optional[int]): The ID of the worker.
+        - worker_id (Optional[int]): The ID of the worker.
 
     Returns:
-    - Optional[int]: The seed used for the worker, or None if no worker ID was provided.
+        - Optional[int]: The seed used for the worker, or None if no worker ID was provided.
     """
     if worker_id is not None:
         worker_seed = worker_id
@@ -71,15 +148,15 @@ def get_data_augmentation(args) -> Dict[str, Callable]:
     transform includes resize, center crop, and normalization.
 
     Parameters:
-    - args: A namespace object containing the following attributes:
-        - crop_size (int): The size of the crop for the training and validation sets.
-        - interpolation (int): The interpolation method for resizing and cropping.
-        - hflip (bool): Whether to apply random horizontal flip to the training set.
-        - aug_type (str): The type of augmentation to apply to the training set.
-                          Must be one of "trivial", "augmix", or "rand".
+        - args: A namespace object containing the following attributes:
+            - crop_size (int): The size of the crop for the training and validation sets.
+            - interpolation (int): The interpolation method for resizing and cropping.
+            - hflip (bool): Whether to apply random horizontal flip to the training set.
+            - aug_type (str): The type of augmentation to apply to the training set.
+                              Must be one of "trivial", "augmix", or "rand".
 
     Returns:
-    - Dict[str, Callable]: A dictionary of data augmentation transforms for the training and validation sets.
+        - Dict[str, Callable]: A dictionary of data augmentation transforms for the training and validation sets.
     """
     train_aug = [
         transforms.RandomResizedCrop(args.crop_size, interpolation=f.InterpolationMode(args.interpolation)),
@@ -145,11 +222,11 @@ def convert_to_channels_last(image: torch.Tensor) -> torch.Tensor:
 def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dropout: float) -> None:
     """Convert a PyTorch model to ONNX format.
 
-    Args:
-        model_name (str): The name of the model.
-        checkpoint_path (str): The path to the PyTorch checkpoint.
-        num_classes (int): The number of classes in the dataset.
-        dropout (float): The dropout rate to be used in the model.
+    Parameters:
+        - model_name (str): The name of the model.
+        - checkpoint_path (str): The path to the PyTorch checkpoint.
+        - num_classes (int): The number of classes in the dataset.
+        - dropout (float): The dropout rate to be used in the model.
     """
 
     model = get_model(model_name, num_classes, dropout)
@@ -179,8 +256,8 @@ def get_explain_data_aug() -> Tuple[transforms.Compose, transforms.Compose]:
     Returns the transforms for data augmentation used for explaining the model.
 
     Returns:
-        - A tuple of two transforms representing the data augmentation transforms 
-        used for explanation and the inverse of those transforms.
+        - A tuple of two transforms representing the data augmentation transforms
+          used for explanation and the inverse of those transforms.
     """
     transform = transforms.Compose([transforms.Lambda(convert_to_channels_first),
                                     transforms.Lambda(lambda image: image * (1 / 255)),
@@ -205,10 +282,10 @@ def get_classes(dataset_dir: str) -> List[str]:
     Get a list of the classes in a dataset.
 
     Parameters:
-    - dataset_dir: Directory of the dataset.
+        - dataset_dir: Directory of the dataset.
 
     Returns:
-    - A sorted list of the classes in the dataset.
+        - A sorted list of the classes in the dataset.
     """
     class_dirs = glob(os.path.join(dataset_dir, "train/*"))
     classes = [os.path.basename(class_dir) for class_dir in class_dirs]
@@ -222,11 +299,11 @@ def get_model_names(image_size: int, model_size: str) -> List[str]:
     Get a list of model names that match the given image size and model size.
 
     Parameters:
-    - image_size: Image size the models should be trained on.
-    - model_size: Size of the model (e.g. "tiny", "small", etc.)
+        - image_size: Image size the models should be trained on.
+        - model_size: Size of the model (e.g. "tiny", "small", etc.)
 
     Returns:
-    - A list of model names that can be used for training.
+        - A list of model names that can be used for training.
     """
     model_names = timm.list_pretrained()
 
@@ -243,12 +320,12 @@ def create_linear_head(num_ftrs: int, num_classes: int, dropout: float) -> nn.Se
     Creates a new linear head for the given number of classes and dropout rate.
 
     Parameters:
-    num_ftrs (int): The number of input features for the linear head
-    num_classes (int): The number of output classes for the linear head
-    dropout (float): The dropout rate
+        - num_ftrs (int): The number of input features for the linear head
+        - num_classes (int): The number of output classes for the linear head
+        - dropout (float): The dropout rate
 
     Returns:
-    nn.Sequential: A sequential container with a dropout and linear layer
+        - nn.Sequential: A sequential container with a dropout and linear layer
     """
     return nn.Sequential(
         nn.Dropout(p=dropout),
@@ -263,12 +340,12 @@ def get_model(model_name: str, num_classes: int, dropout: float) -> nn.Module:
     number of classes.
 
     Parameters:
-        dropout (float): The dropout rate
-        model_name (str): The name of the model to be created using the `timm` library.
-        num_classes (int): The number of classes for the new head of the model.
+        - dropout (float): The dropout rate
+        - model_name (str): The name of the model to be created using the `timm` library.
+        - num_classes (int): The number of classes for the new head of the model.
 
     Returns:
-        Tuple[nn.Module, str]: A tuple containing the modified model and the model name.
+        - Tuple[nn.Module, str]: A tuple containing the modified model and the model name.
     """
     model = timm.create_model(model_name, pretrained=True, scriptable=True, exportable=True)
     freeze_params(model)
@@ -290,7 +367,7 @@ def freeze_params(model: nn.Module) -> None:
     """Freezes the parameters in the given model.
 
     Parameters:
-        model (nn.Module): A PyTorch neural network model.
+        - model (nn.Module): A PyTorch neural network model.
     """
     for param in model.parameters():
         param.requires_grad = False
@@ -302,10 +379,10 @@ def get_class_weights(data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
     The class weights are calculated as the inverse frequency of each class in the dataset.
 
     Parameters:
-        data_loader (torch.utils.data.DataLoader): A PyTorch data loader.
+        - data_loader (torch.utils.data.DataLoader): A PyTorch data loader.
 
     Returns:
-        torch.Tensor: A tensor of class weights.
+        - torch.Tensor: A tensor of class weights.
     """
     targets = data_loader.dataset.targets
     class_counts = np.bincount(targets)
@@ -317,10 +394,10 @@ def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
     """Returns a list of trainable parameters in the given model.
 
     Parameters:
-        model (nn.Module): A PyTorch neural network model.
+        - model (nn.Module): A PyTorch neural network model.
 
     Returns:
-        List[nn.Parameter]: A list of trainable parameters in the model.
+        - List[nn.Parameter]: A list of trainable parameters in the model.
     """
     return [param for param in model.parameters() if param.requires_grad]
 
@@ -330,17 +407,14 @@ def get_optimizer(args, params: List[nn.Parameter]) -> Union[optim.SGD, optim.Ad
     This function returns an optimizer object based on the provided optimization algorithm name.
 
     Parameters:
-    - args: A namespace object containing the following attributes:
-        - opt_name: The name of the optimization algorithm.
-        - lr: The learning rate for the optimizer.
-        - wd: The weight decay for the optimizer.
-    - params: A list of parameters for the optimizer.
+        - args: A namespace object containing the following attributes:
+            - opt_name: The name of the optimization algorithm.
+            - lr: The learning rate for the optimizer.
+            - wd: The weight decay for the optimizer.
+        - params: A list of parameters for the optimizer.
 
     Returns:
-    - An optimizer object of the specified type, or None if the opt_name is not recognized.
-
-    Example:
-    optimizer = get_optimizer(args, model.parameters())
+        - An optimizer object of the specified type, or None if the opt_name is not recognized.
     """
     if args.opt_name == "sgd":
         return optim.SGD(params, lr=args.lr, weight_decay=args.wd, momentum=0.9)
@@ -355,21 +429,18 @@ def get_lr_scheduler(args, optimizer) -> Union[optim.lr_scheduler.LinearLR, opti
     This function returns a learning rate scheduler object based on the provided scheduling algorithm name.
 
     Parameters:
-    - args: A namespace object containing the following attributes:
-        - sched_name: The name of the scheduling algorithm.
-        - warmup_decay: The decay rate for the warmup scheduler.
-        - warmup_epochs: The number of epochs for the warmup scheduler.
-        - step_size: The step size for the StepLR scheduler.
-        - gamma: The gamma for the StepLR scheduler.
-        - epochs: The total number of epochs for training.
-        - eta_min: The minimum learning rate for the CosineAnnealingLR scheduler.
-    - optimizer: The optimizer object to be used with the scheduler.
+        - args: A namespace object containing the following attributes:
+            - sched_name: The name of the scheduling algorithm.
+            - warmup_decay: The decay rate for the warmup scheduler.
+            - warmup_epochs: The number of epochs for the warmup scheduler.
+            - step_size: The step size for the StepLR scheduler.
+            - gamma: The gamma for the StepLR scheduler.
+            - epochs: The total number of epochs for training.
+            - eta_min: The minimum learning rate for the CosineAnnealingLR scheduler.
+        - optimizer: The optimizer object to be used with the scheduler.
 
     Returns:
-    - A learning rate scheduler object of the specified type, or None if the sched_name is not recognized.
-
-    Example:
-    scheduler = get_lr_scheduler(args, optimizer)
+        - A learning rate scheduler object of the specified type, or None if the sched_name is not recognized.
     """
     warmup_lr = optim.lr_scheduler.LinearLR(optimizer, start_factor=args.warmup_decay, total_iters=args.warmup_epochs)
     if args.sched_name == "step":
@@ -392,13 +463,13 @@ def get_logger(logger_name: str, log_file: str, log_level=logging.DEBUG,
     The logger logs messages to a file and to the console.
 
     Parameters:
-    - logger_name : a string representing the name of the logger
-    - log_file : a string representing the file path of the log file
-    - log_level : representing the log level for the file handler (default = logging.DEBUG)
-    - console_level : representing the log level for the console handler (default = logging.INFO)
+        - logger_name : a string representing the name of the logger
+        - log_file : a string representing the file path of the log file
+        - log_level : representing the log level for the file handler (default = logging.DEBUG)
+        - console_level : representing the log level for the console handler (default = logging.INFO)
 
     Returns:
-    - a logger object
+        - a logger object
     """
     logger = logging.getLogger(logger_name)
     logger.setLevel(log_level)
@@ -425,8 +496,8 @@ class CreateImgSubclasses:
         Initialize the object with the path to the source and destination directories.
 
         Parameters:
-        - img_src: Path to the source directory.
-        - img_dest: Path to the destination directory.
+            - img_src: Path to the source directory.
+            - img_dest: Path to the destination directory.
         """
         self.img_src = img_src
         self.img_dest = img_dest
@@ -436,7 +507,7 @@ class CreateImgSubclasses:
         Get a list of the classes in the source directory.
 
         Returns:
-        - A list of the classes in the source directory.
+            - A list of the classes in the source directory.
         """
         ls = glob(os.path.join(self.img_src, "/*"))
 
@@ -454,14 +525,7 @@ class CreateImgSubclasses:
         """Create directories for each class in `class_names` under `self.img_dest` directory.
 
         Parameters:
-        - class_names: A list of strings containing the names of the image classes.
-
-        Example:
-        - create_class_dirs(["dogs", "cats", "birds"])
-        This will create the following directories under `self.img_dest`:
-        - "dogs"
-        - "cats"
-        - "birds"
+            - class_names: A list of strings containing the names of the image classes.
         """
         for fdir in class_names:
             os.makedirs(os.path.join(self.img_dest, fdir), exist_ok=True)
@@ -482,18 +546,10 @@ class CreateImgSubclasses:
 
 def create_train_val_test_splits(img_src: str, img_dest: str) -> None:
     """Split images from `img_src` directory into train, validation, and test sets and save them in `img_dest`
-    directory.
+    directory. This will save the images in the appropriate directories based on the train-val-test split ratio.
 
     Parameters:
-    - img_src: The source directory containing the images to be split.
-    - img_dest: The destination directory where the split images will be saved.
-
-    Example:
-    - create_train_val_test_splits("images/source", "images/splits")
-    This will create the following directories under `img_dest`:
-    - "train"
-    - "val"
-    - "test"
-    And will save the images in the appropriate directories based on the train-val-test split ratio.
+        - img_src: The source directory containing the images to be split.
+        - img_dest: The destination directory where the split images will be saved.
     """
     splitfolders.ratio(img_src, output=img_dest, seed=333777999, ratio=(0.8, 0.1, 0.1))

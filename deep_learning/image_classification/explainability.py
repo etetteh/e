@@ -22,11 +22,11 @@ def display_results_dataframe(output_dir: str, sorting_metric: str) -> pd.DataFr
     Load the results from the results file, convert them to a DataFrame, and sort the DataFrame by a given metric.
 
     Parameters:
-    - output_dir: Directory where the results file is stored.
-    - sorting_metric: Metric to sort the DataFrame by.
+        - output_dir: Directory where the results file is stored.
+        - sorting_metric: Metric to sort the DataFrame by.
 
     Returns:
-    - A sorted DataFrame of the results.
+        - A sorted DataFrame of the results.
     """
     with open(os.path.join(output_dir, "results.jsonl")) as file_in:
         results_list = [json.loads(line) for line in file_in]
@@ -43,11 +43,11 @@ def plot_confusion_matrix(results_df: pd.DataFrame, model_name: str, classes: Li
     Plot the confusion matrix for a given model.
 
     Parameters:
-    - results_df: DataFrame of results.
-    - model_name: Name of the model to plot the confusion matrix for.
-    - classes: List of classes in the dataset.
+        - results_df: DataFrame of results.
+        - model_name: Name of the model to plot the confusion matrix for.
+        - classes: List of classes in the dataset.
     """
-    cm = results_df[results_df["model"] == model_name]["confusion matrix"].iloc[0]
+    cm = results_df[results_df["model"] == model_name]["cm"].iloc[0]
 
     fig = px.imshow(cm,
                     text_auto=True,
@@ -74,14 +74,14 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
     The plot is displayed and can be saved to a html file if the output_dir is provided
 
     Parameters:
-    - classes: a list of strings representing the names of different classes
-    - results_df: a DataFrame containing the results of the model(s) being plotted,
-        including the false positive rate (fpr) and true positive rate (tpr)
-    - model_name: a string representing the name of the model being plotted
-    - output_dir: a string representing the directory where the plot will be saved (if provided)
+        - classes: a list of strings representing the names of different classes
+        - results_df: a DataFrame containing the results of the model(s) being plotted,
+            including the false positive rate (fpr) and true positive rate (tpr)
+        - model_name: a string representing the name of the model being plotted
+        - output_dir: a string representing the directory where the plot will be saved (if provided)
 
     Returns:
-    None
+        - None
     """
     num_classes = len(classes)
 
@@ -133,19 +133,19 @@ def process_results(args: argparse.Namespace, model_name: str) -> None:
     """
     Processes and saves the performance metrics and plots confusion matrix and ROC curve.
 
-    Args:
-    - args : a Namespace object containing the following attributes:
-        - output_dir : a string representing the directory where the results will be saved
-        - sorting_metric : a string representing the metric to sort the results by
-        - dataset_dir : a string representing the directory of the dataset
-        - logger : a logger object to log the results
-    - model_name : name of model
+    Parameters:
+        - args : a Namespace object containing the following attributes:
+            - output_dir : a string representing the directory where the results will be saved
+            - sorting_metric : a string representing the metric to sort the results by
+            - dataset_dir : a string representing the directory of the dataset
+            - logger : a logger object to log the results
+        - model_name : name of model
 
     Returns:
-    None
+        - None
     """
     results_df = display_results_dataframe(output_dir=args.output_dir, sorting_metric=args.sorting_metric)
-    results_drop = results_df.drop(columns=["loss", "fpr", "tpr", "confusion matrix"])
+    results_drop = results_df.drop(columns=["loss", "fpr", "tpr", "cm"])
 
     results_drop = results_drop.reset_index(drop=True)
 
@@ -169,15 +169,15 @@ def explain_model(args: argparse.Namespace) -> None:
     Explain the predictions of a given model on a dataset using SHAP values.
     
     Parameters:
-    - args (argparse.Namespace): Arguments passed to the script.
-        - dataset_dir (str): Directory of the dataset to use.
-        - model_name (str): Name of the model to use.
-        - crop_size (int): Size of the random crop applied to the images.
-        - batch_size (int): Batch size for data loading.
-        - num_workers (int): Number of workers for data loading.
-        - n_samples (int): Number of samples to explain.
-        - max_evals (int): Maximum number of evaluations for SHAP.
-        - topk (int): Number of top-k predictions to plot.
+        - args (argparse.Namespace): Arguments passed to the script.
+            - dataset_dir (str): Directory of the dataset to use.
+            - model_name (str): Name of the model to use.
+            - crop_size (int): Size of the random crop applied to the images.
+            - batch_size (int): Batch size for data loading.
+            - num_workers (int): Number of workers for data loading.
+            - n_samples (int): Number of samples to explain.
+            - max_evals (int): Maximum number of evaluations for SHAP.
+            - topk (int): Number of top-k predictions to plot.
     """
 
     def predict(img: np.ndarray) -> torch.Tensor:
@@ -185,10 +185,10 @@ def explain_model(args: argparse.Namespace) -> None:
         Predict the class probabilities for an image.
         
         Parameters:
-        - img (np.ndarray): Input image.
+            - img (np.ndarray): Input image.
         
         Returns:
-        - torch.Tensor: Class probabilities.
+            - torch.Tensor: Class probabilities.
         """
         img = utils.convert_to_channels_first(torch.Tensor(img))
         img = img.to(device)

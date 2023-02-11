@@ -31,11 +31,11 @@ def main(config: dict, args: argparse.Namespace) -> None:
     Main function to run the training and validation process.
 
     Parameters
-     - config: Dictionary containing the configuration parameters.
-     - args: Argument namespace containing the parsed command line arguments.
+        - config: Dictionary containing the configuration parameters.
+        - args: Argument namespace containing the parsed command line arguments.
     
     Returns
-     - None
+        - None
     """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -156,16 +156,7 @@ def main(config: dict, args: argparse.Namespace) -> None:
 
         lr_scheduler.step()
 
-        val_loss, val_acc, val_roc, val_auc, val_f1, val_recall, val_prec, val_cm = evaluate(
-            args,
-            epoch,
-            val_loader,
-            model,
-            val_criterion,
-            val_metrics,
-            roc_metric,
-            device
-        )
+        total_val_metrics, total_roc_metric = evaluate(args, epoch, val_loader, model, val_metrics, roc_metric, device)
 
         with tune.checkpoint_dir(epoch) as checkpoint_dir:
             path = os.path.join(checkpoint_dir, "best_model.pth")
@@ -177,10 +168,10 @@ def main(config: dict, args: argparse.Namespace) -> None:
                 path)
 
         tune.report(
-            auc=val_auc,
-            f1=val_f1,
-            recall=val_recall,
-            prec=val_prec
+            auc=total_val_metrics["auc"],
+            f1=total_val_metrics["f1"],
+            recall=total_val_metrics["recall"],
+            prec=total_val_metrics["precision"]
         )
 
     args.logger.info("Finished Training")

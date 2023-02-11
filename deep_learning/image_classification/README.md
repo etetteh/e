@@ -11,6 +11,15 @@
 * [Citation](#citation)
 
 ## Usage
+### Feb 11, 2023
+Added <span style="color:green;font-weight:700;font-size:16px"> **training logging** </span> using [MLflow](https://mlflow.org/)
+<span style="color:red;font-weight:700;font-size:15px">
+    **Example**:
+</span>
+ to check logged items, run
+```
+mlflow ui
+```
 
 ### Feb 10, 2023
 Added <span style="color:green;font-weight:700;font-size:16px"> [app.py](https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/app.py) </span> to run inference with [FastAPI](https://fastapi.tiangolo.com/) on a single or multiple images by passing a JSON file.\
@@ -215,6 +224,7 @@ The script makes use of the following libraries, which can be installed followin
 5. [SHAP](https://shap.readthedocs.io/en/latest/index.html#) for model explainability
 6. [ONNX](https://onnx.ai/) for exporting model for inference
 7. [FastAPI](https://fastapi.tiangolo.com/) for running inference on single or multiple images 
+8. [MLflow](https://mlflow.org/) for logging training 
 
 ## Documentation
 Coming soon!

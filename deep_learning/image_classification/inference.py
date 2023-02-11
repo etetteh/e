@@ -17,13 +17,13 @@ def run_one_inference(onnx_model_path: str, img_path: str, dataset_dir_or_classe
     Runs one inference on a given ONNX model and image.
 
     Parameters:
-        onnx_model_path (str): Path to the ONNX model.
-        img_path (str): Path to the image.
-        dataset_dir_or_classes_file (str): Path to the directory containing the dataset classes or Path to a text file
+        - onnx_model_path (str): Path to the ONNX model.
+        - img_path (str): Path to the image.
+        - dataset_dir_or_classes_file (str): Path to the directory containing the dataset classes or Path to a text file
                                 containing class names (each class name on a separate line).
 
     Returns:
-        dict: A dictionary containing the predicted label and the associated probability.
+        - dict: A dictionary containing the predicted label and the associated probability.
 
     """
 
@@ -32,10 +32,10 @@ def run_one_inference(onnx_model_path: str, img_path: str, dataset_dir_or_classe
         Convert a PyTorch tensor to a numpy array.
 
         Parameters:
-            tensor (torch.Tensor): The input tensor.
+            - tensor (torch.Tensor): The input tensor.
 
         Returns:
-            np.ndarray: The converted numpy array.
+            - np.ndarray: The converted numpy array.
         """
         return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
