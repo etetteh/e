@@ -1,0 +1,4 @@
+cloud
+rain
+shine 
+sun
