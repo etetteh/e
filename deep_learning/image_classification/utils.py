@@ -1,4 +1,3 @@
-import hashlib
 import json
 import logging
 import os
@@ -53,6 +52,17 @@ def get_run_id(run_ids: Dict[str, str], model_name: str) -> Optional[str]:
         - model_name: The name of the model for which to retrieve the run ID
     Return:
          - The run ID of the specified model, or None if the model is not in the dictionary
+
+    Example:
+        run_ids = {
+            "model_1": "abc123",
+            "model_2": "def456",
+            "model_3": "ghi789"
+        }
+
+        model_name = "model_2"
+        run_id = get_run_id(run_ids, model_name)
+        print(run_id) # Output: "def456"
     """
     try:
         run_id = run_ids[model_name]
@@ -69,9 +79,19 @@ def write_json_file(dict_obj: Dict, file_path: str):
     Parameters:
         - dict_obj: The dictionary object to be written to the JSON file
         - file_path: The path to the JSON file
+
+    Example:
+        data = {
+            "key_1": "value_1",
+            "key_2": "value_2",
+            "key_3": "value_3"
+        }
+
+        file_path = "data.json"
+        write_json_file(data, file_path)
     """
-    with open(file_path, "w") as f:
-        json.dump(dict_obj, f)
+    with open(file_path, "w") as file_out:
+        json.dump(dict_obj, file_out)
 
 
 def append_dict_to_json_file(new_dict: Dict, file_path: str):
@@ -82,6 +102,33 @@ def append_dict_to_json_file(new_dict: Dict, file_path: str):
     Parameters:
         - new_dict: The dictionary to be added to the JSON file
         - file_path: The path to the JSON file
+
+    Example:
+        data = {
+            "key_1": "value_1",
+        }
+
+        file_path = "data.json"
+        append_dict_to_json_file(data, file_path)
+
+        # The content of the file data.json is now:
+        # {
+        #   "key_1": "value_1",
+        # }
+
+        # Adding another dictionary to the same file:
+        new_data = {
+            "key_4": "value_4",
+            "key_5": "value_5"
+        }
+        append_dict_to_json_file(new_data, file_path)
+
+        # The content of the file data.json is now:
+        # {
+        #   "key_1": "value_1",
+        #   "key_4": "value_4",
+        #   "key_5": "value_5"
+        # }
     """
     try:
         with open(file_path, "r") as json_file:
@@ -102,6 +149,15 @@ def load_json_file(file_path: str) -> Union[dict, list]:
         - file_path: The path to the JSON file
     Return:
         - The data contained in the JSON file as a dictionary or list
+
+    Example:
+        data = load_json_file("file.json")
+        if isinstance(data, dict):
+            # data is a dictionary
+            print(data)
+        elif isinstance(data, list):
+            # data is a list
+            print(data)
     """
     with open(file_path, "r") as file:
         return json.load(file)
@@ -112,6 +168,9 @@ def set_seed_for_all(seed: int) -> None:
 
     Parameters:
         - seed (int): The seed to be set.
+
+    Example:
+        set_seed_for_all(42)
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -157,6 +216,25 @@ def get_data_augmentation(args) -> Dict[str, Callable]:
 
     Returns:
         - Dict[str, Callable]: A dictionary of data augmentation transforms for the training and validation sets.
+
+    Example:
+        args = argparse.Namespace(
+             crop_size=224,
+             interpolation=2,
+             hflip=True,
+             aug_type="augmix",
+             mag_bins=3,
+             val_resize=256,
+        )
+        get_data_augmentation(args)
+        {"train": [RandomResizedCrop(size=(224, 224), interpolation=<InterpolationMode.BICUBIC),
+                  RandomHorizontalFlip(p=True), AugMix(interpolation=<InterpolationMode.BICUBIC), ToTensor(),
+                  Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                  ],
+         "val": [Resize(size=256, interpolation=<InterpolationMode.BICUBIC), CenterCrop(size=(224, 224)), ToTensor(),
+                Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                ]
+                }
     """
     train_aug = [
         transforms.RandomResizedCrop(args.crop_size, interpolation=f.InterpolationMode(args.interpolation)),
@@ -185,6 +263,19 @@ def get_data_augmentation(args) -> Dict[str, Callable]:
     return {"train": train_transform, "val": val_transform}
 
 
+def convert_tensor_to_numpy(tensor: torch.Tensor) -> np.ndarray:
+    """
+    Convert tensor to numpy ndarray
+
+    Parameters:
+        - tensor (torch.Tensor): torch tensor to be converted
+
+    Returns:
+        - np.ndarray: numpy ndarray converted from tensor
+    """
+    return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+
+
 def convert_to_channels_first(image: torch.Tensor) -> torch.Tensor:
     """
     Converts an image tensor from channels last format to channels first format.
@@ -194,6 +285,14 @@ def convert_to_channels_first(image: torch.Tensor) -> torch.Tensor:
 
     Returns:
         - torch.Tensor: The image tensor in channels first format.
+
+    Example:
+        import torch
+        image = torch.randn(3, 256, 256)
+        image = convert_to_channels_first(image)
+        image.shape
+
+        torch.Size([256, 256, 3])
     """
     if image.dim() == 4:
         image = image if image.shape[1] == 3 else image.permute(0, 3, 1, 2)
@@ -211,6 +310,15 @@ def convert_to_channels_last(image: torch.Tensor) -> torch.Tensor:
 
     Returns:
         - torch.Tensor: The image tensor in channels last format.
+
+    Example:
+        import torch
+        image = torch.randn((2, 3, 32, 32))
+        print(image.shape)
+        # (2, 3, 32, 32)
+        image = convert_to_channels_last(image)
+        print(image.shape)
+        # (2, 32, 32, 3)
     """
     if image.dim() == 4:
         image = image if image.shape[3] == 3 else image.permute(0, 2, 3, 1)
@@ -227,6 +335,10 @@ def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dro
         - checkpoint_path (str): The path to the PyTorch checkpoint.
         - num_classes (int): The number of classes in the dataset.
         - dropout (float): The dropout rate to be used in the model.
+
+    Example:
+        convert_to_onnx("resnet18", "./best_model.pt", 10, 0.2)
+
     """
 
     model = get_model(model_name, num_classes, dropout)
@@ -258,6 +370,10 @@ def get_explain_data_aug() -> Tuple[transforms.Compose, transforms.Compose]:
     Returns:
         - A tuple of two transforms representing the data augmentation transforms
           used for explanation and the inverse of those transforms.
+
+    Example:
+        transform, inv_transform = get_explain_data_aug()
+        transformed_image = transform(original_image)
     """
     transform = transforms.Compose([transforms.Lambda(convert_to_channels_first),
                                     transforms.Lambda(lambda image: image * (1 / 255)),
@@ -286,6 +402,11 @@ def get_classes(dataset_dir: str) -> List[str]:
 
     Returns:
         - A sorted list of the classes in the dataset.
+
+    Example:
+        classes = get_classes('path/to/dataset')
+        print(classes)
+        # Output: ['class1', 'class2', 'class3', ...]
     """
     class_dirs = glob(os.path.join(dataset_dir, "train/*"))
     classes = [os.path.basename(class_dir) for class_dir in class_dirs]
@@ -304,6 +425,10 @@ def get_model_names(image_size: int, model_size: str) -> List[str]:
 
     Returns:
         - A list of model names that can be used for training.
+
+    Example:
+        get_model_names(224, "small")
+        # ['tf_efficientnet_b0_ns_small_224', 'tf_efficientnet_b1_ns_small_224', 'tf_efficientnet_b2_ns_small_224', ...]
     """
     model_names = timm.list_pretrained()
 
@@ -326,6 +451,9 @@ def create_linear_head(num_ftrs: int, num_classes: int, dropout: float) -> nn.Se
 
     Returns:
         - nn.Sequential: A sequential container with a dropout and linear layer
+
+    Example:
+        linear_head = create_linear_head(num_ftrs=2048, num_classes=1000, dropout=0.5)
     """
     return nn.Sequential(
         nn.Dropout(p=dropout),
@@ -346,6 +474,9 @@ def get_model(model_name: str, num_classes: int, dropout: float) -> nn.Module:
 
     Returns:
         - Tuple[nn.Module, str]: A tuple containing the modified model and the model name.
+
+    Example:
+        model = get_model("tf_efficientnet_b0_ns", num_classes=10, dropout=0.1)
     """
     model = timm.create_model(model_name, pretrained=True, scriptable=True, exportable=True)
     freeze_params(model)
@@ -368,6 +499,11 @@ def freeze_params(model: nn.Module) -> None:
 
     Parameters:
         - model (nn.Module): A PyTorch neural network model.
+
+    Example:
+        model = MyModel()
+        freeze_params(model)
+        # Now all the parameters in `model` are frozen and won't be updated during training.
     """
     for param in model.parameters():
         param.requires_grad = False
@@ -383,6 +519,15 @@ def get_class_weights(data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
 
     Returns:
         - torch.Tensor: A tensor of class weights.
+
+    Example:
+        from torch.utils.data import DataLoader
+        from torchvision.datasets import ImageFolder
+        from torchvision import transforms
+
+        dataset = ImageFolder("path/to/dataset", transform=transforms.ToTensor())
+        data_loader = DataLoader(dataset, batch_size=32, shuffle=True)
+        class_weights = get_class_weights(data_loader)
     """
     targets = data_loader.dataset.targets
     class_counts = np.bincount(targets)
@@ -398,6 +543,12 @@ def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
 
     Returns:
         - List[nn.Parameter]: A list of trainable parameters in the model.
+
+    Example:
+        model = nn.Linear(10, 5)
+        trainable_params = get_trainable_params(model)
+        len(trainable_params)
+        2
     """
     return [param for param in model.parameters() if param.requires_grad]
 
@@ -415,6 +566,12 @@ def get_optimizer(args, params: List[nn.Parameter]) -> Union[optim.SGD, optim.Ad
 
     Returns:
         - An optimizer object of the specified type, or None if the opt_name is not recognized.
+
+    Example:
+        args = Namespace(opt_name="sgd", lr=0.01, wd=0.0001)
+        model = torch.nn.Linear(10, 10)
+        params = get_trainable_params(model)
+        optimizer = get_optimizer(args, params)
     """
     if args.opt_name == "sgd":
         return optim.SGD(params, lr=args.lr, weight_decay=args.wd, momentum=0.9)
@@ -441,6 +598,15 @@ def get_lr_scheduler(args, optimizer) -> Union[optim.lr_scheduler.LinearLR, opti
 
     Returns:
         - A learning rate scheduler object of the specified type, or None if the sched_name is not recognized.
+
+    Example:
+        import torch
+        import torch.optim as optim
+
+        optimizer = optim.SGD(model.parameters(), lr=0.1)
+        args = Namespace(sched_name="step", warmup_decay=0.01, warmup_epochs=10, step_size=10,
+                          gamma=0.1, epochs=100, eta_min=0.0)
+        lr_scheduler = get_lr_scheduler(args, optimizer)
     """
     warmup_lr = optim.lr_scheduler.LinearLR(optimizer, start_factor=args.warmup_decay, total_iters=args.warmup_epochs)
     if args.sched_name == "step":
@@ -470,6 +636,12 @@ def get_logger(logger_name: str, log_file: str, log_level=logging.DEBUG,
 
     Returns:
         - a logger object
+
+    Example:
+        logger = get_logger("example_logger", "example.log", logging.DEBUG, logging.INFO)
+        logger.debug("This is a debug message")
+        logger.info("This is an info message")
+
     """
     logger = logging.getLogger(logger_name)
     logger.setLevel(log_level)
@@ -551,5 +723,8 @@ def create_train_val_test_splits(img_src: str, img_dest: str) -> None:
     Parameters:
         - img_src: The source directory containing the images to be split.
         - img_dest: The destination directory where the split images will be saved.
-    """
+
+    Example:
+        create_train_val_test_splits('/path/to/images/', '/path/to/splitted_images/')
+"""
     splitfolders.ratio(img_src, output=img_dest, seed=333777999, ratio=(0.8, 0.1, 0.1))
