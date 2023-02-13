@@ -91,8 +91,6 @@ def main(config: dict, args: argparse.Namespace) -> None:
                                           else args.label_smoothing
                                           ).to(device)
 
-    val_criterion = torch.nn.CrossEntropyLoss().to(device)
-
     num_classes = len(train_loader.dataset.classes)
 
     task = "binary" if num_classes == 2 else "multiclass"
