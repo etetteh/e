@@ -27,7 +27,7 @@ Added <span style="color:green;font-weight:700;font-size:16px"> [app.py](https:/
 ```
 {
   "onnx_model_path": "swinv2_cr_tiny_ns_224/best_model.onnx",
-  "img_paths": [<path_to_image1>, <path_to_image2>, <path_to_image3>, <path_to_image4>],
+  "imgs_paths": [<path_to_image1>, <path_to_image2>, <path_to_image3>, <path_to_image4>],
   "dataset_dir_or_classes_file": <path_to_dataset_dir_or_classes_file>
 }
 ```
@@ -70,7 +70,7 @@ uvicorn app:app --reload
 ```
 
 ### Feb 07, 2023
-Added <span style="color:green;font-weight:700;font-size:16px"> [inference.py](https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/inference.py) </span> to run inference on a single image using the best model saved in [ONNX](https://onnx.ai/) format.\
+Added <span style="color:green;font-weight:700;font-size:16px"> [inference.py](https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/inference.py) </span> to run inference on a single or multiple images using the best model saved in [ONNX](https://onnx.ai/) format.\
 <span style="color:red;font-weight:700;font-size:15px">
     **Example**:
 </span>
@@ -78,7 +78,7 @@ Added <span style="color:green;font-weight:700;font-size:16px"> [inference.py](h
 ```
 python inference.py \
     --onnx_model_path  swinv2_cr_tiny_ns_224/best_model.onnx \
-    --img_path <path_to_image> \
+    --imgs_paths <paths_to_images> \
     --dataset_dir_or_classes_file <path_to_dataset_dir_or_classes_file>
 ```
 Note that `dataset_dir_or_classes_file` takes as argument your dataset directory or a text file containing the classes 
