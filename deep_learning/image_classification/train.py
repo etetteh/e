@@ -384,7 +384,7 @@ def get_args():
     """
     parser = argparse.ArgumentParser(description="Image Classification")
 
-    parser.add_argument("--experiment_name", type=str, default="Experiment_1", help="Name of the MLflow experiment")
+    parser.add_argument("--experiment_name", required=True, type=str, default="Experiment_1", help="Name of the MLflow experiment")
     parser.add_argument("--dataset_dir", required=True, type=str, help="Directory of the dataset.")
     parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
 
@@ -451,4 +451,5 @@ if __name__ == "__main__":
     cfgs.logger = utils.get_logger(f"Training and Evaluation of Image Classifiers",
                                    f"{cfgs.output_dir}/training_logs.log")
 
+    mlflow.set_tracking_uri(f"{cfgs.output_dir}/mlruns")
     main(cfgs)
