@@ -373,7 +373,14 @@ def main(args: argparse.Namespace) -> None:
             file.write("\n")
 
         explainability.process_results(args, model_name)
-        utils.convert_to_onnx(model_name, best_model_file, num_classes, args.dropout)
+
+    results_list = utils.load_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
+    best_compare_model_name = results_list[0]['model']
+    best_compare_model_file = os.path.join(args.output_dir, best_compare_model_name, "best_model.pth")
+
+    utils.convert_to_onnx(best_compare_model_name, best_compare_model_file, num_classes, args.dropout)
+    args.logger.info(f"Exported best performing model, {best_compare_model_name}, to ONNX format. File is located in "
+                     f"{os.path.join(args.output_dir, best_compare_model_name)}")
 
     args.logger.info(f"All results have been saved at {os.path.abspath(args.output_dir)}")
 
