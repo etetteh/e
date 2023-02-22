@@ -13,19 +13,17 @@ async def predict(file: UploadFile):
 
     Parameters:
         - file (UploadFile): a JSON file containing the following keys:
-        - onnx_model_path (str): Path to ONNX model
-        - imgs_paths (str): Paths to the input images
-        - dataset_dir_or_classes_file (str): Path to dataset directory or file with list of classes
+            - onnx_model_path (str): Path to ONNX model
+            - img_path (str): Path to a single image or a directory containing images to be classified
+            - dataset_dir_or_classes_file (str): Path to dataset directory or file with list of classes
 
     Returns:
-        - List[dict]: A list of dictionary/dictionaries containing the following keys:
-            image:
-                "Predicted Label": str, the predicted label of the image
-                "Probability": float, the confidence of the prediction
+        - dict: A dict of dictionary[ies] containing image name and its predicted label and the associated probability.
+
     """
     input_json = json.loads(await file.read())
     onnx_model_path = input_json['onnx_model_path']
-    imgs_path = input_json['imgs_paths']
+    imgs_path = input_json['img_path']
     dataset_dir_or_classes_file = input_json['dataset_dir_or_classes_file']
 
     results = run_inference(onnx_model_path, imgs_path, dataset_dir_or_classes_file)
