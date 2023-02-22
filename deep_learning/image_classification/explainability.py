@@ -28,8 +28,7 @@ def display_results_dataframe(output_dir: str, sorting_metric: str) -> pd.DataFr
     Returns:
         - A sorted DataFrame of the results.
     """
-    with open(os.path.join(output_dir, "results.jsonl")) as file_in:
-        results_list = [json.loads(line) for line in file_in]
+    results_list = utils.load_json_lines_file(os.path.join(output_dir, "results.jsonl"))
 
     results_df = pd.DataFrame(results_list)
 

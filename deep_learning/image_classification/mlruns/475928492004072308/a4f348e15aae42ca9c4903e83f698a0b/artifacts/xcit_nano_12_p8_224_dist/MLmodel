@@ -1,0 +1,18 @@
+artifact_path: xcit_nano_12_p8_224_dist
+flavors:
+  python_function:
+    data: data
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.pytorch
+    pickle_module_name: mlflow.pytorch.pickle_module
+    python_version: 3.10.9
+  pytorch:
+    code: null
+    model_data: data
+    pytorch_version: 1.13.1+cu117
+mlflow_version: 2.1.1
+model_uuid: c3c0c3fc263f421886e98f53487c162d
+run_id: a4f348e15aae42ca9c4903e83f698a0b
+utc_time_created: '2023-02-22 14:05:52.605412'

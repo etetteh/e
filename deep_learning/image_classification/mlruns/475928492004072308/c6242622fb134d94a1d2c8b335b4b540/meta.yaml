@@ -1,0 +1,15 @@
+artifact_uri: file:///home/enoch/Documents/low_code_dl/deep_learning/image_classification/mlruns/475928492004072308/c6242622fb134d94a1d2c8b335b4b540/artifacts
+end_time: 1677074466526
+entry_point_name: ''
+experiment_id: '475928492004072308'
+lifecycle_stage: active
+run_id: c6242622fb134d94a1d2c8b335b4b540
+run_name: xcit_nano_12_p16_224
+run_uuid: c6242622fb134d94a1d2c8b335b4b540
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1677074400217
+status: 3
+tags: []
+user_id: enoch

@@ -1,0 +1,7 @@
+mlflow<3,>=2.1
+cffi==1.15.1
+cloudpickle==2.2.1
+defusedxml==0.7.1
+ipython==8.10.0
+timm==0.8.13.dev0
+torch==1.13.1
