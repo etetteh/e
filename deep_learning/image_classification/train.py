@@ -451,5 +451,4 @@ if __name__ == "__main__":
     cfgs.logger = utils.get_logger(f"Training and Evaluation of Image Classifiers",
                                    f"{cfgs.output_dir}/training_logs.log")
 
-    mlflow.set_tracking_uri(f"{cfgs.output_dir}/mlruns")
     main(cfgs)
