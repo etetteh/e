@@ -5,24 +5,25 @@ import warnings
 
 import onnxruntime
 import torch.nn.functional as f
+from glob import glob
 from PIL import Image
 import torchvision.transforms as transforms
 
 import utils
 
 
-def run_inference(onnx_model_path: str, imgs_path: str, dataset_dir_or_classes_file: str) -> list:
+def run_inference(onnx_model_path: str, img_path: str, dataset_dir_or_classes_file: str) -> dict:
     """
     Runs one inference on a given ONNX model and image.
 
     Parameters:
         - onnx_model_path (str): Path to the ONNX model.
-        - imgs_paths (str): Paths to the images.
+        - img_path (str): Path to a single image or a directory containing images to be classified.
         - dataset_dir_or_classes_file (str): Path to the directory containing the dataset classes or Path to a text file
                                 containing class names (each class name on a separate line).
 
     Returns:
-        - dict: A list of dictionary/dictionaries containing the predicted label and the associated probability.
+        - dict: A dict of dictionary[ies] containing image name and its predicted label and the associated probability.
 
     """
 
@@ -34,14 +35,18 @@ def run_inference(onnx_model_path: str, imgs_path: str, dataset_dir_or_classes_f
 
     transform_img = transforms.Compose([transforms.Resize([224, 224]), transforms.ToTensor()])
 
-    # if
-    imgs = [Image.open(img_path) for img_path in imgs_path]
+    if os.path.isdir(img_path):
+        imgs_path = glob(os.path.join(img_path, "*"))
+    else:
+        imgs_path = [img_path]
+
+    imgs = [Image.open(img) for img in imgs_path]
     imgs = [transform_img(img) for img in imgs]
     imgs = [img.unsqueeze_(0) for img in imgs]
 
     ort_session = onnxruntime.InferenceSession(onnx_model_path)
 
-    results = []
+    results = {}
     for i, img in enumerate(imgs):
         ort_inputs = {ort_session.get_inputs()[0].name: utils.convert_tensor_to_numpy(img)}
         ort_outs = ort_session.run(None, ort_inputs)
@@ -49,8 +54,8 @@ def run_inference(onnx_model_path: str, imgs_path: str, dataset_dir_or_classes_f
         prob = f.softmax(torch.from_numpy(ort_outs[0]), dim=1)
         top_p, top_class = torch.topk(prob, 1, dim=1)
 
-        results.append({
-            f"image {i}": {
+        results.update({
+            f"{os.path.basename(imgs_path[i])}": {
                 "Predicted Label": classes[top_class.item()],
                 "Probability": round(top_p.item() * 100, 2),
             }
@@ -63,8 +68,10 @@ def run_inference(onnx_model_path: str, imgs_path: str, dataset_dir_or_classes_f
 def get_args():
     parser = argparse.ArgumentParser(description="Run a single inference on a ONNX model for image classification")
 
+    parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
     parser.add_argument("--onnx_model_path", type=str, required=True, help="Path to the ONNX model")
-    parser.add_argument("--imgs_paths", nargs="*", required=True, help="Path to the image to be classified")
+    parser.add_argument("--img_path", type=str, required=True, help="Path to a single image or a directory containing "
+                                                                    "images to be classified")
     parser.add_argument("--dataset_dir_or_classes_file", type=str, required=True,
             help="Path to the directory containing the dataset classes or Path to a text file containing class names")
 
@@ -76,5 +83,7 @@ if __name__ == "__main__":
 
     args = get_args()
 
-    result = run_inference(args.onnx_model_path, args.imgs_paths, args.dataset_dir_or_classes_file)
-    print(result)
+    result = run_inference(args.onnx_model_path, args.img_path, args.dataset_dir_or_classes_file)
+    utils.write_json_file(dict_obj=result, file_path=f"{args.output_dir}/inference_results.json")
+
+    print(f"Inference results have been saved to {args.output_dir}/inference_results.json")
