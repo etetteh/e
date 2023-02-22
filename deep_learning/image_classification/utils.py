@@ -142,12 +142,12 @@ def append_dict_to_json_file(new_dict: Dict, file_path: str):
 
 def load_json_file(file_path: str) -> Union[dict, list]:
     """
-    Load a JSON file from the given file path and return the data as a dictionary or list.
+    Load a JSON file from the given file path and return the data as a dictionary.
 
     Parameters:
         - file_path: The path to the JSON file
     Return:
-        - The data contained in the JSON file as a dictionary or list
+        - The data contained in the JSON file as a dictionary
 
     Example:
         data = load_json_file("file.json")
@@ -160,6 +160,20 @@ def load_json_file(file_path: str) -> Union[dict, list]:
     """
     with open(file_path, "r") as file:
         return json.load(file)
+
+
+def load_json_lines_file(file_path: str) -> Union[dict, list]:
+    """
+    Load a JSON Lines file from the given file path and return the data as a list.
+
+    Parameters:
+        - file_path: The path to the JSON Lines file
+    Return:
+        - The data contained in the JSON file as a list
+
+    """
+    with open(file_path, "r") as file_in:
+        return [json.loads(line) for line in file_in]
 
 
 def set_seed_for_all(seed: int) -> None:
