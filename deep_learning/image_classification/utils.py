@@ -91,7 +91,7 @@ def write_json_file(dict_obj: Dict, file_path: str):
         write_json_file(data, file_path)
     """
     with open(file_path, "w") as file_out:
-        json.dump(dict_obj, file_out)
+        json.dump(dict_obj, file_out, indent=4)
 
 
 def append_dict_to_json_file(new_dict: Dict, file_path: str):
@@ -131,14 +131,13 @@ def append_dict_to_json_file(new_dict: Dict, file_path: str):
         # }
     """
     try:
-        with open(file_path, "r") as json_file:
-            data = json.load(json_file)
+        data = load_json_file(file_path)
     except FileNotFoundError:
         data = {}
 
     data.update(new_dict)
     with open(file_path, "w") as json_file:
-        json.dump(data, json_file)
+        json.dump(data, json_file, indent=4)
 
 
 def load_json_file(file_path: str) -> Union[dict, list]:
