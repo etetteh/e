@@ -12,12 +12,13 @@
 
 ## Usage
 ### Feb 11, 2023
-Added <span style="color:green;font-weight:700;font-size:16px"> **training logging** </span> using [MLflow](https://mlflow.org/)
+Added <span style="color:green;font-weight:700;font-size:16px"> **training logging** </span> using [MLflow](https://mlflow.org/)\
 <span style="color:red;font-weight:700;font-size:15px">
     **Example**:
 </span>
  to check logged items, run
 ```
+cd <training_output_dir>
 mlflow ui
 ```
 
@@ -27,7 +28,7 @@ Added <span style="color:green;font-weight:700;font-size:16px"> [app.py](https:/
 ```
 {
   "onnx_model_path": "swinv2_cr_tiny_ns_224/best_model.onnx",
-  "imgs_paths": [<path_to_image1>, <path_to_image2>, <path_to_image3>, <path_to_image4>],
+  "img_path": <path_to_image> or <path_to_directory_containing_images>,
   "dataset_dir_or_classes_file": <path_to_dataset_dir_or_classes_file>
 }
 ```
@@ -77,9 +78,10 @@ Added <span style="color:green;font-weight:700;font-size:16px"> [inference.py](h
  to predict the class and probability score of an image using a `swinv2_cr_tiny_ns_224` model, run
 ```
 python inference.py \
-    --onnx_model_path  swinv2_cr_tiny_ns_224/best_model.onnx \
-    --imgs_paths <paths_to_images> \
-    --dataset_dir_or_classes_file <path_to_dataset_dir_or_classes_file>
+    --onnx_model_path  <training_output_dir>/swinv2_cr_tiny_ns_224/best_model.onnx \
+    --img_path <path_to_image> or <path_to_directory_containing_images> \
+    --dataset_dir_or_classes_file <path_to_dataset_dir_or_classes_file> \
+    --output_dir <directory_to_save_inference_results>
 ```
 Note that `dataset_dir_or_classes_file` takes as argument your dataset directory or a text file containing the classes 
 ### Jan 29, 2023
@@ -196,7 +198,27 @@ python train.py \
 17                   xcit_tiny_12_p16_224_dist    0.9290  0.9857  0.9295  0.9290     0.9303
 
 ```
+Output directory tree:
+```
+output_dir
+    |--performance_metrics.jsonl
+    |--results.jsonl
+    |--run_ids.json
+    |--training_logs.log
+    |--mlruns
+    |--model_1
+        |-- best_model.onnx
+        |-- best_model.pth
+        |-- checkpoint.pth
+        |-- confusion_matrix.html
+        |-- roc_curve.html
+    |--model_2
+    .
+    .
+    .
+    |--<model_n>
 
+```
 Model explanation\
 <img src="https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/plots/model_explainability.png" height="550" width="900">
 
