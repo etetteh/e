@@ -314,6 +314,7 @@ def main(args: argparse.Namespace) -> None:
                 else:
                     args.logger.info(f"Resuming training from epoch {start_epoch}\n")
 
+            model.set_grad_checkpointing()
             start_time = time.time()
 
             utils.heading(f"Training a {model_name} model: Model {i + 1} of {len(args.models)}")
@@ -330,15 +331,15 @@ def main(args: argparse.Namespace) -> None:
 
                 lr_scheduler.step()
 
-                fpr, tpr, _ = total_roc_metric
-                fpr, tpr = [ff.detach().tolist() for ff in fpr], [tt.detach().tolist() for tt in tpr]
-
                 train_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
                                  total_train_metrics.items()}
                 val_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
                                total_val_metrics.items()}
 
                 if val_results["f1"] >= best_f1:
+                    fpr, tpr, _ = total_roc_metric
+                    fpr, tpr = [ff.detach().tolist() for ff in fpr], [tt.detach().tolist() for tt in tpr]
+
                     best_f1 = val_results["f1"]
                     best_results = {**{"model": model_name, "fpr": fpr, "tpr": tpr}, **val_results}
 
