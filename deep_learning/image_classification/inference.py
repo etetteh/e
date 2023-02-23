@@ -5,9 +5,12 @@ import warnings
 
 import onnxruntime
 import torch.nn.functional as f
+import torchvision.transforms as transforms
+
 from glob import glob
 from PIL import Image
-import torchvision.transforms as transforms
+from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+
 
 import utils
 
@@ -33,7 +36,13 @@ def run_inference(onnx_model_path: str, img_path: str, dataset_dir_or_classes_fi
     else:
         classes = utils.get_classes(dataset_dir_or_classes_file)
 
-    transform_img = transforms.Compose([transforms.Resize([224, 224]), transforms.ToTensor()])
+    transform_img = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD)
+        ]
+       )
 
     if os.path.isdir(img_path):
         imgs_path = glob(os.path.join(img_path, "*"))
@@ -82,6 +91,9 @@ if __name__ == "__main__":
     warnings.filterwarnings("ignore", category=UserWarning)
 
     args = get_args()
+
+    if not os.path.isdir(args.output_dir):
+        os.makedirs(args.output_dir, exist_ok=True)
 
     result = run_inference(args.onnx_model_path, args.img_path, args.dataset_dir_or_classes_file)
     utils.write_json_file(dict_obj=result, file_path=f"{args.output_dir}/inference_results.json")
