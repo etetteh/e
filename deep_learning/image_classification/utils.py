@@ -6,6 +6,7 @@ import re
 import shutil
 import sys
 from glob import glob
+from collections import defaultdict, deque, OrderedDict
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -340,7 +341,7 @@ def convert_to_channels_last(image: torch.Tensor) -> torch.Tensor:
     return image
 
 
-def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dropout: float) -> None:
+def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dropout: float, crop_size: int) -> None:
     """Convert a PyTorch model to ONNX format.
 
     Parameters:
@@ -348,6 +349,7 @@ def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dro
         - checkpoint_path (str): The path to the PyTorch checkpoint.
         - num_classes (int): The number of classes in the dataset.
         - dropout (float): The dropout rate to be used in the model.
+        - crop_size (int): The size of the crop for inference dataset/image.
 
     Example:
         convert_to_onnx("resnet18", "./best_model.pt", 10, 0.2)
@@ -361,7 +363,7 @@ def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dro
     model.eval()
 
     batch_size = 1
-    dummy_input = torch.randn(batch_size, 3, 224, 224, requires_grad=True)
+    dummy_input = torch.randn(batch_size, 3, crop_size, crop_size, requires_grad=True)
     filename = os.path.join(os.path.dirname(checkpoint_path), "best_model.onnx")
 
     torch.onnx.export(
@@ -453,27 +455,6 @@ def get_model_names(image_size: int, model_size: str) -> List[str]:
     return training_models
 
 
-def create_linear_head(num_ftrs: int, num_classes: int, dropout: float) -> nn.Sequential:
-    """
-    Creates a new linear head for the given number of classes and dropout rate.
-
-    Parameters:
-        - num_ftrs (int): The number of input features for the linear head
-        - num_classes (int): The number of output classes for the linear head
-        - dropout (float): The dropout rate
-
-    Returns:
-        - nn.Sequential: A sequential container with a dropout and linear layer
-
-    Example:
-        linear_head = create_linear_head(num_ftrs=2048, num_classes=1000, dropout=0.5)
-    """
-    return nn.Sequential(
-        nn.Dropout(p=dropout),
-        nn.Linear(num_ftrs, num_classes, bias=True)
-    )
-
-
 def get_model(model_name: str, num_classes: int, dropout: float) -> nn.Module:
     """Returns a pretrained model with a new head and the model name.
 
@@ -491,18 +472,28 @@ def get_model(model_name: str, num_classes: int, dropout: float) -> nn.Module:
     Example:
         model = get_model("tf_efficientnet_b0_ns", num_classes=10, dropout=0.1)
     """
-    model = timm.create_model(model_name, pretrained=True, scriptable=True, exportable=True)
+    model = timm.create_model(model_name,
+                              pretrained=True,
+                              scriptable=True,
+                              exportable=True,
+                              drop_rate=dropout
+                              )
     freeze_params(model)
-    if hasattr(model.head, "in_features"):
-        num_ftrs = model.head.in_features
-        model.head = create_linear_head(num_ftrs, num_classes, dropout)
-        if hasattr(model, "head_dist"):
-            model.head_dist = create_linear_head(num_ftrs, num_classes, dropout)
-    else:
+
+    if hasattr(model.head, "fc"):
         num_ftrs = model.head.fc.in_features
-        model.head.fc = create_linear_head(num_ftrs, num_classes, dropout)
+        model.head.fc = nn.Linear(num_ftrs, num_classes, bias=True)
+
         if hasattr(model, "head_dist"):
-            model.head_dist = create_linear_head(num_ftrs, num_classes, dropout)
+            model.head_dist = nn.Linear(num_ftrs, num_classes, bias=True)
+
+    if hasattr(model.head, "in_features") and not hasattr(model.head, "fc"):
+        num_ftrs = model.head.in_features
+        model.head = nn.Linear(num_ftrs, num_classes, bias=True)
+
+        if hasattr(model, "head_dist"):
+            model.head_dist = nn.Linear(num_ftrs, num_classes, bias=True)
+
     model = model.to(memory_format=torch.channels_last)
     return model
 
@@ -548,6 +539,47 @@ def get_class_weights(data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
     return torch.Tensor(class_weights)
 
 
+# adapted from https://github.com/pytorch/vision/blob/a5035df501747c8fc2cd7f6c1a41c44ce6934db3/references/classification/utils.py#L272
+def average_checkpoints(inputs):
+    params_dict = OrderedDict()
+    params_keys = None
+    new_state = None
+    num_models = len(inputs)
+    for fpath in inputs:
+        with open(fpath, "rb") as f:
+            state = torch.load(
+                f,
+                map_location=(lambda s, _: torch.serialization.default_restore_location(s, "cpu")),
+            )
+        if new_state is None:
+            new_state = state
+        model_params = state["model"]
+        model_params_keys = list(model_params.keys())
+        if params_keys is None:
+            params_keys = model_params_keys
+        elif params_keys != model_params_keys:
+            raise KeyError(
+                f"For checkpoint {f}, expected list of params: {params_keys}, but found: {model_params_keys}"
+            )
+        for k in params_keys:
+            p = model_params[k]
+            if isinstance(p, torch.HalfTensor):
+                p = p.float()
+            if k not in params_dict:
+                params_dict[k] = p.clone()
+            else:
+                params_dict[k] += p
+    averaged_params = OrderedDict()
+    for k, v in params_dict.items():
+        averaged_params[k] = v
+        if averaged_params[k].is_floating_point():
+            averaged_params[k].div_(num_models)
+        else:
+            averaged_params[k] //= num_models
+    new_state["model"] = averaged_params
+    return new_state
+
+
 def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
     """Returns a list of trainable parameters in the given model.
 
@@ -563,7 +595,7 @@ def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
         len(trainable_params)
         2
     """
-    return [param for param in model.parameters() if param.requires_grad]
+    return list(filter(lambda param: param.requires_grad, model.parameters()))
 
 
 def get_optimizer(args, params: List[nn.Parameter]) -> Union[optim.SGD, optim.AdamW, None]:
@@ -633,6 +665,21 @@ def get_lr_scheduler(args, optimizer) -> Union[optim.lr_scheduler.LinearLR, opti
     lr_scheduler = optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_lr, scheduler],
                                                    milestones=[args.warmup_epochs])
     return lr_scheduler
+
+
+# adapted from https://github.com/pytorch/vision/blob/a5035df501747c8fc2cd7f6c1a41c44ce6934db3/references/classification/utils.py#L159
+class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
+    """Maintains moving averages of model parameters using an exponential decay.
+    ``ema_avg = decay * avg_model_param + (1 - decay) * model_param``
+    `torch.optim.swa_utils.AveragedModel <https://pytorch.org/docs/stable/optim.html#custom-averaging-strategies>`_
+    is used to compute the EMA.
+    """
+
+    def __init__(self, model, decay, device="cpu"):
+        def ema_avg(avg_model_param, model_param, num_averaged):
+            return decay * avg_model_param + (1 - decay) * model_param
+
+        super().__init__(model, device, ema_avg, use_buffers=True)
 
 
 def get_logger(logger_name: str, log_file: str, log_level=logging.DEBUG,
