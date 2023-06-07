@@ -129,6 +129,7 @@ def evaluate(
         val_metrics,
         roc_metric,
         device: torch.device,
+        ema,
 ) -> Tuple[Dict, torch.Tensor]:
     """
     This function evaluates the model on the validation dataset and returns the metrics.
@@ -142,6 +143,7 @@ def evaluate(
     - val_metrics: An object for storing and computing validation metrics.
     - roc_metric: An object for computing the ROC curve.
     - device: The device to be used for evaluation.
+    - ema: Whether evaluation is being performed on model_ema or not
 
     Returns:
     - A tuple containing the following validation metrics for the epoch:
@@ -186,7 +188,7 @@ def evaluate(
         roc = roc_metric.compute()
 
         args.logger.info(
-            f"Epoch {epoch + 1}/{args.epochs}: Val Metrics - "
+            f"Epoch {epoch + 1}/{args.epochs}: {'EMA ' if ema else ' '}Val Metrics - "
             f"loss: {loss:.4f} | "
             f"accuracy: {acc:.4f} | "
             f"auc: {auc:.4f} | "
@@ -365,10 +367,10 @@ def main(args: argparse.Namespace) -> None:
                 val_metrics.reset()
                 roc_metric.reset()
                 total_val_metrics, total_roc_metric = evaluate(args, epoch, val_loader, model, val_metrics, roc_metric,
-                                                               device)
+                                                               device, ema=False)
 
                 if model_ema:
-                    evaluate(args, epoch, val_loader, model_ema, val_metrics, roc_metric, device)
+                    evaluate(args, epoch, val_loader, model_ema, val_metrics, roc_metric, device, ema=True)
 
                 train_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
                                  total_train_metrics.items()}
