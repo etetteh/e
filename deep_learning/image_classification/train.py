@@ -5,6 +5,7 @@ import time
 import warnings
 
 from copy import deepcopy
+from glob import glob
 from typing import Tuple, Dict
 
 import mlflow
@@ -34,10 +35,12 @@ def train_one_epoch(
         epoch,
         train_loader,
         model,
+        model_ema,
         optimizer,
         criterion,
         train_metrics,
         device: torch.device,
+        scaler,
 ) -> Dict:
     """
     This function trains the model for one epoch and returns the metrics for the epoch.
@@ -64,20 +67,34 @@ def train_one_epoch(
         - confusion matrix: The confusion matrix for the epoch.
     """
     model.train()
-    for image, target in train_loader:
+    for idx, (image, target) in enumerate(train_loader):
         image, target = image.to(device, non_blocking=True), target.to(device, non_blocking=True)
-        with torch.set_grad_enabled(True):
+
+        with torch.cuda.amp.autocast(enabled=device.type == "cuda"):
             output = model(image.contiguous(memory_format=torch.channels_last))
             loss = criterion(output, target)
-            if len(train_loader.dataset.classes) == 2:
-                _, pred = torch.max(output, 1)
-            else:
-                pred = output
-            train_metrics.update(pred, target)
+        if len(train_loader.dataset.classes) == 2:
+            _, pred = torch.max(output, 1)
+        else:
+            pred = output
+        train_metrics.update(pred, target)
+
         optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimizer.step()
+        if device.type == "cuda":
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+
+        if model_ema and idx % args.ema_steps == 0:
+            model_ema.update_parameters(model)
+            if epoch < args.warmup_epochs:
+                model_ema.n_averaged.fill_(0)
 
     total_train_metrics = train_metrics.compute()
     loss, acc, auc, f1, recall, prec, cm = (
@@ -276,6 +293,15 @@ def main(args: argparse.Namespace) -> None:
         optimizer = utils.get_optimizer(args, params)
         lr_scheduler = utils.get_lr_scheduler(args, optimizer)
 
+        model_ema = None
+        if args.ema:
+            adjust = args.batch_size * args.ema_steps / args.epochs
+            alpha = 1.0 - args.ema_decay
+            alpha = min(1.0, alpha * adjust)
+            model_ema = utils.ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
+
+        scaler = torch.cuda.amp.GradScaler(enabled=device.type == "cuda")
+
         start_epoch = 0
         best_f1 = 0.0
         best_results = {}
@@ -283,7 +309,10 @@ def main(args: argparse.Namespace) -> None:
         run_id = utils.get_run_id(run_ids, model_name) if run_ids is not None else None
 
         checkpoint_file = os.path.join(args.output_dir, model_name, "checkpoint.pth")
-        best_model_file = os.path.join(args.output_dir, model_name, "best_model.pth")
+        best_model_file = os.path.join(args.output_dir, model_name, "best_model")
+
+        num_checkpoints = 5
+        best_checkpoints = []
 
         mlflow.set_experiment(args.experiment_name)
 
@@ -304,6 +333,10 @@ def main(args: argparse.Namespace) -> None:
                 model.load_state_dict(checkpoint["model"])
                 optimizer.load_state_dict(checkpoint["optimizer"])
                 lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+                if scaler:
+                    scaler.load_state_dict(checkpoint["scaler"])
+                if model_ema:
+                    model_ema.load_state_dict(checkpoint["model_ema"])
 
                 start_epoch = checkpoint["epoch"] + 1
                 best_f1 = checkpoint["best_f1"]
@@ -314,22 +347,28 @@ def main(args: argparse.Namespace) -> None:
                 else:
                     args.logger.info(f"Resuming training from epoch {start_epoch}\n")
 
-            model.set_grad_checkpointing()
             start_time = time.time()
 
             utils.heading(f"Training a {model_name} model: Model {i + 1} of {len(args.models)}")
 
             for epoch in range(start_epoch, args.epochs):
                 train_metrics.reset()
-                total_train_metrics = train_one_epoch(args, epoch, train_loader, model, optimizer, criterion,
-                                                      train_metrics, device)
+
+                try:
+                    total_train_metrics = train_one_epoch(args, epoch, train_loader, model, model_ema, optimizer,
+                                                          criterion, train_metrics, device, scaler)
+                except ValueError:
+                    continue
+
+                lr_scheduler.step()
 
                 val_metrics.reset()
                 roc_metric.reset()
-                total_val_metrics, total_roc_metric = evaluate(args, epoch, val_loader, model,
-                                                               val_metrics, roc_metric, device)
+                total_val_metrics, total_roc_metric = evaluate(args, epoch, val_loader, model, val_metrics, roc_metric,
+                                                               device)
 
-                lr_scheduler.step()
+                if model_ema:
+                    evaluate(args, epoch, val_loader, model_ema, val_metrics, roc_metric, device)
 
                 train_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
                                  total_train_metrics.items()}
@@ -344,7 +383,9 @@ def main(args: argparse.Namespace) -> None:
                     best_results = {**{"model": model_name, "fpr": fpr, "tpr": tpr}, **val_results}
 
                     best_model_state = deepcopy(model.state_dict())
-                    torch.save({"model": best_model_state}, best_model_file)
+                    torch.save({"model": best_model_state}, f"{best_model_file}_{best_f1}.pth")
+
+                    best_checkpoints.append(f"{best_model_file}_{best_f1}.pth")
 
                 checkpoint = {
                     "args": args,
@@ -355,7 +396,17 @@ def main(args: argparse.Namespace) -> None:
                     "lr_scheduler": lr_scheduler.state_dict(),
                     "best_results": best_results,
                 }
+                if scaler:
+                    checkpoint["scaler"] = scaler.state_dict()
+                if model_ema:
+                    checkpoint["model_ema"] = model_ema.state_dict()
+
                 torch.save(checkpoint, os.path.join(args.output_dir, model_name, "checkpoint.pth"))
+
+                if len(best_checkpoints) > num_checkpoints:
+                    checkpoint_path_to_del = best_checkpoints.pop(0)
+                    if os.path.exists(checkpoint_path_to_del):
+                        os.remove(checkpoint_path_to_del)
 
                 mlflow.log_metrics(
                     {f"train_{metric}": value for metric, value in train_results.items() if not metric == "cm"},
@@ -369,6 +420,9 @@ def main(args: argparse.Namespace) -> None:
         args.logger.info(f"{model_name} training completed in {train_time}")
         args.logger.info(f"{model_name} best Val F1-score {best_f1:.4f}\n")
 
+        avg_model_states = utils.average_checkpoints(glob(f"{best_model_file}*"))
+        torch.save({"model": avg_model_states["model"]}, f"{best_model_file}.pth")
+
         with open(f"{args.output_dir}/results.jsonl", "+a") as file:
             json.dump(best_results, file)
             file.write("\n")
@@ -379,7 +433,7 @@ def main(args: argparse.Namespace) -> None:
     best_compare_model_name = results_list[0]['model']
     best_compare_model_file = os.path.join(args.output_dir, best_compare_model_name, "best_model.pth")
 
-    utils.convert_to_onnx(best_compare_model_name, best_compare_model_file, num_classes, args.dropout)
+    utils.convert_to_onnx(best_compare_model_name, best_compare_model_file, num_classes, args.dropout, args.crop_size)
     args.logger.info(f"Exported best performing model, {best_compare_model_name}, to ONNX format. File is located in "
                      f"{os.path.join(args.output_dir, best_compare_model_name)}")
 
@@ -392,13 +446,18 @@ def get_args():
     """
     parser = argparse.ArgumentParser(description="Image Classification")
 
-    parser.add_argument("--experiment_name", required=True, type=str, default="Experiment_1", help="Name of the MLflow experiment")
+    parser.add_argument("--experiment_name", required=True, type=str, default="Experiment_1",
+                        help="Name of the MLflow experiment")
     parser.add_argument("--dataset_dir", required=True, type=str, help="Directory of the dataset.")
     parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
 
     parser.add_argument("--model_name", nargs="*", default=None, help="The name of the model to use")
     parser.add_argument("--model_size", type=str, default="small", help="Size of the model to use",
-                        choices=["nano", "tiny", "small", "base", "large"])
+                        choices=["nano", "tiny", "small", "base", "large", "giant"])
+
+    parser.add_argument("--ema", action="store_true", help="Whether to perform Exponential Moving Average or not")
+    parser.add_argument("--ema_steps", type=int, default=32, help="number of iterations to update the EMA model ")
+    parser.add_argument("--ema_decay", type=float, default=0.99998, help="EMA decay factor")
 
     parser.add_argument("--seed", default=999333666, type=int, help="Random seed.")
 
@@ -452,7 +511,7 @@ if __name__ == "__main__":
         if type(cfgs.model_name) == list:
             cfgs.models = cfgs.model_name
         else:
-            cfgs.models = [cfgs.model]
+            cfgs.models = [cfgs.model_name]
     else:
         cfgs.models = sorted(utils.get_model_names(cfgs.crop_size, cfgs.model_size))
 
