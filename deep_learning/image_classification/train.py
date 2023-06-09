@@ -422,8 +422,9 @@ def main(args: argparse.Namespace) -> None:
         args.logger.info(f"{model_name} training completed in {train_time}")
         args.logger.info(f"{model_name} best Val F1-score {best_f1:.4f}\n")
 
-        avg_model_states = utils.average_checkpoints(glob(f"{best_model_file}*"))
-        torch.save({"model": avg_model_states["model"]}, f"{best_model_file}.pth")
+        if not start_epoch == args.epochs:
+            avg_model_states = utils.average_checkpoints(glob(f"{best_model_file}*"))
+            torch.save({"model": avg_model_states["model"]}, f"{best_model_file}.pth")
 
         with open(f"{args.output_dir}/results.jsonl", "+a") as file:
             json.dump(best_results, file)
