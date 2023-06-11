@@ -366,11 +366,14 @@ def main(args: argparse.Namespace) -> None:
 
                 val_metrics.reset()
                 roc_metric.reset()
-                total_val_metrics, total_roc_metric = evaluate(args, epoch, val_loader, model, val_metrics, roc_metric,
-                                                               device, ema=False)
 
                 if model_ema:
-                    evaluate(args, epoch, val_loader, model_ema, val_metrics, roc_metric, device, ema=True)
+                    evaluate(args, epoch, val_loader, model, val_metrics, roc_metric, device, ema=False)
+                    total_val_metrics, total_roc_metric = evaluate(args, epoch, val_loader, model_ema, val_metrics,
+                                                                   roc_metric, device, ema=True)
+                else:
+                    total_val_metrics, total_roc_metric = evaluate(args, epoch, val_loader, model, val_metrics,
+                                                                   roc_metric, device, ema=False)
 
                 train_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
                                  total_train_metrics.items()}
@@ -384,7 +387,10 @@ def main(args: argparse.Namespace) -> None:
                     best_f1 = val_results["f1"]
                     best_results = {**{"model": model_name, "fpr": fpr, "tpr": tpr}, **val_results}
 
-                    best_model_state = deepcopy(model.state_dict())
+                    if model_ema:
+                        best_model_state = deepcopy(model_ema.state_dict())
+                    else:
+                        best_model_state = deepcopy(model.state_dict())
                     torch.save({"model": best_model_state}, f"{best_model_file}_{best_f1}.pth")
 
                     best_checkpoints.append(f"{best_model_file}_{best_f1}.pth")
@@ -436,7 +442,8 @@ def main(args: argparse.Namespace) -> None:
     best_compare_model_name = results_list[0]['model']
     best_compare_model_file = os.path.join(args.output_dir, best_compare_model_name, "best_model.pth")
 
-    utils.convert_to_onnx(best_compare_model_name, best_compare_model_file, num_classes, args.dropout, args.crop_size)
+    utils.convert_to_onnx(best_compare_model_name, best_compare_model_file, num_classes, args.dropout, args.crop_size,
+                          ema=args.ema)
     args.logger.info(f"Exported best performing model, {best_compare_model_name}, to ONNX format. File is located in "
                      f"{os.path.join(args.output_dir, best_compare_model_name)}")
 
