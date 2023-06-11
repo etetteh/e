@@ -6,7 +6,7 @@ import re
 import shutil
 import sys
 from glob import glob
-from collections import defaultdict, deque, OrderedDict
+from collections import OrderedDict
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -178,7 +178,8 @@ def load_json_lines_file(file_path: str) -> Union[dict, list]:
 
 
 def set_seed_for_all(seed: int) -> None:
-    """Sets the seed for NumPy, Python's random module, and PyTorch.
+    """
+    Sets the seed for NumPy, Python's random module, and PyTorch.
 
     Parameters:
         - seed (int): The seed to be set.
@@ -192,8 +193,8 @@ def set_seed_for_all(seed: int) -> None:
 
 
 def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
-    """Sets the seed for NumPy and Python's random module for the given worker.
-
+    """
+    Sets the seed for NumPy and Python's random module for the given worker.
     If no worker ID is provided, uses the initial seed for PyTorch and returns None.
 
     Parameters:
@@ -214,8 +215,8 @@ def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
 
 
 def get_data_augmentation(args) -> Dict[str, Callable]:
-    """Returns data augmentation transforms for training and validation sets.
-
+    """
+    Returns data augmentation transforms for training and validation sets.
     The training set transform includes random resized crop, random horizontal flip,
     and one of three augmentations (trivial, augmix, or rand). The validation set
     transform includes resize, center crop, and normalization.
@@ -341,8 +342,9 @@ def convert_to_channels_last(image: torch.Tensor) -> torch.Tensor:
     return image
 
 
-def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dropout: float, crop_size: int) -> None:
-    """Convert a PyTorch model to ONNX format.
+def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dropout: float, crop_size: int, ema: bool) -> None:
+    """
+    Convert a PyTorch model to ONNX format.
 
     Parameters:
         - model_name (str): The name of the model.
@@ -350,6 +352,7 @@ def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dro
         - num_classes (int): The number of classes in the dataset.
         - dropout (float): The dropout rate to be used in the model.
         - crop_size (int): The size of the crop for inference dataset/image.
+        - ema (bool): whether weights are from an Exponential Moving Average (EMA) model or not.
 
     Example:
         convert_to_onnx("resnet18", "./best_model.pt", 10, 0.2)
@@ -359,6 +362,9 @@ def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dro
     model = get_model(model_name, num_classes, dropout)
 
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    if ema:
+        del checkpoint["model"]["n_averaged"]
+        torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(checkpoint["model"], "module.")
     model.load_state_dict(checkpoint["model"])
     model.eval()
 
@@ -456,7 +462,8 @@ def get_model_names(image_size: int, model_size: str) -> List[str]:
 
 
 def get_model(model_name: str, num_classes: int, dropout: float) -> nn.Module:
-    """Returns a pretrained model with a new head and the model name.
+    """
+    Returns a pretrained model with a new head and the model name.
 
     The head of the model is replaced with a new linear layer with the given
     number of classes.
@@ -499,7 +506,8 @@ def get_model(model_name: str, num_classes: int, dropout: float) -> nn.Module:
 
 
 def freeze_params(model: nn.Module) -> None:
-    """Freezes the parameters in the given model.
+    """
+    Freezes the parameters in the given model.
 
     Parameters:
         - model (nn.Module): A PyTorch neural network model.
@@ -514,7 +522,8 @@ def freeze_params(model: nn.Module) -> None:
 
 
 def get_class_weights(data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
-    """Returns the class weights for the given data loader.
+    """
+    Returns the class weights for the given data loader.
 
     The class weights are calculated as the inverse frequency of each class in the dataset.
 
@@ -539,16 +548,33 @@ def get_class_weights(data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
     return torch.Tensor(class_weights)
 
 
-# adapted from https://github.com/pytorch/vision/blob/a5035df501747c8fc2cd7f6c1a41c44ce6934db3/references/classification/utils.py#L272
+# adapted from https://github.com/pytorch/vision/blob/a5035df501747c8fc2cd7f6c1a41c44ce6934db3/references
+# /classification/utils.py#L272
 def average_checkpoints(inputs):
+    """
+    Averages the parameters of multiple checkpoints.
+
+    Parameters:
+       - inputs (List[str]): List of file paths to the input checkpoint files.
+
+    Returns:
+       - OrderedDict: Averaged parameters in the form of an ordered dictionary.
+
+    Raises:
+       KeyError: If the checkpoints have different sets of parameters.
+
+    Example:
+       inputs = ["checkpoint1.pth", "checkpoint2.pth", "checkpoint3.pth"]
+       averaged_params = average_checkpoints(inputs)
+    """
     params_dict = OrderedDict()
     params_keys = None
     new_state = None
     num_models = len(inputs)
     for fpath in inputs:
-        with open(fpath, "rb") as f:
+        with open(fpath, "rb") as f_in:
             state = torch.load(
-                f,
+                f_in,
                 map_location=(lambda s, _: torch.serialization.default_restore_location(s, "cpu")),
             )
         if new_state is None:
@@ -559,7 +585,7 @@ def average_checkpoints(inputs):
             params_keys = model_params_keys
         elif params_keys != model_params_keys:
             raise KeyError(
-                f"For checkpoint {f}, expected list of params: {params_keys}, but found: {model_params_keys}"
+                f"For checkpoint {f_in}, expected list of params: {params_keys}, but found: {model_params_keys}"
             )
         for k in params_keys:
             p = model_params[k]
@@ -581,7 +607,8 @@ def average_checkpoints(inputs):
 
 
 def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
-    """Returns a list of trainable parameters in the given model.
+    """
+    Returns a list of trainable parameters in the given model.
 
     Parameters:
         - model (nn.Module): A PyTorch neural network model.
@@ -667,14 +694,21 @@ def get_lr_scheduler(args, optimizer) -> Union[optim.lr_scheduler.LinearLR, opti
     return lr_scheduler
 
 
-# adapted from https://github.com/pytorch/vision/blob/a5035df501747c8fc2cd7f6c1a41c44ce6934db3/references/classification/utils.py#L159
+# adapted from https://github.com/pytorch/vision/blob/a5035df501747c8fc2cd7f6c1a41c44ce6934db3/references
+# /classification/utils.py#L159
 class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
-    """Maintains moving averages of model parameters using an exponential decay.
-    ``ema_avg = decay * avg_model_param + (1 - decay) * model_param``
-    `torch.optim.swa_utils.AveragedModel <https://pytorch.org/docs/stable/optim.html#custom-averaging-strategies>`_
-    is used to compute the EMA.
     """
+    Exponential Moving Average (EMA) implementation for model parameters.
 
+    Parameters:
+       - model (torch.nn.Module): The model to apply EMA to.
+       - decay (float): The decay factor for EMA.
+       - device (str, optional): The device to use for EMA. Defaults to "cpu".
+
+    Example:
+       model = MyModel()
+       ema = ExponentialMovingAverage(model, decay=0.99, device="cuda")
+    """
     def __init__(self, model, decay, device="cpu"):
         def ema_avg(avg_model_param, model_param, num_averaged):
             return decay * avg_model_param + (1 - decay) * model_param
@@ -754,7 +788,8 @@ class CreateImgSubclasses:
         return file_set
 
     def create_class_dirs(self, class_names: List[str]):
-        """Create directories for each class in `class_names` under `self.img_dest` directory.
+        """
+        Create directories for each class in `class_names` under `self.img_dest` directory.
 
         Parameters:
             - class_names: A list of strings containing the names of the image classes.
@@ -763,7 +798,8 @@ class CreateImgSubclasses:
             os.makedirs(os.path.join(self.img_dest, fdir), exist_ok=True)
 
     def copy_img_to_dirs(self):
-        """Copy images from `self.img_src` to corresponding class directories in `self.img_dest`.
+        """
+        Copy images from `self.img_src` to corresponding class directories in `self.img_dest`.
 
         The image file is copied to the class directory whose name is contained in the file name.
         If no class name is found in the file name, the file is not copied.
@@ -777,7 +813,8 @@ class CreateImgSubclasses:
 
 
 def create_train_val_test_splits(img_src: str, img_dest: str) -> None:
-    """Split images from `img_src` directory into train, validation, and test sets and save them in `img_dest`
+    """
+    Split images from `img_src` directory into train, validation, and test sets and save them in `img_dest`
     directory. This will save the images in the appropriate directories based on the train-val-test split ratio.
 
     Parameters:
@@ -786,5 +823,5 @@ def create_train_val_test_splits(img_src: str, img_dest: str) -> None:
 
     Example:
         create_train_val_test_splits('/path/to/images/', '/path/to/splitted_images/')
-"""
+    """
     splitfolders.ratio(img_src, output=img_dest, seed=333777999, ratio=(0.8, 0.1, 0.1))
