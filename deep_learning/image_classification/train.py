@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import shutil
 import time
 import warnings
 
@@ -329,14 +330,12 @@ def main(args: argparse.Namespace) -> None:
         start_epoch = 0
         best_f1 = 0.0
         best_results = {}
+        best_checkpoints = []
 
         run_id = utils.get_run_id(run_ids, model_name) if run_ids is not None else None
 
         checkpoint_file = os.path.join(args.output_dir, model_name, "checkpoint.pth")
         best_model_file = os.path.join(args.output_dir, model_name, "best_model")
-
-        num_checkpoints = 5
-        best_checkpoints = []
 
         mlflow.set_experiment(args.experiment_name)
 
@@ -433,7 +432,7 @@ def main(args: argparse.Namespace) -> None:
 
                 torch.save(checkpoint, os.path.join(args.output_dir, model_name, "checkpoint.pth"))
 
-                if len(best_checkpoints) > num_checkpoints:
+                if len(best_checkpoints) > args.num_ckpts:
                     checkpoint_path_to_del = best_checkpoints.pop(0)
                     if os.path.exists(checkpoint_path_to_del):
                         os.remove(checkpoint_path_to_del)
@@ -450,9 +449,13 @@ def main(args: argparse.Namespace) -> None:
         args.logger.info(f"{model_name} training completed in {train_time}")
         args.logger.info(f"{model_name} best Val F1-score {best_f1:.4f}\n")
 
-        if not start_epoch == args.epochs:
-            avg_model_states = utils.average_checkpoints(glob(f"{best_model_file}*"))
-            torch.save({"model": avg_model_states["model"]}, f"{best_model_file}.pth")
+        if args.avg_ckpts:
+            if not start_epoch == args.epochs:
+                avg_model_states = utils.average_checkpoints(glob(f"{best_model_file}*.pth"))
+                torch.save({"model": avg_model_states["model"]}, f"{best_model_file}.pth")
+        else:
+            best_ckpt = sorted(glob(f"{best_model_file}*.pth"))[-1]
+            shutil.copy(best_ckpt, f"{best_model_file}.pth")
 
         with open(f"{args.output_dir}/results.jsonl", "+a") as file:
             json.dump(best_results, file)
@@ -486,6 +489,9 @@ def get_args():
     parser.add_argument("--model_name", nargs="*", default=None, help="The name of the model to use")
     parser.add_argument("--model_size", type=str, default="small", help="Size of the model to use",
                         choices=["nano", "tiny", "small", "base", "large", "giant"])
+
+    parser.add_argument('--avg_ckpts', action="store_true", help="Whether to enable checkpoint averaging or not.")
+    parser.add_argument('--num_ckpts', type=int, default=5, help="Number of best checkpoints to save")
 
     parser.add_argument("--epsilon", type=float, default=0.03, help="Epsilon value for FGSM attack")
     parser.add_argument("--fgsm", action="store_true", help="Whether to enable FGSM adversarial training")
