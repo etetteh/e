@@ -70,31 +70,53 @@ def train_one_epoch(
     for idx, (image, target) in enumerate(train_loader):
         image, target = image.to(device, non_blocking=True), target.to(device, non_blocking=True)
 
+        optimizer.zero_grad()
         with torch.cuda.amp.autocast(enabled=device.type == "cuda"):
+            image.requires_grad = True
             output = model(image.contiguous(memory_format=torch.channels_last))
             loss = criterion(output, target)
-        if len(train_loader.dataset.classes) == 2:
-            _, pred = torch.max(output, 1)
-        else:
-            pred = output
-        train_metrics.update(pred, target)
 
-        optimizer.zero_grad()
         if device.type == "cuda":
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            scaler.step(optimizer)
-            scaler.update()
         else:
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+        if args.fgsm:
+            image_grad = image.grad.data
+            images_adversarial = utils.fgsm_attack(image, args.epsilon, image_grad)
+
+            optimizer.zero_grad()
+            with torch.cuda.amp.autocast(enabled=device.type == "cuda"):
+                output_adversarial = model(images_adversarial)
+                loss_adversarial = criterion(output_adversarial, target)
+
+            if device.type == "cuda":
+                scaler.scale(loss_adversarial).backward()
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            else:
+                loss_adversarial.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+        if device.type == "cuda":
+            scaler.step(optimizer)
+            scaler.update()
+        else:
             optimizer.step()
 
         if model_ema and idx % args.ema_steps == 0:
             model_ema.update_parameters(model)
             if epoch < args.warmup_epochs:
                 model_ema.n_averaged.fill_(0)
+
+        if len(train_loader.dataset.classes) == 2:
+            _, pred = torch.max(output, 1)
+        else:
+            pred = output
+        train_metrics.update(pred, target)
 
     total_train_metrics = train_metrics.compute()
     loss, acc, auc, f1, recall, prec, cm = (
@@ -464,6 +486,9 @@ def get_args():
     parser.add_argument("--model_name", nargs="*", default=None, help="The name of the model to use")
     parser.add_argument("--model_size", type=str, default="small", help="Size of the model to use",
                         choices=["nano", "tiny", "small", "base", "large", "giant"])
+
+    parser.add_argument("--epsilon", type=float, default=0.03, help="Epsilon value for FGSM attack")
+    parser.add_argument("--fgsm", action="store_true", help="Whether to enable FGSM adversarial training")
 
     parser.add_argument("--ema", action="store_true", help="Whether to perform Exponential Moving Average or not")
     parser.add_argument("--ema_steps", type=int, default=32, help="number of iterations to update the EMA model ")
