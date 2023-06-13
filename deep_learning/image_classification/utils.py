@@ -14,8 +14,7 @@ import splitfolders
 import timm
 import torch
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
-from torch import nn
-from torch import optim
+from torch import nn, optim, Tensor
 from torchvision import transforms
 from torchvision.transforms import functional as f
 
@@ -212,6 +211,25 @@ def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
         np.random.seed(torch.initial_seed() % 2 ** 32)
         random.seed(torch.initial_seed() % 2 ** 32)
         return None
+
+
+def fgsm_attack(image: Tensor, epsilon: float, image_grad: Tensor) -> Tensor:
+    """
+    Applies Fast Gradient Sign Method (FGSM) attack to the input image.
+
+    Args:
+        image (Tensor): The input image to be perturbed.
+        epsilon (float): The perturbation magnitude.
+        image_grad (Tensor): The gradient of the loss function with respect to the input image.
+
+    Returns:
+        Tensor: The perturbed image.
+
+    """
+    image_grad_sign = image_grad.sign()
+    image_perturbed = image + epsilon * image_grad_sign
+    image_perturbed = torch.clamp(image_perturbed, min=0, max=1)
+    return image_perturbed
 
 
 def get_data_augmentation(args) -> Dict[str, Callable]:
