@@ -450,11 +450,14 @@ def main(args: argparse.Namespace) -> None:
         args.logger.info(f"{model_name} best Val F1-score {best_f1:.4f}\n")
 
         if args.avg_ckpts:
-            if not start_epoch == args.epochs:
-                avg_model_states = utils.average_checkpoints(glob(f"{best_model_file}*.pth"))
-                torch.save({"model": avg_model_states["model"]}, f"{best_model_file}.pth")
+            path = f"{args.output_dir}/{model_name}/averaged"
+            if not os.path.exists(path):
+                os.makedirs(path)
+            avg_model_states = utils.average_checkpoints(glob(f"{best_model_file}*.pth"))
+            torch.save({"model": avg_model_states["model"]}, f"{path}/best_model.pth")
         else:
             best_ckpt = sorted(glob(f"{best_model_file}*.pth"))[-1]
+            print(f"\nModel to convert as best model: {best_ckpt}\n")
             shutil.copy(best_ckpt, f"{best_model_file}.pth")
 
         with open(f"{args.output_dir}/results.jsonl", "+a") as file:
@@ -465,7 +468,10 @@ def main(args: argparse.Namespace) -> None:
 
     results_list = utils.load_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
     best_compare_model_name = results_list[0]['model']
-    best_compare_model_file = os.path.join(args.output_dir, best_compare_model_name, "best_model.pth")
+    best_compare_model_file = os.path.join(args.output_dir,
+                                           f"{best_compare_model_name}/averaged" if args.avg_ckpts
+                                           else best_compare_model_name,
+                                           "best_model.pth")
 
     utils.convert_to_onnx(best_compare_model_name, best_compare_model_file, num_classes, args.dropout, args.crop_size,
                           ema=args.ema)
