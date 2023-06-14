@@ -146,7 +146,6 @@ def train_one_epoch(
 
 def evaluate(
         args,
-        epoch,
         val_loader,
         model,
         val_metrics,
@@ -159,8 +158,6 @@ def evaluate(
 
     Parameters:
     - args: A namespace object containing the following attributes:
-        - epochs: The total number of epochs for training.
-    - epoch: The current epoch number.
     - val_loader: A DataLoader object for the validation dataset.
     - model: The model to be evaluated.
     - val_metrics: An object for storing and computing validation metrics.
@@ -211,7 +208,7 @@ def evaluate(
         roc = roc_metric.compute()
 
         args.logger.info(
-            f"Epoch {epoch + 1}/{args.epochs}: {'EMA ' if ema else ' '}Val Metrics - "
+            f"{'EMA ' if ema else ' '}Val Metrics - "
             f"loss: {loss:.4f} | "
             f"accuracy: {acc:.4f} | "
             f"auc: {auc:.4f} | "
@@ -265,6 +262,26 @@ def main(args: argparse.Namespace) -> None:
 
     train_loader, val_loader = dataloaders["train"], dataloaders["val"]
     train_weights = utils.get_class_weights(train_loader)
+
+    test_loader = None
+    if os.path.isdir(os.path.join(args.dataset_dir, "test")):
+        test_dataset = datasets.ImageFolder(
+            os.path.join(args.dataset_dir, "test"),
+            data_transforms["val"]
+        )
+
+        test_loader = data.DataLoader(
+            test_dataset,
+            batch_size=args.batch_size,
+            sampler=samplers["val"],
+            num_workers=args.num_workers,
+            worker_init_fn=utils.set_seed_for_worker,
+            generator=g,
+            pin_memory=True,
+        )
+    else:
+        print(f"{os.path.basename(args.dataset_dir)} does not have a test dataset")
+        return
 
     criterion = torch.nn.CrossEntropyLoss(weight=train_weights, label_smoothing=args.label_smoothing).to(device)
 
@@ -354,8 +371,9 @@ def main(args: argparse.Namespace) -> None:
                 checkpoint = torch.load(checkpoint_file, map_location="cpu")
 
                 model.load_state_dict(checkpoint["model"])
-                optimizer.load_state_dict(checkpoint["optimizer"])
-                lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+                if not args.test_only:
+                    optimizer.load_state_dict(checkpoint["optimizer"])
+                    lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
                 if scaler:
                     scaler.load_state_dict(checkpoint["scaler"])
                 if model_ema:
@@ -369,6 +387,20 @@ def main(args: argparse.Namespace) -> None:
                     args.logger.info("Training completed")
                 else:
                     args.logger.info(f"Resuming training from epoch {start_epoch}\n")
+
+            if args.test_only:
+                if args.avg_ckpts:
+                    checkpoint_file = os.path.join(args.output_dir, model_name, "averaged", "best_model.pth")
+                    checkpoint = torch.load(checkpoint_file, map_location="cpu")
+                else:
+                    checkpoint_file = os.path.join(args.output_dir, model_name, "best_model.pth")
+                    checkpoint = torch.load(checkpoint_file, map_location="cpu")
+                model.load_state_dict(checkpoint["model"])
+                if model_ema:
+                    evaluate(args, test_loader, model_ema, val_metrics, roc_metric, device, ema=True)
+                else:
+                    evaluate(args, test_loader, model, val_metrics, roc_metric, device, ema=False)
+                return
 
             start_time = time.time()
 
@@ -389,11 +421,11 @@ def main(args: argparse.Namespace) -> None:
                 roc_metric.reset()
 
                 if model_ema:
-                    evaluate(args, epoch, val_loader, model, val_metrics, roc_metric, device, ema=False)
-                    total_val_metrics, total_roc_metric = evaluate(args, epoch, val_loader, model_ema, val_metrics,
+                    evaluate(args, val_loader, model, val_metrics, roc_metric, device, ema=False)
+                    total_val_metrics, total_roc_metric = evaluate(args, val_loader, model_ema, val_metrics,
                                                                    roc_metric, device, ema=True)
                 else:
-                    total_val_metrics, total_roc_metric = evaluate(args, epoch, val_loader, model, val_metrics,
+                    total_val_metrics, total_roc_metric = evaluate(args, val_loader, model, val_metrics,
                                                                    roc_metric, device, ema=False)
 
                 train_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
@@ -450,17 +482,17 @@ def main(args: argparse.Namespace) -> None:
         args.logger.info(f"{model_name} best Val F1-score {best_f1:.4f}\n")
 
         if args.avg_ckpts:
-            path = f"{args.output_dir}/{model_name}/averaged"
+            path = os.path.join(args.output_dir, model_name, "averaged")
             if not os.path.exists(path):
                 os.makedirs(path)
             avg_model_states = utils.average_checkpoints(glob(f"{best_model_file}*.pth"))
-            torch.save({"model": avg_model_states["model"]}, f"{path}/best_model.pth")
+            torch.save({"model": avg_model_states["model"]}, os.path.join(path, "best_model.pth"))
         else:
             best_ckpt = sorted(glob(f"{best_model_file}*.pth"))[-1]
             print(f"\nModel to convert as best model: {best_ckpt}\n")
             shutil.copy(best_ckpt, f"{best_model_file}.pth")
 
-        with open(f"{args.output_dir}/results.jsonl", "+a") as file:
+        with open(os.path.join(args.output_dir, "results.jsonl"), "+a") as file:
             json.dump(best_results, file)
             file.write("\n")
 
@@ -469,7 +501,7 @@ def main(args: argparse.Namespace) -> None:
     results_list = utils.load_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
     best_compare_model_name = results_list[0]['model']
     best_compare_model_file = os.path.join(args.output_dir,
-                                           f"{best_compare_model_name}/averaged" if args.avg_ckpts
+                                           os.path.join(best_compare_model_name, "averaged") if args.avg_ckpts
                                            else best_compare_model_name,
                                            "best_model.pth")
 
@@ -540,6 +572,8 @@ def get_args():
     parser.add_argument("--sorting_metric", default="f1", type=str, help="Metric to sort the results by.",
                         choices=["f1", "auc", "accuracy", "precision", "recall"])
 
+    parser.add_argument('--test_only', action="store_true", help="Whether to enable testing the trained model or not.")
+
     return parser.parse_args()
 
 
@@ -563,6 +597,7 @@ if __name__ == "__main__":
         cfgs.models = sorted(utils.get_model_names(cfgs.crop_size, cfgs.model_size))
 
     cfgs.logger = utils.get_logger(f"Training and Evaluation of Image Classifiers",
-                                   f"{cfgs.output_dir}/training_logs.log")
+                                   os.path.join(cfgs.output_dir, "training_logs.log")
+                                   )
 
     main(cfgs)
