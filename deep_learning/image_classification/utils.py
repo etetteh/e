@@ -15,6 +15,7 @@ import timm
 import torch
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from torch import nn, optim, Tensor
+import torch.nn.utils.prune as prune
 from torchvision import transforms
 from torchvision.transforms import functional as f
 
@@ -360,7 +361,8 @@ def convert_to_channels_last(image: torch.Tensor) -> torch.Tensor:
     return image
 
 
-def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dropout: float, crop_size: int, ema: bool) -> None:
+def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dropout: float, crop_size: int,
+                    ema: bool) -> None:
     """
     Convert a PyTorch model to ONNX format.
 
@@ -479,6 +481,45 @@ def get_model_names(image_size: int, model_size: str) -> List[str]:
     return training_models
 
 
+def prune_model(model: nn.Module, pruning_rate: float) -> List[Tuple[nn.Module, str]]:
+    """
+    Applies global unstructured pruning to the model.
+
+    Parameters:
+        - model (nn.Module): The model to be pruned.
+        - pruning_rate (float): The fraction of weights to be pruned.
+
+    Returns:
+        List[Tuple[nn.Module, str]]: A list of tuples containing the pruned modules and parameter names.
+    """
+    parameters_to_prune = [(module, 'weight') for module in model.modules() if
+                           isinstance(module, torch.nn.Conv2d) or
+                           isinstance(module, torch.nn.Linear)
+                           ]
+
+    prune.global_unstructured(
+        parameters_to_prune,
+        pruning_method=prune.L1Unstructured,
+        amount=pruning_rate
+    )
+    return parameters_to_prune
+
+
+def remove_pruning_reparam(parameters_to_prune: List[Tuple[nn.Module, str]]) -> None:
+    """
+    Removes pruning re-parametrization for each module and parameter in the provided list.
+
+    Parameters:
+         - parameters_to_prune (List[Tuple[nn.Module, str]]): List of module and parameter names to remove pruning
+          re-parametrization.
+
+    Returns:
+        None
+    """
+    for module, parameter_name in parameters_to_prune:
+        prune.remove(module, parameter_name)
+
+
 def get_model(model_name: str, num_classes: int, dropout: float) -> nn.Module:
     """
     Returns a pretrained model with a new head and the model name.
@@ -519,7 +560,6 @@ def get_model(model_name: str, num_classes: int, dropout: float) -> nn.Module:
         if hasattr(model, "head_dist"):
             model.head_dist = nn.Linear(num_ftrs, num_classes, bias=True)
 
-    model = model.to(memory_format=torch.channels_last)
     return model
 
 
@@ -671,7 +711,7 @@ def get_optimizer(args, params: List[nn.Parameter]) -> Union[optim.SGD, optim.Ad
 
 
 def get_lr_scheduler(args, optimizer) -> Union[optim.lr_scheduler.LinearLR, optim.lr_scheduler.StepLR,
-                                        optim.lr_scheduler.CosineAnnealingLR, optim.lr_scheduler.SequentialLR, None]:
+optim.lr_scheduler.CosineAnnealingLR, optim.lr_scheduler.SequentialLR, None]:
     """
     This function returns a learning rate scheduler object based on the provided scheduling algorithm name.
 
