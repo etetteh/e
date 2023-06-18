@@ -11,6 +11,28 @@
 * [Citation](#citation)
 
 ## Usage
+### June 7, 2023
+Added <span style="color:green;font-weight:700;font-size:16px"> **Exponential Moving Average (EMA)** </span> functionality.\
+<span style="color:red;font-weight:700;font-size:15px">
+    **Example**:
+</span>
+ to train an `xcit_nano_12_p8_224.fb_dist_in1k` model with EMA, run the following code
+
+```
+python train.py \
+    --dataset_dir weather_data \
+    --output_dir sample_run_1 \   
+    --experiment_name exp_1 \
+    --model_name xcit_nano_12_p8_224.fb_dist_in1k \ 
+    --crop_size 224 \
+    --batch_size 16 \
+    --epochs 33 \
+    --ema \
+    --ema_steps 32 \
+    --ema_decay 0.99998 
+```
+
+Now by default, the script checks for the availability of a cuda device to run Automatic Mixed Precision (AMP) or not.
 ### Feb 11, 2023
 Added <span style="color:green;font-weight:700;font-size:16px"> **training logging** </span> using [MLflow](https://mlflow.org/)\
 <span style="color:red;font-weight:700;font-size:15px">
