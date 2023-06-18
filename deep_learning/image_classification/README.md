@@ -12,6 +12,25 @@
 
 ## Usage
 ### June 7, 2023
+Added <span style="color:green;font-weight:700;font-size:16px"> **Best Checkpoints Averaging** </span> functionality.\
+<span style="color:red;font-weight:700;font-size:15px">
+    **Example**:
+</span>
+ to train an `xcit_nano_12_p8_224.fb_dist_in1k` model and average the best 5 checkpoints to be used for inference, run the following code
+
+```
+python train.py \
+    --dataset_dir weather_data \
+    --output_dir sample_run_1 \   
+    --experiment_name exp_1 \
+    --model_name xcit_nano_12_p8_224.fb_dist_in1k \ 
+    --crop_size 224 \
+    --batch_size 16 \
+    --epochs 33 \
+    --avg_ckpts \
+    --num_ckpts 5 \
+```
+
 Added <span style="color:green;font-weight:700;font-size:16px"> **Best Checkpoints Saving** </span> functionality.\
 <span style="color:red;font-weight:700;font-size:15px">
     **Example**:
