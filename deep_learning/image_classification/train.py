@@ -279,9 +279,6 @@ def main(args: argparse.Namespace) -> None:
             generator=g,
             pin_memory=True,
         )
-    else:
-        print(f"{os.path.basename(args.dataset_dir)} does not have a test dataset")
-        return
 
     criterion = torch.nn.CrossEntropyLoss(weight=train_weights, label_smoothing=args.label_smoothing).to(device)
 
@@ -428,6 +425,10 @@ def main(args: argparse.Namespace) -> None:
                     total_val_metrics, total_roc_metric = evaluate(args, val_loader, model, val_metrics,
                                                                    roc_metric, device, ema=False)
 
+                if args.prune:
+                    parameters_to_prune = utils.prune_model(model, args.pruning_rate)
+                    utils.remove_pruning_reparam(parameters_to_prune)
+
                 train_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
                                  total_train_metrics.items()}
                 val_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
@@ -537,6 +538,9 @@ def get_args():
     parser.add_argument("--ema", action="store_true", help="Whether to perform Exponential Moving Average or not")
     parser.add_argument("--ema_steps", type=int, default=32, help="number of iterations to update the EMA model ")
     parser.add_argument("--ema_decay", type=float, default=0.99998, help="EMA decay factor")
+
+    parser.add_argument("--prune", action="store_true", help="Whether to perform pruning or not")
+    parser.add_argument("--pruning_rate", type=float, default=0.25, help="Pruning rate")
 
     parser.add_argument("--seed", default=999333666, type=int, help="Random seed.")
 
