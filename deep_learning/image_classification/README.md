@@ -11,6 +11,26 @@
 * [Citation](#citation)
 
 ## Usage
+### June 13, 2023
+Added <span style="color:green;font-weight:700;font-size:16px"> **Adversarial Training (Fast Gradient Sign Method (FGSM) Attack)** </span> functionality.\
+<span style="color:red;font-weight:700;font-size:15px">
+    **Example**:
+</span>
+to train an `xcit_nano_12_p8_224.fb_dist_in1k` model with FGSM attack, run the following code
+
+```
+python train.py \
+    --dataset_dir weather_data \
+    --output_dir sample_run_1 \   
+    --experiment_name exp_1 \
+    --model_name xcit_nano_12_p8_224.fb_dist_in1k \ 
+    --crop_size 224 \
+    --batch_size 16 \
+    --epochs 33 \
+    --fgsm \
+    --epsilon 0.03
+```
+
 ### June 7, 2023
 Added <span style="color:green;font-weight:700;font-size:16px"> **Best Checkpoints Averaging** </span> functionality.\
 <span style="color:red;font-weight:700;font-size:15px">
