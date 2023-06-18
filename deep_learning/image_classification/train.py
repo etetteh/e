@@ -532,8 +532,8 @@ def get_args():
     parser.add_argument('--avg_ckpts', action="store_true", help="Whether to enable checkpoint averaging or not.")
     parser.add_argument('--num_ckpts', type=int, default=5, help="Number of best checkpoints to save")
 
-    parser.add_argument("--epsilon", type=float, default=0.03, help="Epsilon value for FGSM attack")
     parser.add_argument("--fgsm", action="store_true", help="Whether to enable FGSM adversarial training")
+    parser.add_argument("--epsilon", type=float, default=0.03, help="Epsilon value for FGSM attack")
 
     parser.add_argument("--ema", action="store_true", help="Whether to perform Exponential Moving Average or not")
     parser.add_argument("--ema_steps", type=int, default=32, help="number of iterations to update the EMA model ")
