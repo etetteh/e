@@ -73,6 +73,10 @@ def train_one_epoch(
                 mixed_images, targets_a, targets_b, lam = utils.mixup_data(images, targets, alpha=args.mixup_alpha)
                 output = model(mixed_images.contiguous(memory_format=torch.channels_last))
                 loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
+            elif args.cutmix:
+                mixed_images, targets_a, targets_b, lam = utils.cutmix_data(images, targets, alpha=args.cutmix_alpha)
+                output = model(mixed_images.contiguous(memory_format=torch.channels_last))
+                loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
             else:
                 output = model(images.contiguous(memory_format=torch.channels_last))
                 loss = criterion(output, targets)
@@ -522,6 +526,9 @@ def get_args():
 
     parser.add_argument('--mixup', action='store_true', help='Whether to enable mixup or not')
     parser.add_argument('--mixup_alpha', type=float, default=1.0, help='mixup hyperparameter alpha')
+
+    parser.add_argument('--cutmix', action='store_true', help='Whether to enable mixup or not')
+    parser.add_argument('--cutmix_alpha', type=float, default=1.0, help='mixup hyperparameter alpha')
 
     parser.add_argument("--fgsm", action="store_true", help="Whether to enable FGSM adversarial training")
     parser.add_argument("--epsilon", type=float, default=0.03, help="Epsilon value for FGSM attack")
