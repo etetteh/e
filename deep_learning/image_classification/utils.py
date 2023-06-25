@@ -301,18 +301,57 @@ def mixup_data(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) 
     """
     Applies Mixup augmentation to input data.
 
-    Args:
-        images (torch.Tensor): Input images.
-        targets (torch.Tensor): Corresponding targets.
-        alpha (float, optional): Mixup parameter. Defaults to 1.0.
+    Parameters:
+        - images (torch.Tensor): Input images.
+        - targets (torch.Tensor): Corresponding targets.
+        - alpha (float, optional): Mixup parameter. Defaults to 1.0.
 
     Returns:
-        tuple: Mixed images, mixed labels (labels_a), original labels (labels_b), and mixup factor (lambda).
+        - tuple: Mixed images, mixed labels (labels_a), original labels (labels_b), and mixup factor (lambda).
     """
     lam = torch.distributions.beta.Beta(alpha, alpha).sample().item()
     batch_size = images.size(0)
     index = torch.randperm(batch_size)
     mixed_images = lam * images + (1 - lam) * images[index, :]
+    targets_a, targets_b = targets, targets[index]
+    return mixed_images, targets_a, targets_b, lam
+
+
+def cutmix_data(images, targets, alpha=1.0):
+    """
+    Applies CutMix augmentation to input data.
+
+    Parameters:
+        - images (torch.Tensor): Input images.
+        - targets (torch.Tensor): Corresponding labels.
+        - alpha (float, optional): CutMix parameter. Defaults to 1.0.
+
+    Returns:
+        - tuple: Mixed images, mixed labels (targets_a), original labels (targets_b), and mix factor (lambda).
+    """
+    batch_size = images.size(0)
+    index = torch.randperm(batch_size)
+    lam = np.random.beta(alpha, alpha)
+    lam = max(lam, 1 - lam)  # Ensure lambda is always greater than 0.5
+
+    # Generate random bounding box coordinates
+    height, width = images.size(2), images.size(3)
+    cut_ratio = np.sqrt(1.0 - lam)
+    cut_h = np.int(height * cut_ratio)
+    cut_w = np.int(width * cut_ratio)
+    cx = np.random.randint(width)
+    cy = np.random.randint(height)
+    bbx1 = np.clip(cx - cut_w // 2, 0, width)
+    bby1 = np.clip(cy - cut_h // 2, 0, height)
+    bbx2 = np.clip(cx + cut_w // 2, 0, width)
+    bby2 = np.clip(cy + cut_h // 2, 0, height)
+
+    # Apply CutMix
+    mixed_images = images.clone()
+    mixed_images[:, :, bby1:bby2, bbx1:bbx2] = images[index, :, bby1:bby2, bbx1:bbx2]
+    lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1)) / (width * height)
+
+    # Adjust the labels
     targets_a, targets_b = targets, targets[index]
     return mixed_images, targets_a, targets_b, lam
 
