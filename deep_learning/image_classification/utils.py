@@ -297,6 +297,26 @@ def get_data_augmentation(args) -> Dict[str, Callable]:
     return {"train": train_transform, "val": val_transform}
 
 
+def mixup_data(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) -> tuple:
+    """
+    Applies Mixup augmentation to input data.
+
+    Args:
+        images (torch.Tensor): Input images.
+        targets (torch.Tensor): Corresponding targets.
+        alpha (float, optional): Mixup parameter. Defaults to 1.0.
+
+    Returns:
+        tuple: Mixed images, mixed labels (labels_a), original labels (labels_b), and mixup factor (lambda).
+    """
+    lam = torch.distributions.beta.Beta(alpha, alpha).sample().item()
+    batch_size = images.size(0)
+    index = torch.randperm(batch_size)
+    mixed_images = lam * images + (1 - lam) * images[index, :]
+    targets_a, targets_b = targets, targets[index]
+    return mixed_images, targets_a, targets_b, lam
+
+
 def convert_tensor_to_numpy(tensor: torch.Tensor) -> np.ndarray:
     """
     Convert tensor to numpy ndarray
