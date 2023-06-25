@@ -40,8 +40,8 @@ def train_one_epoch(
         optimizer,
         criterion,
         train_metrics,
-        device: torch.device,
-        scaler,
+        device,
+        scaler
 ) -> Dict:
     """
     This function trains the model for one epoch and returns the metrics for the epoch.
@@ -52,30 +52,30 @@ def train_one_epoch(
         - epoch: The current epoch number.
         - train_loader: A DataLoader object for the training dataset.
         - model: The model to be trained.
+        - model_ema: The exponential moving average model for model updates.
         - optimizer: The optimizer to be used for training.
         - criterion: The loss function to be used.
         - train_metrics: An object for storing and computing training metrics.
         - device: The device to be used for training.
+        - scaler: The GradScaler object for automatic mixed precision training.
 
     Returns:
-        A tuple containing the following training metrics for the epoch:
-        - loss: The average loss for the epoch.
-        - accuracy: The average accuracy for the epoch.
-        - auc: The average AUC for the epoch.
-        - f1: The average F1 score for the epoch.
-        - recall: The average recall for the epoch.
-        - precision: The average precision for the epoch.
-        - confusion matrix: The confusion matrix for the epoch.
+        Dict: A dictionary containing the metrics computed during training.
     """
     model.train()
-    for idx, (image, target) in enumerate(train_loader):
-        image, target = image.to(device, non_blocking=True), target.to(device, non_blocking=True)
+    for idx, (images, targets) in enumerate(train_loader):
+        images, targets = images.to(device, non_blocking=True), targets.to(device, non_blocking=True)
+        images.requires_grad = True
 
         optimizer.zero_grad()
         with torch.cuda.amp.autocast(enabled=device.type == "cuda"):
-            image.requires_grad = True
-            output = model(image.contiguous(memory_format=torch.channels_last))
-            loss = criterion(output, target)
+            if args.mixup:
+                mixed_images, targets_a, targets_b, lam = utils.mixup_data(images, targets, alpha=args.mixup_alpha)
+                output = model(mixed_images.contiguous(memory_format=torch.channels_last))
+                loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
+            else:
+                output = model(images.contiguous(memory_format=torch.channels_last))
+                loss = criterion(output, targets)
 
         if device.type == "cuda":
             scaler.scale(loss).backward()
@@ -86,13 +86,13 @@ def train_one_epoch(
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
         if args.fgsm:
-            image_grad = image.grad.data
-            images_adversarial = utils.fgsm_attack(image, args.epsilon, image_grad)
+            image_grad = images.grad.data
+            images_adversarial = utils.fgsm_attack(images, args.epsilon, image_grad)
 
             optimizer.zero_grad()
             with torch.cuda.amp.autocast(enabled=device.type == "cuda"):
                 output_adversarial = model(images_adversarial)
-                loss_adversarial = criterion(output_adversarial, target)
+                loss_adversarial = criterion(output_adversarial, targets)
 
             if device.type == "cuda":
                 scaler.scale(loss_adversarial).backward()
@@ -117,7 +117,7 @@ def train_one_epoch(
             _, pred = torch.max(output, 1)
         else:
             pred = output
-        train_metrics.update(pred, target)
+        train_metrics.update(pred, targets)
 
     total_train_metrics = train_metrics.compute()
     loss, acc, auc, f1, recall, prec, cm = (
@@ -157,43 +157,30 @@ def evaluate(
     This function evaluates the model on the validation dataset and returns the metrics.
 
     Parameters:
-    - args: A namespace object containing the following attributes:
-    - val_loader: A DataLoader object for the validation dataset.
-    - model: The model to be evaluated.
-    - val_metrics: An object for storing and computing validation metrics.
-    - roc_metric: An object for computing the ROC curve.
-    - device: The device to be used for evaluation.
-    - ema: Whether evaluation is being performed on model_ema or not
+        - args: A namespace object containing the following attributes:
+        - val_loader: A DataLoader object for the validation dataset.
+        - model: The model to be evaluated.
+        - val_metrics: An object for storing and computing validation metrics.
+        - roc_metric: An object for computing the ROC curve.
+        - device: The device to be used for evaluation.
+        - ema: Whether evaluation is being performed on model_ema or not
 
     Returns:
-    - A tuple containing the following validation metrics for the epoch:
-        - loss: The average loss for the epoch.
-        - accuracy: The average accuracy for the epoch.
-        - roc: The ROC curve for the epoch.
-        - auc: The average AUC for the epoch.
-        - f1: The average F1 score for the epoch.
-        - recall: The average recall for the epoch.
-        - precision: The average precision for the epoch.
-        - confusion matrix: The confusion matrix for the epoch.
-
-    Example:
-    val_loss, val_acc, val_roc, val_auc, val_f1, val_recall, val_prec, val_cm = evaluate(
-        args, epoch, val_loader, model, criterion, val_metrics, roc_metric, device
-    )
+       - Tuple: A tuple containing a dictionary of computed metrics and the predicted probabilities.
     """
     model.eval()
     with torch.no_grad():
-        for image, target in val_loader:
-            image, target = image.to(device, non_blocking=True), target.to(device, non_blocking=True)
-            output = model(image.contiguous(memory_format=torch.channels_last))
+        for images, targets in val_loader:
+            images, targets = images.to(device, non_blocking=True), targets.to(device, non_blocking=True)
+            output = model(images.contiguous(memory_format=torch.channels_last))
 
             if len(val_loader.dataset.classes) == 2:
                 _, pred = torch.max(output, 1)
-                val_metrics.update(pred, target)
-                roc_metric.update(output[:, 1], target)
+                val_metrics.update(pred, targets)
+                roc_metric.update(output[:, 1], targets)
             else:
-                val_metrics.update(output, target)
-                roc_metric.update(output, target)
+                val_metrics.update(output, targets)
+                roc_metric.update(output, targets)
 
         total_val_metrics = val_metrics.compute()
         loss, acc, auc, f1, recall, prec, cm = (
@@ -222,7 +209,8 @@ def evaluate(
 
 
 def main(args: argparse.Namespace) -> None:
-    """Runs the training and evaluation of the model.
+    """
+    Runs the training and evaluation of the model.
 
     Parameters:
         - args (argparse.Namespace): The command-line and default arguments.
@@ -264,7 +252,7 @@ def main(args: argparse.Namespace) -> None:
     train_weights = utils.get_class_weights(train_loader)
 
     test_loader = None
-    if os.path.isdir(os.path.join(args.dataset_dir, "test")):
+    if os.path.isdir(os.path.join(args.dataset_dir, "test")) and args.test_only:
         test_dataset = datasets.ImageFolder(
             os.path.join(args.dataset_dir, "test"),
             data_transforms["val"]
@@ -531,6 +519,9 @@ def get_args():
 
     parser.add_argument('--avg_ckpts', action="store_true", help="Whether to enable checkpoint averaging or not.")
     parser.add_argument('--num_ckpts', type=int, default=5, help="Number of best checkpoints to save")
+
+    parser.add_argument('--mixup', action='store_true', help='Whether to enable mixup or not')
+    parser.add_argument('--mixup_alpha', type=float, default=1.0, help='mixup hyperparameter alpha')
 
     parser.add_argument("--fgsm", action="store_true", help="Whether to enable FGSM adversarial training")
     parser.add_argument("--epsilon", type=float, default=0.03, help="Epsilon value for FGSM attack")
