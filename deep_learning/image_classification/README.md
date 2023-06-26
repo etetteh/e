@@ -11,6 +11,45 @@
 * [Citation](#citation)
 
 ## Usage
+### June 25, 2023
+Added <span style="color:green;font-weight:700;font-size:16px"> **CutMix Data Augmentation** </span> functionality.\
+<span style="color:red;font-weight:700;font-size:15px">
+    **Example**:
+</span>
+to train an `xcit_nano_12_p8_224.fb_dist_in1k` model with cutmix, run the following code
+
+```
+python train.py \
+    --dataset_dir weather_data \
+    --output_dir sample_run_1 \   
+    --experiment_name exp_1 \
+    --model_name xcit_nano_12_p8_224.fb_dist_in1k \ 
+    --crop_size 224 \
+    --batch_size 16 \
+    --epochs 33 \
+    --cutmix \
+    --cutmix_alpha 1.0
+```
+
+Added <span style="color:green;font-weight:700;font-size:16px"> **MixUp Data Augmentation** </span> functionality.\
+<span style="color:red;font-weight:700;font-size:15px">
+    **Example**:
+</span>
+to train an `xcit_nano_12_p8_224.fb_dist_in1k` model with mixup, run the following code
+
+```
+python train.py \
+    --dataset_dir weather_data \
+    --output_dir sample_run_1 \   
+    --experiment_name exp_1 \
+    --model_name xcit_nano_12_p8_224.fb_dist_in1k \ 
+    --crop_size 224 \
+    --batch_size 16 \
+    --epochs 33 \
+    --mixup \
+    --mixup_alpha 1.0
+```
+
 ### June 18, 2023
 Added <span style="color:green;font-weight:700;font-size:16px"> **Model Pruning** </span> functionality.\
 <span style="color:red;font-weight:700;font-size:15px">
@@ -30,7 +69,7 @@ python train.py \
     --prune \
     --pruning_rate 0.25
 ```
-Note: the pruning is global (i.e `<pruning_rate>` percent of weak connections are removed across the entire, instead of `<pruning_rate>` percent in each layer). Also the pruning is performed after every epoch, and uses L1 (Lasso) unstructured approach.
+Note: the pruning is global (i.e. `<pruning_rate>` percent of weak connections are removed across the entire, instead of `<pruning_rate>` percent in each layer). Also, the pruning is performed after every epoch, and uses L1 (Lasso) unstructured approach.
 
 ### June 13, 2023
 Added <span style="color:green;font-weight:700;font-size:16px"> **Adversarial Training (Fast Gradient Sign Method (FGSM) Attack)** </span> functionality.\
