@@ -24,8 +24,12 @@ def header(*args: Union[str, int, float]):
     """
     Print one or more arguments to standard output as a single line of text.
 
-    Parameters
-        - args: The arguments to be printed
+    Parameters:
+        - args: The arguments to be printed.
+
+    Example:
+         header("Hello", "World", 2023)
+        Hello World 2023
     """
     msg = " ".join(map(str, args))
     sys.stdout.write(msg + "\n")
@@ -37,7 +41,13 @@ def heading(message: str):
     Print a formatted heading with a given message.
 
     Parameters:
-         - message: The message to be included in the heading
+         - message (str): The message to be included in the heading.
+
+    Example:
+         heading("Welcome to the Chatbot")
+        ==========================
+        Welcome to the Chatbot
+        ==========================
     """
     header("=" * 99)
     header(message)
@@ -49,21 +59,18 @@ def get_run_id(run_ids: Dict[str, str], model_name: str) -> Optional[str]:
     Get the run ID of a specific model from a dictionary of run IDs.
 
     Parameters:
-        - run_ids: A dictionary mapping model names to run IDs
-        - model_name: The name of the model for which to retrieve the run ID
-    Return:
-         - The run ID of the specified model, or None if the model is not in the dictionary
+        - run_ids (Dict[str, str]): A dictionary mapping model names to run IDs.
+        - model_name (str): The name of the model for which to retrieve the run ID.
+
+    Returns:
+        - Optional[str]: The run ID of the specified model, or None if the model is not in the dictionary.
 
     Example:
-        run_ids = {
-            "model_1": "abc123",
-            "model_2": "def456",
-            "model_3": "ghi789"
-        }
-
-        model_name = "model_2"
-        run_id = get_run_id(run_ids, model_name)
-        print(run_id) # Output: "def456"
+         run_ids = {"model1": "1234", "model2": "5678", "model3": "9012"}  # Example dictionary of run IDs
+         model_name = "model2"  # Example model name to retrieve the run ID
+         run_id = get_run_id(run_ids, model_name)
+         print(run_id)
+        5678
     """
     try:
         run_id = run_ids[model_name]
@@ -78,18 +85,13 @@ def write_json_file(dict_obj: Dict, file_path: str):
     If the file already exists, its content will be overwritten.
 
     Parameters:
-        - dict_obj: The dictionary object to be written to the JSON file
-        - file_path: The path to the JSON file
+        - dict_obj (Dict): The dictionary object to be written to the JSON file.
+        - file_path (str): The path to the JSON file.
 
     Example:
-        data = {
-            "key_1": "value_1",
-            "key_2": "value_2",
-            "key_3": "value_3"
-        }
-
-        file_path = "data.json"
-        write_json_file(data, file_path)
+         dict_obj = {"key": "value"}  # Example dictionary object to be written
+         file_path = "data.json"  # Example file path
+         write_json_file(dict_obj, file_path)
     """
     with open(file_path, "w") as file_out:
         json.dump(dict_obj, file_out, indent=4)
@@ -101,35 +103,13 @@ def append_dict_to_json_file(new_dict: Dict, file_path: str):
     If the file does not exist, it will be created.
 
     Parameters:
-        - new_dict: The dictionary to be added to the JSON file
-        - file_path: The path to the JSON file
+        - new_dict (Dict): The dictionary to be added to the JSON file.
+        - file_path (str): The path to the JSON file.
 
     Example:
-        data = {
-            "key_1": "value_1",
-        }
-
-        file_path = "data.json"
-        append_dict_to_json_file(data, file_path)
-
-        # The content of the file data.json is now:
-        # {
-        #   "key_1": "value_1",
-        # }
-
-        # Adding another dictionary to the same file:
-        new_data = {
-            "key_4": "value_4",
-            "key_5": "value_5"
-        }
-        append_dict_to_json_file(new_data, file_path)
-
-        # The content of the file data.json is now:
-        # {
-        #   "key_1": "value_1",
-        #   "key_4": "value_4",
-        #   "key_5": "value_5"
-        # }
+         new_dict = {"key": "value"}  # Example dictionary to be appended
+         file_path = "data.json"  # Example file path
+         append_dict_to_json_file(new_dict, file_path)
     """
     try:
         data = load_json_file(file_path)
@@ -146,18 +126,15 @@ def load_json_file(file_path: str) -> Union[dict, list]:
     Load a JSON file from the given file path and return the data as a dictionary.
 
     Parameters:
-        - file_path: The path to the JSON file
-    Return:
-        - The data contained in the JSON file as a dictionary
+        - file_path (str): The path to the JSON file.
+
+    Returns:
+        - Union[dict, list]: The data contained in the JSON file as a dictionary.
 
     Example:
-        data = load_json_file("file.json")
-        if isinstance(data, dict):
-            # data is a dictionary
-            print(data)
-        elif isinstance(data, list):
-            # data is a list
-            print(data)
+         file_path = "data.json"  # Example file path
+         data = load_json_file(file_path)
+         print(data)
     """
     with open(file_path, "r") as file:
         return json.load(file)
@@ -168,10 +145,15 @@ def load_json_lines_file(file_path: str) -> Union[dict, list]:
     Load a JSON Lines file from the given file path and return the data as a list.
 
     Parameters:
-        - file_path: The path to the JSON Lines file
-    Return:
-        - The data contained in the JSON file as a list
+        - file_path (str): The path to the JSON Lines file.
 
+    Returns:
+        - Union[dict, list]: The data contained in the JSON file as a list.
+
+    Example:
+         file_path = "data.jsonl"  # Example file path
+         data = load_json_lines_file(file_path)
+         print(data)
     """
     with open(file_path, "r") as file_in:
         return [json.loads(line) for line in file_in]
@@ -185,7 +167,8 @@ def set_seed_for_all(seed: int) -> None:
         - seed (int): The seed to be set.
 
     Example:
-        set_seed_for_all(42)
+         seed_value = 123  # Example seed value
+         set_seed_for_all(seed_value)
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -202,6 +185,11 @@ def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
 
     Returns:
         - Optional[int]: The seed used for the worker, or None if no worker ID was provided.
+
+    Example:
+         worker_id = 1  # Example worker ID
+         seed = set_seed_for_worker(worker_id)
+         print(seed)  # Seed used for the worker
     """
     if worker_id is not None:
         worker_seed = worker_id
@@ -218,7 +206,7 @@ def fgsm_attack(image: Tensor, epsilon: float, image_grad: Tensor) -> Tensor:
     """
     Applies Fast Gradient Sign Method (FGSM) attack to the input image.
 
-    Args:
+    Parameters:
         image (Tensor): The input image to be perturbed.
         epsilon (float): The perturbation magnitude.
         image_grad (Tensor): The gradient of the loss function with respect to the input image.
@@ -226,6 +214,13 @@ def fgsm_attack(image: Tensor, epsilon: float, image_grad: Tensor) -> Tensor:
     Returns:
         Tensor: The perturbed image.
 
+    Example:
+         import torch
+         image = torch.randn(3, 224, 224)  # Example input image
+         epsilon = 0.03  # Perturbation magnitude
+         image_grad = torch.randn(3, 224, 224)  # Gradient of the loss function with respect to the image
+         perturbed_image = fgsm_attack(image, epsilon, image_grad)
+         print(perturbed_image)  # Perturbed image after applying FGSM attack
     """
     image_grad_sign = image_grad.sign()
     image_perturbed = image + epsilon * image_grad_sign
@@ -252,23 +247,14 @@ def get_data_augmentation(args) -> Dict[str, Callable]:
         - Dict[str, Callable]: A dictionary of data augmentation transforms for the training and validation sets.
 
     Example:
-        args = argparse.Namespace(
-             crop_size=224,
-             interpolation=2,
-             hflip=True,
-             aug_type="augmix",
-             mag_bins=3,
-             val_resize=256,
-        )
-        get_data_augmentation(args)
-        {"train": [RandomResizedCrop(size=(224, 224), interpolation=<InterpolationMode.BICUBIC),
-                  RandomHorizontalFlip(p=True), AugMix(interpolation=<InterpolationMode.BICUBIC), ToTensor(),
-                  Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-                  ],
-         "val": [Resize(size=256, interpolation=<InterpolationMode.BICUBIC), CenterCrop(size=(224, 224)), ToTensor(),
-                Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-                ]
-                }
+         import torchvision.transforms as transforms
+         args = Namespace(crop_size=224, interpolation=3, hflip=True, aug_type='augmix')
+         transforms_dict = get_data_augmentation(args)
+         train_transforms = transforms_dict['train']
+         val_transforms = transforms_dict['val']
+         print(train_transforms)
+         # Composed transform with random resized crop, random horizontal flip, and AugMix augmentation
+         print(val_transforms)  # Composed transform with resize, center crop, and normalization
     """
     train_aug = [
         transforms.RandomResizedCrop(args.crop_size, interpolation=f.InterpolationMode(args.interpolation)),
@@ -297,7 +283,8 @@ def get_data_augmentation(args) -> Dict[str, Callable]:
     return {"train": train_transform, "val": val_transform}
 
 
-def mixup_data(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) -> tuple:
+def mixup_data(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) -> Tuple[torch.Tensor, torch.Tensor,
+torch.Tensor, float]:
     """
     Applies Mixup augmentation to input data.
 
@@ -308,6 +295,16 @@ def mixup_data(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) 
 
     Returns:
         - tuple: Mixed images, mixed labels (labels_a), original labels (labels_b), and mixup factor (lambda).
+
+    Example:
+         import torch
+         images = torch.tensor([[1, 2, 3], [4, 5, 6]])
+         targets = torch.tensor([0, 1])
+         mixed_images, labels_a, labels_b, lam = mixup_data(images, targets, alpha=0.5)
+         print(mixed_images)  # [[2 4 4], [5 8 9]]
+         print(labels_a)  # [1.0, 0.5]
+         print(labels_b)  # [0.0, 0.5]
+         print(lam)  # 0.5
     """
     lam = torch.distributions.beta.Beta(alpha, alpha).sample().item()
     batch_size = images.size(0)
@@ -317,7 +314,8 @@ def mixup_data(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) 
     return mixed_images, targets_a, targets_b, lam
 
 
-def cutmix_data(images, targets, alpha=1.0):
+def cutmix_data(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) -> Tuple[torch.Tensor, torch.Tensor,
+torch.Tensor, float]:
     """
     Applies CutMix augmentation to input data.
 
@@ -328,13 +326,22 @@ def cutmix_data(images, targets, alpha=1.0):
 
     Returns:
         - tuple: Mixed images, mixed labels (targets_a), original labels (targets_b), and mix factor (lambda).
+
+    Example:
+         import torch
+         images = torch.tensor([[1, 2, 3], [4, 5, 6]])
+         targets = torch.tensor([0, 1])
+         mixed_images, targets_a, targets_b, lam = cutmix_data(images, targets, alpha=0.5)
+         print(mixed_images)  # [[1 2 6], [4 5 3]]
+         print(targets_a)  # [0, 1]
+         print(targets_b)  # [1, 0]
+         print(lam)  # 0.5
     """
     batch_size = images.size(0)
     index = torch.randperm(batch_size)
     lam = np.random.beta(alpha, alpha)
-    lam = max(lam, 1 - lam)  # Ensure lambda is always greater than 0.5
+    lam = max(lam, 1 - lam)
 
-    # Generate random bounding box coordinates
     height, width = images.size(2), images.size(3)
     cut_ratio = np.sqrt(1.0 - lam)
     cut_h = np.int(height * cut_ratio)
@@ -346,78 +353,70 @@ def cutmix_data(images, targets, alpha=1.0):
     bbx2 = np.clip(cx + cut_w // 2, 0, width)
     bby2 = np.clip(cy + cut_h // 2, 0, height)
 
-    # Apply CutMix
     mixed_images = images.clone()
     mixed_images[:, :, bby1:bby2, bbx1:bbx2] = images[index, :, bby1:bby2, bbx1:bbx2]
     lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1)) / (width * height)
 
-    # Adjust the labels
     targets_a, targets_b = targets, targets[index]
     return mixed_images, targets_a, targets_b, lam
 
 
 def convert_tensor_to_numpy(tensor: torch.Tensor) -> np.ndarray:
     """
-    Convert tensor to numpy ndarray
+    Converts a torch tensor to a NumPy ndarray.
 
     Parameters:
-        - tensor (torch.Tensor): torch tensor to be converted
+        - tensor (torch.Tensor): The torch tensor to be converted.
 
     Returns:
-        - np.ndarray: numpy ndarray converted from tensor
+        - np.ndarray: The NumPy ndarray converted from the tensor.
+
+    Example:
+         import torch
+         tensor = torch.tensor([1, 2, 3])
+         numpy_array = convert_tensor_to_numpy(tensor)
+         print(numpy_array)  # [1 2 3]
     """
     return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
 
 def convert_to_channels_first(image: torch.Tensor) -> torch.Tensor:
     """
-    Converts an image tensor from channels last format to channels first format.
-    
+    Converts an image tensor from channels-last format to channels-first format.
+
     Parameters:
         - image (torch.Tensor): A 4-D or 3-D image tensor.
 
     Returns:
-        - torch.Tensor: The image tensor in channels first format.
+        - torch.Tensor: The image tensor in channels-first format.
 
     Example:
-        import torch
-        image = torch.randn(3, 256, 256)
-        image = convert_to_channels_first(image)
-        image.shape
-
-        torch.Size([256, 256, 3])
+         import torch
+         image = torch.randn(32, 64, 64, 3)  # Example 4-D image tensor with channels last
+         converted_image = convert_to_channels_first(image)
+         print(converted_image.shape)
+        torch.Size([32, 3, 64, 64])
     """
-    if image.dim() == 4:
-        image = image if image.shape[1] == 3 else image.permute(0, 3, 1, 2)
-    elif image.dim() == 3:
-        image = image if image.shape[0] == 3 else image.permute(2, 0, 1)
-    return image
+    return image.permute(0, 3, 1, 2) if image.dim() == 4 else image.permute(2, 0, 1)
 
 
 def convert_to_channels_last(image: torch.Tensor) -> torch.Tensor:
     """
-    Converts an image tensor from channels first format to channels last format.
-    
+    Converts an image tensor from channels-first format to channels-last format.
+
     Parameters:
         - image (torch.Tensor): A 4-D or 3-D image tensor.
 
     Returns:
-        - torch.Tensor: The image tensor in channels last format.
+        - torch.Tensor: The image tensor in channels-last format.
 
     Example:
-        import torch
-        image = torch.randn((2, 3, 32, 32))
-        print(image.shape)
-        # (2, 3, 32, 32)
-        image = convert_to_channels_last(image)
-        print(image.shape)
-        # (2, 32, 32, 3)
+         image = torch.randn(1, 3, 32, 32)  # Channels-first format
+         image_channels_last = convert_to_channels_last(image)
+         print(image_channels_last.shape)
+        torch.Size([1, 32, 32, 3])
     """
-    if image.dim() == 4:
-        image = image if image.shape[3] == 3 else image.permute(0, 2, 3, 1)
-    elif image.dim() == 3:
-        image = image if image.shape[2] == 3 else image.permute(1, 2, 0)
-    return image
+    return image.permute(0, 2, 3, 1) if image.dim() == 4 else image.permute(1, 2, 0)
 
 
 def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dropout: float, crop_size: int,
@@ -434,7 +433,7 @@ def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dro
         - ema (bool): whether weights are from an Exponential Moving Average (EMA) model or not.
 
     Example:
-        convert_to_onnx("resnet18", "./best_model.pt", 10, 0.2)
+         convert_to_onnx("resnet18", "./best_model.pt", 10, 0.2)
 
     """
 
@@ -472,8 +471,8 @@ def get_explain_data_aug() -> Tuple[transforms.Compose, transforms.Compose]:
           used for explanation and the inverse of those transforms.
 
     Example:
-        transform, inv_transform = get_explain_data_aug()
-        transformed_image = transform(original_image)
+         transform, inv_transform = get_explain_data_aug()
+         transformed_image = transform(original_image)
     """
     transform = transforms.Compose([transforms.Lambda(convert_to_channels_first),
                                     transforms.Lambda(lambda image: image * (1 / 255)),
@@ -504,9 +503,9 @@ def get_classes(dataset_dir: str) -> List[str]:
         - A sorted list of the classes in the dataset.
 
     Example:
-        classes = get_classes('path/to/dataset')
-        print(classes)
-        # Output: ['class1', 'class2', 'class3', ...]
+         classes = get_classes('path/to/dataset')
+         print(classes)
+        ['class1', 'class2', 'class3', ...]
     """
     class_dirs = glob(os.path.join(dataset_dir, "train/*"))
     classes = [os.path.basename(class_dir) for class_dir in class_dirs]
@@ -527,8 +526,8 @@ def get_model_names(image_size: int, model_size: str) -> List[str]:
         - A list of model names that can be used for training.
 
     Example:
-        get_model_names(224, "small")
-        # ['tf_efficientnet_b0_ns_small_224', 'tf_efficientnet_b1_ns_small_224', 'tf_efficientnet_b2_ns_small_224', ...]
+         get_model_names(224, "small")
+        ['tf_efficientnet_b0_ns_small_224', 'tf_efficientnet_b1_ns_small_224', 'tf_efficientnet_b2_ns_small_224', ...]
     """
     model_names = timm.list_pretrained()
 
@@ -550,7 +549,13 @@ def prune_model(model: nn.Module, pruning_rate: float) -> List[Tuple[nn.Module, 
 
     Returns:
         List[Tuple[nn.Module, str]]: A list of tuples containing the pruned modules and parameter names.
+
+    Example:
+         model = MyModel()
+         pruning_rate = 0.5
+         pruned_params = prune_model(model, pruning_rate)
     """
+
     parameters_to_prune = [(module, 'weight') for module in model.modules() if
                            isinstance(module, torch.nn.Conv2d) or
                            isinstance(module, torch.nn.Linear)
@@ -569,11 +574,16 @@ def remove_pruning_reparam(parameters_to_prune: List[Tuple[nn.Module, str]]) -> 
     Removes pruning re-parametrization for each module and parameter in the provided list.
 
     Parameters:
-         - parameters_to_prune (List[Tuple[nn.Module, str]]): List of module and parameter names to remove pruning
+        - parameters_to_prune (List[Tuple[nn.Module, str]]): List of module and parameter names to remove pruning
           re-parametrization.
 
     Returns:
         None
+
+    Example:
+         model = MyModel()
+         parameters_to_prune = prune_model(model, pruning_rate=0.2)
+         remove_pruning_reparam(parameters_to_prune)
     """
     for module, parameter_name in parameters_to_prune:
         prune.remove(module, parameter_name)
@@ -595,7 +605,7 @@ def get_model(model_name: str, num_classes: int, dropout: float) -> nn.Module:
         - Tuple[nn.Module, str]: A tuple containing the modified model and the model name.
 
     Example:
-        model = get_model("tf_efficientnet_b0_ns", num_classes=10, dropout=0.1)
+         model = get_model("tf_efficientnet_b0_ns", num_classes=10, dropout=0.1)
     """
     model = timm.create_model(model_name,
                               pretrained=True,
@@ -630,8 +640,8 @@ def freeze_params(model: nn.Module) -> None:
         - model (nn.Module): A PyTorch neural network model.
 
     Example:
-        model = MyModel()
-        freeze_params(model)
+         model = MyModel()
+         freeze_params(model)
         # Now all the parameters in `model` are frozen and won't be updated during training.
     """
     for param in model.parameters():
@@ -651,13 +661,13 @@ def get_class_weights(data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
         - torch.Tensor: A tensor of class weights.
 
     Example:
-        from torch.utils.data import DataLoader
-        from torchvision.datasets import ImageFolder
-        from torchvision import transforms
+         from torch.utils.data import DataLoader
+         from torchvision.datasets import ImageFolder
+         from torchvision import transforms
 
-        dataset = ImageFolder("path/to/dataset", transform=transforms.ToTensor())
-        data_loader = DataLoader(dataset, batch_size=32, shuffle=True)
-        class_weights = get_class_weights(data_loader)
+         dataset = ImageFolder("path/to/dataset", transform=transforms.ToTensor())
+         data_loader = DataLoader(dataset, batch_size=32, shuffle=True)
+         class_weights = get_class_weights(data_loader)
     """
     targets = data_loader.dataset.targets
     class_counts = np.bincount(targets)
@@ -681,8 +691,8 @@ def average_checkpoints(inputs):
        KeyError: If the checkpoints have different sets of parameters.
 
     Example:
-       inputs = ["checkpoint1.pth", "checkpoint2.pth", "checkpoint3.pth"]
-       averaged_params = average_checkpoints(inputs)
+        inputs = ["checkpoint1.pth", "checkpoint2.pth", "checkpoint3.pth"]
+        averaged_params = average_checkpoints(inputs)
     """
     params_dict = OrderedDict()
     params_keys = None
@@ -734,9 +744,9 @@ def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
         - List[nn.Parameter]: A list of trainable parameters in the model.
 
     Example:
-        model = nn.Linear(10, 5)
-        trainable_params = get_trainable_params(model)
-        len(trainable_params)
+         model = nn.Linear(10, 5)
+         trainable_params = get_trainable_params(model)
+         len(trainable_params)
         2
     """
     return list(filter(lambda param: param.requires_grad, model.parameters()))
@@ -757,10 +767,10 @@ def get_optimizer(args, params: List[nn.Parameter]) -> Union[optim.SGD, optim.Ad
         - An optimizer object of the specified type, or None if the opt_name is not recognized.
 
     Example:
-        args = Namespace(opt_name="sgd", lr=0.01, wd=0.0001)
-        model = torch.nn.Linear(10, 10)
-        params = get_trainable_params(model)
-        optimizer = get_optimizer(args, params)
+         args = Namespace(opt_name="sgd", lr=0.01, wd=0.0001)
+         model = torch.nn.Linear(10, 10)
+         params = get_trainable_params(model)
+         optimizer = get_optimizer(args, params)
     """
     if args.opt_name == "sgd":
         return optim.SGD(params, lr=args.lr, weight_decay=args.wd, momentum=0.9)
@@ -770,7 +780,8 @@ def get_optimizer(args, params: List[nn.Parameter]) -> Union[optim.SGD, optim.Ad
 
 
 def get_lr_scheduler(args, optimizer) -> Union[optim.lr_scheduler.LinearLR, optim.lr_scheduler.StepLR,
-optim.lr_scheduler.CosineAnnealingLR, optim.lr_scheduler.SequentialLR, None]:
+                                            optim.lr_scheduler.CosineAnnealingLR,
+                                            optim.lr_scheduler.SequentialLR, None]:
     """
     This function returns a learning rate scheduler object based on the provided scheduling algorithm name.
 
@@ -789,13 +800,12 @@ optim.lr_scheduler.CosineAnnealingLR, optim.lr_scheduler.SequentialLR, None]:
         - A learning rate scheduler object of the specified type, or None if the sched_name is not recognized.
 
     Example:
-        import torch
-        import torch.optim as optim
-
-        optimizer = optim.SGD(model.parameters(), lr=0.1)
-        args = Namespace(sched_name="step", warmup_decay=0.01, warmup_epochs=10, step_size=10,
-                          gamma=0.1, epochs=100, eta_min=0.0)
-        lr_scheduler = get_lr_scheduler(args, optimizer)
+         scheduler = get_lr_scheduler(args, optimizer)
+         if scheduler is not None:
+             for epoch in range(args.epochs):
+                scheduler.step()
+                train_one_epoch()
+                evaluate()
     """
     warmup_lr = optim.lr_scheduler.LinearLR(optimizer, start_factor=args.warmup_decay, total_iters=args.warmup_epochs)
     if args.sched_name == "step":
@@ -818,13 +828,14 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
     Exponential Moving Average (EMA) implementation for model parameters.
 
     Parameters:
-       - model (torch.nn.Module): The model to apply EMA to.
-       - decay (float): The decay factor for EMA.
-       - device (str, optional): The device to use for EMA. Defaults to "cpu".
+        - model (torch.nn.Module): The model to apply EMA to.
+        - decay (float): The decay factor for EMA.
+        - device (str, optional): The device to use for EMA. Defaults to "cpu".
 
     Example:
-       model = MyModel()
-       ema = ExponentialMovingAverage(model, decay=0.99, device="cuda")
+         model = MyModel()
+         ema = ExponentialMovingAverage(model, decay=0.9)
+         ema.update_parameters(model)
     """
     def __init__(self, model, decay, device="cpu"):
         def ema_avg(avg_model_param, model_param, num_averaged):
@@ -840,19 +851,21 @@ def get_logger(logger_name: str, log_file: str, log_level=logging.DEBUG,
     The logger logs messages to a file and to the console.
 
     Parameters:
-        - logger_name : a string representing the name of the logger
-        - log_file : a string representing the file path of the log file
-        - log_level : representing the log level for the file handler (default = logging.DEBUG)
-        - console_level : representing the log level for the console handler (default = logging.INFO)
+        - logger_name (str): A string representing the name of the logger.
+        - log_file (str): A string representing the file path of the log file.
+        - log_level (int): The log level for the file handler. Defaults to logging.DEBUG.
+        - console_level (int): The log level for the console handler. Defaults to logging.INFO.
 
     Returns:
-        - a logger object
+        - logging.Logger: A logger object.
 
     Example:
-        logger = get_logger("example_logger", "example.log", logging.DEBUG, logging.INFO)
-        logger.debug("This is a debug message")
-        logger.info("This is an info message")
-
+         logger = get_logger("my_logger", "my_log.log")
+         logger.debug("This is a debug message")
+         logger.info("This is an info message")
+         logger.warning("This is a warning message")
+         logger.error("This is an error message")
+         logger.critical("This is a critical message")
     """
     logger = logging.getLogger(logger_name)
     logger.setLevel(log_level)
@@ -935,10 +948,10 @@ def create_train_val_test_splits(img_src: str, img_dest: str) -> None:
     directory. This will save the images in the appropriate directories based on the train-val-test split ratio.
 
     Parameters:
-        - img_src: The source directory containing the images to be split.
-        - img_dest: The destination directory where the split images will be saved.
+        - img_src (str): The source directory containing the images to be split.
+        - img_dest (str): The destination directory where the split images will be saved.
 
     Example:
-        create_train_val_test_splits('/path/to/images/', '/path/to/splitted_images/')
+         create_train_val_test_splits("data/images", "data/splits")
     """
     splitfolders.ratio(img_src, output=img_dest, seed=333777999, ratio=(0.8, 0.1, 0.1))
