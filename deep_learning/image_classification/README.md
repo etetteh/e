@@ -310,11 +310,13 @@ All results are on the validation dataset, and are saved in `output_dir/<model_n
 
 ```
 python train.py \
-    --dataset_dir weather_data \ 
+    --dataset_dir weather_data \
+    --output_dir sample_run_1 \   
+    --experiment_name exp_1 \
     --model_size tiny \
-    --crop_size 224 \ 
-    --output_dir sample_run0
+    --crop_size 224 \
 ```
+
 **Sample Results**:
 ```
                                          model  accuracy     auc      f1  recall  precision
