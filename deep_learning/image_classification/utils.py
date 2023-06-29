@@ -589,7 +589,7 @@ def remove_pruning_reparam(parameters_to_prune: List[Tuple[nn.Module, str]]) -> 
         prune.remove(module, parameter_name)
 
 
-def get_model(model_name: str, num_classes: int, dropout: float) -> nn.Module:
+def get_model(model_name: str, num_classes: int, dropout: float):
     """
     Returns a pretrained model with a new head and the model name.
 
@@ -752,7 +752,7 @@ def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
     return list(filter(lambda param: param.requires_grad, model.parameters()))
 
 
-def get_optimizer(args, params: List[nn.Parameter]) -> Union[optim.SGD, optim.AdamW, None]:
+def get_optimizer(args, params: List[nn.Parameter]):
     """
     This function returns an optimizer object based on the provided optimization algorithm name.
 
@@ -779,9 +779,7 @@ def get_optimizer(args, params: List[nn.Parameter]) -> Union[optim.SGD, optim.Ad
     return None
 
 
-def get_lr_scheduler(args, optimizer) -> Union[optim.lr_scheduler.LinearLR, optim.lr_scheduler.StepLR,
-                                            optim.lr_scheduler.CosineAnnealingLR,
-                                            optim.lr_scheduler.SequentialLR, None]:
+def get_lr_scheduler(args, optimizer):
     """
     This function returns a learning rate scheduler object based on the provided scheduling algorithm name.
 
