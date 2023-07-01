@@ -419,8 +419,7 @@ def convert_to_channels_last(image: torch.Tensor) -> torch.Tensor:
     return image.permute(0, 2, 3, 1) if image.dim() == 4 else image.permute(1, 2, 0)
 
 
-def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dropout: float, crop_size: int,
-                    ema: bool) -> None:
+def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dropout: float, crop_size: int) -> None:
     """
     Convert a PyTorch model to ONNX format.
 
@@ -440,7 +439,7 @@ def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dro
     model = get_model(model_name, num_classes, dropout)
 
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
-    if ema:
+    if "n_averaged" in checkpoint["model"]:
         del checkpoint["model"]["n_averaged"]
         torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(checkpoint["model"], "module.")
     model.load_state_dict(checkpoint["model"])
@@ -589,7 +588,7 @@ def remove_pruning_reparam(parameters_to_prune: List[Tuple[nn.Module, str]]) -> 
         prune.remove(module, parameter_name)
 
 
-def get_model(model_name: str, num_classes: int, dropout: float):
+def get_model(model_name: str, num_classes: int, dropout: float) -> nn.Module:
     """
     Returns a pretrained model with a new head and the model name.
 
@@ -752,7 +751,7 @@ def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
     return list(filter(lambda param: param.requires_grad, model.parameters()))
 
 
-def get_optimizer(args, params: List[nn.Parameter]):
+def get_optimizer(args, params: List[nn.Parameter]) -> Union[optim.SGD, optim.AdamW, None]:
     """
     This function returns an optimizer object based on the provided optimization algorithm name.
 
@@ -779,7 +778,9 @@ def get_optimizer(args, params: List[nn.Parameter]):
     return None
 
 
-def get_lr_scheduler(args, optimizer):
+def get_lr_scheduler(args, optimizer) -> Union[optim.lr_scheduler.LinearLR, optim.lr_scheduler.StepLR,
+                                            optim.lr_scheduler.CosineAnnealingLR,
+                                            optim.lr_scheduler.SequentialLR, None]:
     """
     This function returns a learning rate scheduler object based on the provided scheduling algorithm name.
 
