@@ -26,6 +26,7 @@ from torchmetrics.classification import (
     ROC,
 )
 from torchvision import datasets
+from accelerate import Accelerator
 
 import utils
 import explainability
@@ -40,8 +41,7 @@ def train_one_epoch(
         optimizer,
         criterion,
         train_metrics,
-        device,
-        scaler
+        accelerator
 ) -> Dict:
     """
     This function trains the model for one epoch and returns the metrics for the epoch.
@@ -64,52 +64,41 @@ def train_one_epoch(
     """
     model.train()
     for idx, (images, targets) in enumerate(train_loader):
-        images, targets = images.to(device, non_blocking=True), targets.to(device, non_blocking=True)
         images.requires_grad = True
 
-        optimizer.zero_grad()
-        with torch.cuda.amp.autocast(enabled=device.type == "cuda"):
-            if args.mixup:
-                mixed_images, targets_a, targets_b, lam = utils.mixup_data(images, targets, alpha=args.mixup_alpha)
-                output = model(mixed_images.contiguous(memory_format=torch.channels_last))
-                loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
-            elif args.cutmix:
-                mixed_images, targets_a, targets_b, lam = utils.cutmix_data(images, targets, alpha=args.cutmix_alpha)
-                output = model(mixed_images.contiguous(memory_format=torch.channels_last))
-                loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
-            else:
-                output = model(images.contiguous(memory_format=torch.channels_last))
-                loss = criterion(output, targets)
-
-        if device.type == "cuda":
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        else:
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-
-        if args.fgsm:
-            image_grad = images.grad.data
-            images_adversarial = utils.fgsm_attack(images, args.epsilon, image_grad)
-
+        with accelerator.accumulate(model):
             optimizer.zero_grad()
-            with torch.cuda.amp.autocast(enabled=device.type == "cuda"):
-                output_adversarial = model(images_adversarial)
-                loss_adversarial = criterion(output_adversarial, targets)
+            with accelerator.autocast():
+                if args.mixup:
+                    mixed_images, targets_a, targets_b, lam = utils.mixup_data(images, targets, alpha=args.mixup_alpha)
+                    output = model(mixed_images.contiguous(memory_format=torch.channels_last))
+                    loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
+                elif args.cutmix:
+                    mixed_images, targets_a, targets_b, lam = utils.cutmix_data(images, targets,
+                                                                                alpha=args.cutmix_alpha)
+                    output = model(mixed_images.contiguous(memory_format=torch.channels_last))
+                    loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
+                else:
+                    output = model(images.contiguous(memory_format=torch.channels_last))
+                    loss = criterion(output, targets)
 
-            if device.type == "cuda":
-                scaler.scale(loss_adversarial).backward()
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            else:
-                loss_adversarial.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            accelerator.backward(loss)
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(model.parameters(), 1.0)
 
-        if device.type == "cuda":
-            scaler.step(optimizer)
-            scaler.update()
-        else:
+            if args.fgsm:
+                image_grad = images.grad.data
+                images_adversarial = utils.fgsm_attack(images, args.epsilon, image_grad)
+
+                optimizer.zero_grad()
+                with accelerator.autocast():
+                    output_adversarial = model(images_adversarial)
+                    loss_adversarial = criterion(output_adversarial, targets)
+
+                accelerator.backward(loss_adversarial)
+                if accelerator.sync_gradients:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
             optimizer.step()
 
         if model_ema and idx % args.ema_steps == 0:
@@ -121,7 +110,9 @@ def train_one_epoch(
             _, pred = torch.max(output, 1)
         else:
             pred = output
-        train_metrics.update(pred, targets)
+        train_metrics.update(accelerator.gather_for_metrics(pred),
+                             accelerator.gather_for_metrics(targets)
+                             )
 
     total_train_metrics = train_metrics.compute()
     loss, acc, auc, f1, recall, prec, cm = (
@@ -154,7 +145,7 @@ def evaluate(
         model,
         val_metrics,
         roc_metric,
-        device: torch.device,
+        accelerator,
         ema,
 ) -> Tuple[Dict, torch.Tensor]:
     """
@@ -175,14 +166,16 @@ def evaluate(
     model.eval()
     with torch.no_grad():
         for images, targets in val_loader:
-            images, targets = images.to(device, non_blocking=True), targets.to(device, non_blocking=True)
             output = model(images.contiguous(memory_format=torch.channels_last))
 
             if len(val_loader.dataset.classes) == 2:
                 _, pred = torch.max(output, 1)
-                val_metrics.update(pred, targets)
-                roc_metric.update(output[:, 1], targets)
+                val_metrics.update(accelerator.gather_for_metrics(pred),
+                                   accelerator.gather_for_metrics(targets))
+                roc_metric.update(accelerator.gather_for_metrics(output[:, 1]),
+                                  accelerator.gather_for_metrics(targets))
             else:
+                output, targets = accelerator.gather_for_metrics(output), accelerator.gather_for_metrics(targets)
                 val_metrics.update(output, targets)
                 roc_metric.update(output, targets)
 
@@ -222,7 +215,9 @@ def main(args: argparse.Namespace) -> None:
     Returns:
         - None
     """
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    accelerator = Accelerator(gradient_accumulation_steps=2)
+
+    device = accelerator.device
     g = torch.Generator()
     g.manual_seed(args.seed)
     utils.set_seed_for_all(args.seed)
@@ -296,10 +291,10 @@ def main(args: argparse.Namespace) -> None:
         "cm": ConfusionMatrix(**metric_params)
     })
 
-    roc_metric = ROC(**metric_params)
+    roc_metric = ROC(**metric_params).to(device)
 
-    train_metrics = metric_collection
-    val_metrics = metric_collection
+    train_metrics = metric_collection.to(device)
+    val_metrics = metric_collection.to(device)
 
     run_ids_path = os.path.join(args.output_dir, "run_ids.json")
     if os.path.isfile(run_ids_path):
@@ -318,11 +313,15 @@ def main(args: argparse.Namespace) -> None:
             os.makedirs(os.path.join(args.output_dir, model_name), exist_ok=True)
 
         model = utils.get_model(model_name=model_name, num_classes=num_classes, dropout=args.dropout)
-        model = model.to(device)
+        model = accelerator.prepare_model(model)
+        model = accelerator.unwrap_model(model)
 
         params = utils.get_trainable_params(model)
         optimizer = utils.get_optimizer(args, params)
         lr_scheduler = utils.get_lr_scheduler(args, optimizer)
+
+        optimizer, train_loader, val_loader, lr_scheduler = accelerator.prepare(optimizer, train_loader, val_loader,
+                                                                                lr_scheduler)
 
         model_ema = None
         if args.ema:
@@ -330,8 +329,6 @@ def main(args: argparse.Namespace) -> None:
             alpha = 1.0 - args.ema_decay
             alpha = min(1.0, alpha * adjust)
             model_ema = utils.ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
-
-        scaler = torch.cuda.amp.GradScaler(enabled=device.type == "cuda")
 
         start_epoch = 0
         best_f1 = 0.0
@@ -358,13 +355,10 @@ def main(args: argparse.Namespace) -> None:
 
             if os.path.isfile(checkpoint_file):
                 checkpoint = torch.load(checkpoint_file, map_location="cpu")
-
                 model.load_state_dict(checkpoint["model"])
                 if not args.test_only:
                     optimizer.load_state_dict(checkpoint["optimizer"])
                     lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
-                if scaler:
-                    scaler.load_state_dict(checkpoint["scaler"])
                 if model_ema:
                     model_ema.load_state_dict(checkpoint["model_ema"])
 
@@ -386,9 +380,9 @@ def main(args: argparse.Namespace) -> None:
                     checkpoint = torch.load(checkpoint_file, map_location="cpu")
                 model.load_state_dict(checkpoint["model"])
                 if model_ema:
-                    evaluate(args, test_loader, model_ema, val_metrics, roc_metric, device, ema=True)
+                    evaluate(args, test_loader, model_ema, val_metrics, roc_metric, accelerator, ema=True)
                 else:
-                    evaluate(args, test_loader, model, val_metrics, roc_metric, device, ema=False)
+                    evaluate(args, test_loader, model, val_metrics, roc_metric, accelerator, ema=False)
                 return
 
             start_time = time.time()
@@ -400,22 +394,23 @@ def main(args: argparse.Namespace) -> None:
 
                 try:
                     total_train_metrics = train_one_epoch(args, epoch, train_loader, model, model_ema, optimizer,
-                                                          criterion, train_metrics, device, scaler)
+                                                          criterion, train_metrics, accelerator)
                 except ValueError:
                     continue
 
-                lr_scheduler.step()
+                if not accelerator.optimizer_step_was_skipped:
+                    lr_scheduler.step()
 
                 val_metrics.reset()
                 roc_metric.reset()
 
                 if model_ema:
-                    evaluate(args, val_loader, model, val_metrics, roc_metric, device, ema=False)
+                    evaluate(args, val_loader, model, val_metrics, roc_metric, accelerator, ema=False)
                     total_val_metrics, total_roc_metric = evaluate(args, val_loader, model_ema, val_metrics,
-                                                                   roc_metric, device, ema=True)
+                                                                   roc_metric, accelerator, ema=True)
                 else:
                     total_val_metrics, total_roc_metric = evaluate(args, val_loader, model, val_metrics,
-                                                                   roc_metric, device, ema=False)
+                                                                   roc_metric, accelerator, ema=False)
 
                 if args.prune:
                     parameters_to_prune = utils.prune_model(model, args.pruning_rate)
@@ -437,7 +432,7 @@ def main(args: argparse.Namespace) -> None:
                         best_model_state = deepcopy(model_ema.state_dict())
                     else:
                         best_model_state = deepcopy(model.state_dict())
-                    torch.save({"model": best_model_state}, f"{best_model_file}_{best_f1}.pth")
+                    accelerator.save({"model": best_model_state}, f"{best_model_file}_{best_f1}.pth")
 
                     best_checkpoints.append(f"{best_model_file}_{best_f1}.pth")
 
@@ -450,12 +445,10 @@ def main(args: argparse.Namespace) -> None:
                     "lr_scheduler": lr_scheduler.state_dict(),
                     "best_results": best_results,
                 }
-                if scaler:
-                    checkpoint["scaler"] = scaler.state_dict()
                 if model_ema:
                     checkpoint["model_ema"] = model_ema.state_dict()
 
-                torch.save(checkpoint, os.path.join(args.output_dir, model_name, "checkpoint.pth"))
+                accelerator.save(checkpoint, os.path.join(args.output_dir, model_name, "checkpoint.pth"))
 
                 if len(best_checkpoints) > args.num_ckpts:
                     checkpoint_path_to_del = best_checkpoints.pop(0)
@@ -491,6 +484,9 @@ def main(args: argparse.Namespace) -> None:
 
         explainability.process_results(args, model_name)
 
+        accelerator.free_memory()
+        del model, optimizer, lr_scheduler
+
     results_list = utils.load_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
     best_compare_model_name = results_list[0]['model']
     best_compare_model_file = os.path.join(args.output_dir,
@@ -498,8 +494,7 @@ def main(args: argparse.Namespace) -> None:
                                            else best_compare_model_name,
                                            "best_model.pth")
 
-    utils.convert_to_onnx(best_compare_model_name, best_compare_model_file, num_classes, args.dropout, args.crop_size,
-                          ema=args.ema)
+    utils.convert_to_onnx(best_compare_model_name, best_compare_model_file, num_classes, args.dropout, args.crop_size)
     args.logger.info(f"Exported best performing model, {best_compare_model_name}, to ONNX format. File is located in "
                      f"{os.path.join(args.output_dir, best_compare_model_name)}")
 
