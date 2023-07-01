@@ -10,6 +10,7 @@ from plotly import express as px
 from plotly import graph_objects as go
 from torch.utils.data import DataLoader
 from sklearn.metrics import auc
+from accelerate import Accelerator
 
 import shap
 import os
@@ -166,7 +167,7 @@ def process_results(args: argparse.Namespace, model_name: str) -> None:
 def explain_model(args: argparse.Namespace) -> None:
     """
     Explain the predictions of a given model on a dataset using SHAP values.
-    
+
     Parameters:
         - args (argparse.Namespace): Arguments passed to the script.
             - dataset_dir (str): Directory of the dataset to use.
@@ -182,10 +183,10 @@ def explain_model(args: argparse.Namespace) -> None:
     def predict(img: np.ndarray) -> torch.Tensor:
         """
         Predict the class probabilities for an image.
-        
+
         Parameters:
             - img (np.ndarray): Input image.
-        
+
         Returns:
             - torch.Tensor: Class probabilities.
         """
@@ -194,7 +195,9 @@ def explain_model(args: argparse.Namespace) -> None:
         output = model(img)
         return output
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    accelerator = Accelerator()
+
+    device = accelerator.device
     transform, inv_transform = utils.get_explain_data_aug()
     classes = utils.get_classes(args.dataset_dir)
 
@@ -217,6 +220,9 @@ def explain_model(args: argparse.Namespace) -> None:
 
     checkpoint_file = os.path.join(os.path.join(args.output_dir, "best_model.pth"))
     checkpoint = torch.load(checkpoint_file, map_location="cpu")
+    if "n_averaged" in checkpoint["model"]:
+        del checkpoint["model"]["n_averaged"]
+        torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(checkpoint["model"], "module.")
     model.load_state_dict(checkpoint["model"])
 
     model.eval()
