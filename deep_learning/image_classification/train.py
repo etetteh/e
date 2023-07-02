@@ -56,8 +56,7 @@ def train_one_epoch(
         - optimizer: The optimizer to be used for training.
         - criterion: The loss function to be used.
         - train_metrics: An object for storing and computing training metrics.
-        - device: The device to be used for training.
-        - scaler: The GradScaler object for automatic mixed precision training.
+        - accelerator: The accelerator object for distributed training.
 
     Returns:
         Dict: A dictionary containing the metrics computed during training.
@@ -159,6 +158,7 @@ def evaluate(
         - roc_metric: An object for computing the ROC curve.
         - device: The device to be used for evaluation.
         - ema: Whether evaluation is being performed on model_ema or not
+        - accelerator: The accelerator object for distributed training.
 
     Returns:
        - Tuple: A tuple containing a dictionary of computed metrics and the predicted probabilities.
@@ -317,7 +317,7 @@ def main(args: argparse.Namespace) -> None:
 
         params = utils.get_trainable_params(model)
         optimizer = utils.get_optimizer(args, params)
-        lr_scheduler = utils.get_lr_scheduler(args, optimizer)
+        lr_scheduler = utils.get_lr_scheduler(args, optimizer, len(train_loader))
 
         optimizer, train_loader, val_loader, lr_scheduler = accelerator.prepare(optimizer, train_loader, val_loader,
                                                                                 lr_scheduler)
@@ -555,7 +555,8 @@ def get_args():
 
     parser.add_argument("--opt_name", default="adamw", type=str, help="Name of the optimizer to use.",
                         choices=["adamw", "sgd"])
-    parser.add_argument("--sched_name", default="cosine", type=str, help="Name of the learning rate scheduler to use.")
+    parser.add_argument("--sched_name", default="one_cycle", type=str, help="Name of the learning rate scheduler to use.",
+                        choices=["step", "cosine", "one_cycle"])
     parser.add_argument("--lr", default=0.01, type=float, help="Initial learning rate.")
     parser.add_argument("--wd", default=1e-4, type=float, help="Weight decay.")
     parser.add_argument("--step_size", default=30, type=int, help="Step size for the learning rate scheduler.")
