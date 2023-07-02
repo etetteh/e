@@ -215,7 +215,7 @@ def main(args: argparse.Namespace) -> None:
     Returns:
         - None
     """
-    accelerator = Accelerator(gradient_accumulation_steps=2)
+    accelerator = Accelerator(gradient_accumulation_steps=2, mixed_precision="fp16")
 
     device = accelerator.device
     g = torch.Generator()
@@ -555,8 +555,8 @@ def get_args():
 
     parser.add_argument("--opt_name", default="adamw", type=str, help="Name of the optimizer to use.",
                         choices=["adamw", "sgd"])
-    parser.add_argument("--sched_name", default="one_cycle", type=str, help="Name of the learning rate scheduler to use.",
-                        choices=["step", "cosine", "one_cycle"])
+    parser.add_argument("--sched_name", default="one_cycle", type=str, help="Name of the learning rate scheduler "
+                        "to use.", choices=["step", "cosine", "one_cycle"])
     parser.add_argument("--lr", default=0.01, type=float, help="Initial learning rate.")
     parser.add_argument("--wd", default=1e-4, type=float, help="Weight decay.")
     parser.add_argument("--step_size", default=30, type=int, help="Step size for the learning rate scheduler.")
