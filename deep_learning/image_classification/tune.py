@@ -38,13 +38,6 @@ def main(config: dict, args: argparse.Namespace) -> None:
     Returns
         - None
     """
-    accelerator = Accelerator(mixed_precision="fp16")
-    device = accelerator.device
-
-    g = torch.Generator()
-    g.manual_seed(args.seed)
-    utils.set_seed_for_all(args.seed)
-
     if args.tune_aug_type:
         args.aug_type = config["aug_type"]
         
@@ -71,6 +64,13 @@ def main(config: dict, args: argparse.Namespace) -> None:
 
     if args.tune_batch_size:
         args.batch_size = config["batch_size"]
+
+    accelerator = Accelerator(gradient_accumulation_steps=2, mixed_precision="fp16")
+
+    device = accelerator.device
+    g = torch.Generator()
+    g.manual_seed(args.seed)
+    utils.set_seed_for_all(args.seed)
 
     data_transforms = utils.get_data_augmentation(args)
     image_datasets = {
@@ -107,7 +107,6 @@ def main(config: dict, args: argparse.Namespace) -> None:
                                           ).to(device)
 
     num_classes = len(train_loader.dataset.classes)
-
     task = "binary" if num_classes == 2 else "multiclass"
     top_k = 1 if task == "multiclass" else None
     average = "macro" if task == "multiclass" else "weighted"
