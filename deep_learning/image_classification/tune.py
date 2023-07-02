@@ -24,6 +24,7 @@ from train import train_one_epoch, evaluate
 from ray import tune
 from ray.tune import CLIReporter
 from ray.tune.schedulers import ASHAScheduler, PopulationBasedTraining, pb2
+from accelerate import Accelerator
 
 
 def main(config: dict, args: argparse.Namespace) -> None:
@@ -37,7 +38,8 @@ def main(config: dict, args: argparse.Namespace) -> None:
     Returns
         - None
     """
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    accelerator = Accelerator(mixed_precision="fp16")
+    device = accelerator.device
 
     g = torch.Generator()
     g.manual_seed(args.seed)
@@ -55,6 +57,21 @@ def main(config: dict, args: argparse.Namespace) -> None:
     if args.tune_dropout:
         args.dropout = config["dropout"]
 
+    if args.tune_ema_steps:
+        args.ema_steps = config["ema_steps"]
+
+    if args.tune_mixup:
+        args.mixup_alpha = config["mixup_alpha"]
+
+    if args.tune_cutmix:
+        args.cutmix_alpha = config["cutmix_alpha"]
+
+    if args.tune_fgsm:
+        args.epsilon = config["epsilon"]
+
+    if args.tune_batch_size:
+        args.batch_size = config["batch_size"]
+
     data_transforms = utils.get_data_augmentation(args)
     image_datasets = {
         x: datasets.ImageFolder(
@@ -67,11 +84,10 @@ def main(config: dict, args: argparse.Namespace) -> None:
         "train": data.RandomSampler(image_datasets["train"]),
         "val": data.SequentialSampler(image_datasets["val"]),
     }
-
     dataloaders = {
         x: data.DataLoader(
             image_datasets[x],
-            batch_size=int(config["batch_size"]) if args.tune_batch_size else args.batch_size,
+            batch_size=args.batch_size,
             sampler=samplers[x],
             num_workers=args.num_workers,
             worker_init_fn=utils.set_seed_for_worker,
@@ -82,7 +98,6 @@ def main(config: dict, args: argparse.Namespace) -> None:
     }
 
     train_loader, val_loader = dataloaders["train"], dataloaders["val"]
-
     train_weights = utils.get_class_weights(train_loader)
 
     criterion = torch.nn.CrossEntropyLoss(weight=train_weights,
@@ -94,7 +109,6 @@ def main(config: dict, args: argparse.Namespace) -> None:
     num_classes = len(train_loader.dataset.classes)
 
     task = "binary" if num_classes == 2 else "multiclass"
-
     top_k = 1 if task == "multiclass" else None
     average = "macro" if task == "multiclass" else "weighted"
 
@@ -115,17 +129,27 @@ def main(config: dict, args: argparse.Namespace) -> None:
         "cm": ConfusionMatrix(**metric_params)
     })
 
-    roc_metric = ROC(**metric_params)
+    roc_metric = ROC(**metric_params).to(device)
 
-    train_metrics = metric_collection
-    val_metrics = metric_collection
+    train_metrics = metric_collection.to(device)
+    val_metrics = metric_collection.to(device)
 
     model = utils.get_model(model_name=args.model_name, num_classes=num_classes, dropout=args.dropout)
-    model.to(device)
+    model = accelerator.prepare_model(model)
 
     params = utils.get_trainable_params(model)
     optimizer = utils.get_optimizer(args, params)
-    lr_scheduler = utils.get_lr_scheduler(args, optimizer)
+    lr_scheduler = utils.get_lr_scheduler(args, optimizer, len(train_loader))
+
+    optimizer, train_loader, val_loader, lr_scheduler = accelerator.prepare(optimizer, train_loader, val_loader,
+                                                                            lr_scheduler)
+
+    model_ema = None
+    if args.ema:
+        adjust = args.batch_size * args.ema_steps / args.epochs
+        alpha = 1.0 - args.ema_decay
+        alpha = min(1.0, alpha * adjust)
+        model_ema = utils.ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
 
     if args.tune_opt:
         optimizer.param_groups[0]["lr"] = config["lr"]
@@ -150,11 +174,18 @@ def main(config: dict, args: argparse.Namespace) -> None:
         lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
 
     for epoch in range(0, args.epochs):
-        train_one_epoch(args, epoch, train_loader, model, optimizer, criterion, train_metrics, device)
+        train_one_epoch(args, epoch, train_loader, model, model_ema, optimizer, criterion, train_metrics, accelerator)
 
-        lr_scheduler.step()
+        if not accelerator.optimizer_step_was_skipped:
+            lr_scheduler.step()
 
-        total_val_metrics, total_roc_metric = evaluate(args, epoch, val_loader, model, val_metrics, roc_metric, device)
+        if model_ema:
+            evaluate(args, val_loader, model, val_metrics, roc_metric, accelerator, ema=False)
+            total_val_metrics, total_roc_metric = evaluate(args, val_loader, model_ema, val_metrics,
+                                                           roc_metric, accelerator, ema=True)
+        else:
+            total_val_metrics, total_roc_metric = evaluate(args, val_loader, model, val_metrics,
+                                                           roc_metric, accelerator, ema=False)
 
         with tune.checkpoint_dir(epoch) as checkpoint_dir:
             path = os.path.join(checkpoint_dir, "best_model.pth")
@@ -203,7 +234,6 @@ def tune_params(args):
 
         if args.opt_name == "sgd":
             config["momentum"] = tune.uniform(0.6, 0.99)
-
         hyperparam_mutations["lr"] = [1e-4, 1e-1]
         hyperparam_mutations["weight_decay"] = [1e-5, 1e-1]
 
@@ -212,12 +242,10 @@ def tune_params(args):
 
     if args.tune_batch_size:
         config["batch_size"] = tune.choice([8, 16, 32, 64])
-
         hyperparam_mutations["batch_size"] = [8, 64]
 
     if args.tune_smoothing:
         config["smoothing"] = tune.choice([0.05, 0.1, 0.15])
-
         hyperparam_mutations["smoothing"] = [0.05, 0.15]
 
     if args.tune_sched:
@@ -229,7 +257,6 @@ def tune_params(args):
         if args.sched_name == "step":
             config["step_size"] = tune.randint(args.epochs // 5, args.epochs // 3)
             config["gamma"] = tune.uniform(0.01, 0.1)
-
             hyperparam_mutations["step_size"] = [args.epochs // 5, args.epochs // 3]
             hyperparam_mutations["gamma"] = [0.01, 0.1]
         elif args.sched_name == "cosine":
@@ -239,7 +266,6 @@ def tune_params(args):
 
     if args.tune_dropout:
         config["dropout"] = tune.choice([0, 0.1, 0.2, 0.3, 0.4])
-
         hyperparam_mutations["dropout"] = [0, 0.4]
 
     if args.tune_aug_type:
@@ -249,7 +275,24 @@ def tune_params(args):
         config["interpolation"] = tune.choice(["nearest", "bilinear", "bicubic"])
 
     if args.tune_mag_bins:
-        config["mag_bins"] = tune.qrandint(23, 39, 1)
+        config["mag_bins"] = tune.qrandint(16, 39, 1)
+        hyperparam_mutations["mag_bins"] = [16, 39]
+
+    if args.tune_ema_steps:
+        config["ema_steps"] = tune.choice([8, 16, 32, 48])
+        hyperparam_mutations["ema_steps"] = [8, 48]
+
+    if args.tune_mixup:
+        config["mixup_alpha"] = tune.quniform(0.2, 0.6, 0.1)
+        hyperparam_mutations["mixup_alpha"] = [0.2, 0.6]
+
+    if args.tune_cutmix:
+        config["cutmix_alpha"] = tune.quniform(0.2, 0.6, 0.1)
+        hyperparam_mutations["cutmix_alpha"] = [0.2, 0.6]
+
+    if args.tune_fgsm:
+        config["epsilon"] = tune.quniform(0.01, 0.1, 0.01)
+        hyperparam_mutations["epsilon"] = [0.01, 0.1]
 
     scheduler = None
     if args.asha:
@@ -281,7 +324,6 @@ def tune_params(args):
         metric_columns=["auc", "f1", "recall", "prec", "training_iteration"]
     )
 
-    # ['bohb', 'optuna']:
     result = tune.run(
         partial(main, args=args),
         name=args.name,
@@ -356,6 +398,19 @@ def get_args():
     parser.add_argument("--eta_min", default=1e-4, type=float,
                         help="Minimum learning rate for the learning rate scheduler.")
 
+    parser.add_argument("--mixup", action="store_true", help="Whether to enable mixup or not")
+    parser.add_argument("--mixup_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
+
+    parser.add_argument("--cutmix", action="store_true", help="Whether to enable mixup or not")
+    parser.add_argument("--cutmix_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
+
+    parser.add_argument("--fgsm", action="store_true", help="Whether to enable FGSM adversarial training")
+    parser.add_argument("--epsilon", type=float, default=0.03, help="Epsilon value for FGSM attack")
+
+    parser.add_argument("--ema", action="store_true", help="Whether to perform Exponential Moving Average or not")
+    parser.add_argument("--ema_steps", type=int, default=32, help="number of iterations to update the EMA model ")
+    parser.add_argument("--ema_decay", type=float, default=0.99998, help="EMA decay factor")
+
     parser.add_argument("--num_samples", type=int, default=16, help="Number of samples to search for hyperparameters")
     parser.add_argument("--cpus_per_trial", type=int, default=2, help="Number of CPUs per trial")
     parser.add_argument("--gpus_per_trial", type=int, default=0, help="Number of GPUs per trial")
@@ -369,6 +424,10 @@ def get_args():
 
     parser.add_argument("--tune_smoothing", action="store_true", help="whether to tune label smoothing hyperparameter")
     parser.add_argument("--tune_dropout", action="store_true", help="whether to tune dropout rate hyperparameter")
+    parser.add_argument("--tune_ema_steps", action="store_true", help="whether to tune ema steps")
+    parser.add_argument("--tune_mixup", action="store_true", help="whether to tune mixup")
+    parser.add_argument("--tune_cutmix", action="store_true", help="whether to tune cutmix")
+    parser.add_argument("--tune_fgsm", action="store_true", help="whether to tune fgsm")
     parser.add_argument("--tune_aug_type", action="store_true", help="whether to tune augmentation type hyperparameter")
     parser.add_argument("--tune_mag_bins", action="store_true", help="whether to tune magnitude bins hyperparameter")
     parser.add_argument("--tune_batch_size", action="store_true", help="whether to tune batch size hyperparameter")
