@@ -487,7 +487,7 @@ def main(args: argparse.Namespace) -> None:
         del model, optimizer, lr_scheduler
 
     results_list = utils.load_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
-    best_compare_model_name = results_list[0]['model']
+    best_compare_model_name = results_list[0]["model"]
     best_compare_model_file = os.path.join(args.output_dir,
                                            os.path.join(best_compare_model_name, "averaged") if args.avg_ckpts
                                            else best_compare_model_name,
@@ -515,14 +515,14 @@ def get_args():
     parser.add_argument("--model_size", type=str, default="small", help="Size of the model to use",
                         choices=["nano", "tiny", "small", "base", "large", "giant"])
 
-    parser.add_argument('--avg_ckpts', action="store_true", help="Whether to enable checkpoint averaging or not.")
-    parser.add_argument('--num_ckpts', type=int, default=5, help="Number of best checkpoints to save")
+    parser.add_argument("--avg_ckpts", action="store_true", help="Whether to enable checkpoint averaging or not.")
+    parser.add_argument("--num_ckpts", type=int, default=5, help="Number of best checkpoints to save")
 
-    parser.add_argument('--mixup', action='store_true', help='Whether to enable mixup or not')
-    parser.add_argument('--mixup_alpha', type=float, default=1.0, help='mixup hyperparameter alpha')
+    parser.add_argument("--mixup", action="store_true", help="Whether to enable mixup or not")
+    parser.add_argument("--mixup_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
 
-    parser.add_argument('--cutmix', action='store_true', help='Whether to enable mixup or not')
-    parser.add_argument('--cutmix_alpha', type=float, default=1.0, help='mixup hyperparameter alpha')
+    parser.add_argument("--cutmix", action="store_true", help="Whether to enable mixup or not")
+    parser.add_argument("--cutmix_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
 
     parser.add_argument("--fgsm", action="store_true", help="Whether to enable FGSM adversarial training")
     parser.add_argument("--epsilon", type=float, default=0.03, help="Epsilon value for FGSM attack")
@@ -569,7 +569,7 @@ def get_args():
     parser.add_argument("--sorting_metric", default="f1", type=str, help="Metric to sort the results by.",
                         choices=["f1", "auc", "accuracy", "precision", "recall"])
 
-    parser.add_argument('--test_only', action="store_true", help="Whether to enable testing the trained model or not.")
+    parser.add_argument("--test_only", action="store_true", help="Whether to enable testing the trained model or not.")
 
     return parser.parse_args()
 
