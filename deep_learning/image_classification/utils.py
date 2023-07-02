@@ -429,7 +429,6 @@ def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dro
         - num_classes (int): The number of classes in the dataset.
         - dropout (float): The dropout rate to be used in the model.
         - crop_size (int): The size of the crop for inference dataset/image.
-        - ema (bool): whether weights are from an Exponential Moving Average (EMA) model or not.
 
     Example:
          convert_to_onnx("resnet18", "./best_model.pt", 10, 0.2)
@@ -778,9 +777,7 @@ def get_optimizer(args, params: List[nn.Parameter]) -> Union[optim.SGD, optim.Ad
     return None
 
 
-def get_lr_scheduler(args, optimizer) -> Union[optim.lr_scheduler.LinearLR, optim.lr_scheduler.StepLR,
-                                            optim.lr_scheduler.CosineAnnealingLR,
-                                            optim.lr_scheduler.SequentialLR, None]:
+def get_lr_scheduler(args, optimizer, num_iters) -> Union[optim.lr_scheduler.SequentialLR, None]:
     """
     This function returns a learning rate scheduler object based on the provided scheduling algorithm name.
 
@@ -794,6 +791,7 @@ def get_lr_scheduler(args, optimizer) -> Union[optim.lr_scheduler.LinearLR, opti
             - epochs: The total number of epochs for training.
             - eta_min: The minimum learning rate for the CosineAnnealingLR scheduler.
         - optimizer: The optimizer object to be used with the scheduler.
+        - num_iters: The total number of iterations in an epoch
 
     Returns:
         - A learning rate scheduler object of the specified type, or None if the sched_name is not recognized.
@@ -812,6 +810,8 @@ def get_lr_scheduler(args, optimizer) -> Union[optim.lr_scheduler.LinearLR, opti
     elif args.sched_name == "cosine":
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs - args.warmup_epochs,
                                                          eta_min=args.eta_min)
+    elif args.sched_name == "one_cycle":
+        scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.1, epochs=args.epochs, steps_per_epoch=num_iters)
     else:
         return None
 
