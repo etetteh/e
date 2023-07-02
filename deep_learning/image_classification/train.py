@@ -314,7 +314,6 @@ def main(args: argparse.Namespace) -> None:
 
         model = utils.get_model(model_name=model_name, num_classes=num_classes, dropout=args.dropout)
         model = accelerator.prepare_model(model)
-        model = accelerator.unwrap_model(model)
 
         params = utils.get_trainable_params(model)
         optimizer = utils.get_optimizer(args, params)
