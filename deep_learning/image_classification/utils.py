@@ -811,7 +811,7 @@ def get_lr_scheduler(args, optimizer, num_iters) -> Union[optim.lr_scheduler.Seq
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs - args.warmup_epochs,
                                                          eta_min=args.eta_min)
     elif args.sched_name == "one_cycle":
-        scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.1, epochs=args.epochs, steps_per_epoch=num_iters)
+        scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.max_lr, epochs=args.epochs, steps_per_epoch=num_iters)
     else:
         return None
 
