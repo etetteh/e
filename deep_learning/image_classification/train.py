@@ -557,7 +557,8 @@ def get_args():
                         choices=["adamw", "sgd"])
     parser.add_argument("--sched_name", default="one_cycle", type=str, help="Name of the learning rate scheduler "
                         "to use.", choices=["step", "cosine", "one_cycle"])
-    parser.add_argument("--lr", default=0.01, type=float, help="Initial learning rate.")
+    parser.add_argument("--lr", default=0.001, type=float, help="Initial learning rate.")
+    parser.add_argument('--max_lr', type=float, default=0.1, help='Maximum learning rate')
     parser.add_argument("--wd", default=1e-4, type=float, help="Weight decay.")
     parser.add_argument("--step_size", default=30, type=int, help="Step size for the learning rate scheduler.")
     parser.add_argument("--warmup_epochs", default=5, type=int, help="Number of epochs for the warmup period.")
