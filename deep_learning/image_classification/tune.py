@@ -40,13 +40,13 @@ def main(config: dict, args: argparse.Namespace) -> None:
     """
     if args.tune_aug_type:
         args.aug_type = config["aug_type"]
-        
+
     if args.tune_mag_bins:
         args.mag_bins = config["mag_bins"]
-        
+
     if args.tune_interpolation:
         args.interpolation = config["interpolation"]
-        
+
     if args.tune_dropout:
         args.dropout = config["dropout"]
 
@@ -64,6 +64,20 @@ def main(config: dict, args: argparse.Namespace) -> None:
 
     if args.tune_batch_size:
         args.batch_size = config["batch_size"]
+
+    if args.tune_opt:
+        args.lr = config["lr"]
+        args.weight_decay = config["weight_decay"]
+        if args.opt_name == "sgd":
+            args.momentum = config["momentum"]
+
+    if args.tune_sched:
+        if args.sched_name == "step":
+            args.step_size = config["step_size"]
+            args.gamma = config["gamma"]
+        elif args.sched_name == "cosine":
+            args.warmup_epochs = config["warmup_epochs"]
+            args.eta_min = config["eta_min"]
 
     accelerator = Accelerator(gradient_accumulation_steps=2, mixed_precision="fp16")
 
@@ -136,13 +150,6 @@ def main(config: dict, args: argparse.Namespace) -> None:
     model = utils.get_model(model_name=args.model_name, num_classes=num_classes, dropout=args.dropout)
     model = accelerator.prepare_model(model)
 
-    params = utils.get_trainable_params(model)
-    optimizer = utils.get_optimizer(args, params)
-    lr_scheduler = utils.get_lr_scheduler(args, optimizer, len(train_loader))
-
-    optimizer, train_loader, val_loader, lr_scheduler = accelerator.prepare(optimizer, train_loader, val_loader,
-                                                                            lr_scheduler)
-
     model_ema = None
     if args.ema:
         adjust = args.batch_size * args.ema_steps / args.epochs
@@ -150,20 +157,14 @@ def main(config: dict, args: argparse.Namespace) -> None:
         alpha = min(1.0, alpha * adjust)
         model_ema = utils.ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
 
-    if args.tune_opt:
-        optimizer.param_groups[0]["lr"] = config["lr"]
-        optimizer.param_groups[0]["weight_decay"] = config["weight_decay"]
-        if args.opt_name == "sgd":
-            optimizer.param_groups[0]["momentum"] = config["momentum"]
+    params = utils.get_trainable_params(model)
+    optimizer = utils.get_optimizer(args, params)
+    lr_scheduler = utils.get_lr_scheduler(args, optimizer, len(train_loader))
 
-    if args.tune_sched:
-        if args.sched_name == "step":
-            lr_scheduler.step_size = config["step_size"]
-            lr_scheduler.gamma = config["gamma"]
-        elif args.sched_name == "cosine":
-            lr_scheduler.T_max = args.epochs - config["warmup_epochs"]
-            lr_scheduler.eta_min = config["eta_min"]
+    optimizer, train_loader, val_loader, lr_scheduler = accelerator.prepare(optimizer, train_loader, val_loader,
+                                                                            lr_scheduler)
 
+    start_epoch = 0
     checkpoint_dir = args.output_dir
     checkpoint_file = os.path.join(checkpoint_dir, "best_model.pth")
     if os.path.isfile(checkpoint_file):
@@ -171,12 +172,17 @@ def main(config: dict, args: argparse.Namespace) -> None:
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+        start_epoch = checkpoint["epoch"] + 1
 
-    for epoch in range(0, args.epochs):
+    for epoch in range(start_epoch, args.epochs):
+        train_metrics.reset()
         train_one_epoch(args, epoch, train_loader, model, model_ema, optimizer, criterion, train_metrics, accelerator)
 
-        if not accelerator.optimizer_step_was_skipped:
-            lr_scheduler.step()
+        # if not accelerator.optimizer_step_was_skipped:
+        lr_scheduler.step()
+
+        val_metrics.reset()
+        roc_metric.reset()
 
         if model_ema:
             evaluate(args, val_loader, model, val_metrics, roc_metric, accelerator, ema=False)
@@ -186,20 +192,24 @@ def main(config: dict, args: argparse.Namespace) -> None:
             total_val_metrics, total_roc_metric = evaluate(args, val_loader, model, val_metrics,
                                                            roc_metric, accelerator, ema=False)
 
+        val_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
+                       total_val_metrics.items()}
+
         with tune.checkpoint_dir(epoch) as checkpoint_dir:
             path = os.path.join(checkpoint_dir, "best_model.pth")
             torch.save(
-                {"model": model.state_dict(),
+                {"epoch": epoch,
+                 "model": model.state_dict(),
                  "optimizer": optimizer.state_dict(),
                  "lr_scheduler": lr_scheduler.state_dict()
                  },
                 path)
 
         tune.report(
-            auc=total_val_metrics["auc"],
-            f1=total_val_metrics["f1"],
-            recall=total_val_metrics["recall"],
-            prec=total_val_metrics["precision"]
+            auc=val_results["auc"],
+            f1=val_results["f1"],
+            recall=val_results["recall"],
+            prec=val_results["precision"]
         )
 
     args.logger.info("Finished Training")
@@ -260,7 +270,6 @@ def tune_params(args):
             hyperparam_mutations["gamma"] = [0.01, 0.1]
         elif args.sched_name == "cosine":
             config["eta_min"] = tune.qloguniform(1e-4, 1e-1, 1e-5)
-
             hyperparam_mutations["eta_min"] = [1e-4, 1e-1]
 
     if args.tune_dropout:
@@ -297,7 +306,7 @@ def tune_params(args):
     if args.asha:
         scheduler = ASHAScheduler(
             time_attr="training_iteration",
-            max_t=args.epochs * 2,
+            max_t=args.epochs,
             grace_period=1,
             reduction_factor=2
         )
@@ -387,8 +396,10 @@ def get_args():
 
     parser.add_argument("--opt_name", default="adamw", type=str, help="Name of the optimizer to use.",
                         choices=["adamw", "sgd"])
-    parser.add_argument("--sched_name", default="cosine", type=str, help="Name of the learning rate scheduler to use.")
-    parser.add_argument("--lr", default=0.01, type=float, help="Initial learning rate.")
+    parser.add_argument("--sched_name", default="cosine", type=str, help="Name of the learning rate scheduler to use.",
+                        choices=["step", "cosine", "one_cycle"])
+    parser.add_argument("--lr", default=0.001, type=float, help="Initial learning rate.")
+    parser.add_argument('--max_lr', type=float, default=0.1, help='Maximum learning rate')
     parser.add_argument("--wd", default=1e-4, type=float, help="Weight decay.")
     parser.add_argument("--step_size", default=30, type=int, help="Step size for the learning rate scheduler.")
     parser.add_argument("--warmup_epochs", default=5, type=int, help="Number of epochs for the warmup period.")
@@ -411,7 +422,7 @@ def get_args():
     parser.add_argument("--ema_decay", type=float, default=0.99998, help="EMA decay factor")
 
     parser.add_argument("--num_samples", type=int, default=16, help="Number of samples to search for hyperparameters")
-    parser.add_argument("--cpus_per_trial", type=int, default=2, help="Number of CPUs per trial")
+    parser.add_argument("--cpus_per_trial", type=int, default=8, help="Number of CPUs per trial")
     parser.add_argument("--gpus_per_trial", type=int, default=0, help="Number of GPUs per trial")
     parser.add_argument("--search_alg", type=str, default="bohb", help="Hyperparameter search algorithm")
 
