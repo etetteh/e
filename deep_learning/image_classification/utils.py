@@ -941,7 +941,7 @@ class CreateImgSubclasses:
                     break
 
 
-def create_train_val_test_splits(img_src: str, img_dest: str) -> None:
+def create_train_val_test_splits(img_src: str, img_dest: str, ratio: tuple) -> None:
     """
     Split images from `img_src` directory into train, validation, and test sets and save them in `img_dest`
     directory. This will save the images in the appropriate directories based on the train-val-test split ratio.
@@ -949,8 +949,9 @@ def create_train_val_test_splits(img_src: str, img_dest: str) -> None:
     Parameters:
         - img_src (str): The source directory containing the images to be split.
         - img_dest (str): The destination directory where the split images will be saved.
+        - ratio (tuple): The train, val, test splits. E.g (0.8, 0.1, 0.1)
 
     Example:
          create_train_val_test_splits("data/images", "data/splits")
     """
-    splitfolders.ratio(img_src, output=img_dest, seed=333777999, ratio=(0.8, 0.1, 0.1))
+    splitfolders.ratio(img_src, output=img_dest, seed=333777999, ratio=ratio)
