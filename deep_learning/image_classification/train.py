@@ -219,296 +219,296 @@ def main(args: argparse.Namespace) -> None:
     fsdp_plugin = FullyShardedDataParallelPlugin(
         state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
     )
-    accelerator = Accelerator(gradient_accumulation_steps=2, mixed_precision="fp16", fsdp_plugin=fsdp_plugin)
+    accelerator = Accelerator(gradient_accumulation_steps=4, mixed_precision="fp16", fsdp_plugin=fsdp_plugin)
 
-    @find_executable_batch_size(starting_batch_size=args.batch_size)
-    def inner_main_loop(batch_size):
-        nonlocal accelerator
-        accelerator.free_memory()
+    # @find_executable_batch_size(starting_batch_size=args.batch_size)
+    # def inner_main_loop(batch_size):
+    #     nonlocal accelerator
+    #     accelerator.free_memory()
 
-        device = accelerator.device
-        g = torch.Generator()
-        g.manual_seed(args.seed)
-        utils.set_seed_for_all(args.seed)
+    device = accelerator.device
+    g = torch.Generator()
+    g.manual_seed(args.seed)
+    utils.set_seed_for_all(args.seed)
 
-        data_transforms = utils.get_data_augmentation(args)
-        image_datasets = {
-            x: datasets.ImageFolder(
-                os.path.join(args.dataset_dir, x), data_transforms[x]
-            )
-            for x in ["train", "val"]
-        }
+    data_transforms = utils.get_data_augmentation(args)
+    image_datasets = {
+        x: datasets.ImageFolder(
+            os.path.join(args.dataset_dir, x), data_transforms[x]
+        )
+        for x in ["train", "val"]
+    }
 
-        samplers = {
-            "train": data.RandomSampler(image_datasets["train"]),
-            "val": data.SequentialSampler(image_datasets["val"]),
-        }
-        dataloaders = {
-            x: data.DataLoader(
-                image_datasets[x],
-                batch_size=batch_size,
-                sampler=samplers[x],
-                num_workers=args.num_workers,
-                worker_init_fn=utils.set_seed_for_worker,
-                generator=g,
-                pin_memory=True,
-            )
-            for x in ["train", "val"]
-        }
+    samplers = {
+        "train": data.RandomSampler(image_datasets["train"]),
+        "val": data.SequentialSampler(image_datasets["val"]),
+    }
+    dataloaders = {
+        x: data.DataLoader(
+            image_datasets[x],
+            batch_size=args.batch_size,
+            sampler=samplers[x],
+            num_workers=args.num_workers,
+            worker_init_fn=utils.set_seed_for_worker,
+            generator=g,
+            pin_memory=True,
+        )
+        for x in ["train", "val"]
+    }
 
-        train_loader, val_loader = dataloaders["train"], dataloaders["val"]
-        train_weights = utils.get_class_weights(train_loader)
+    train_loader, val_loader = dataloaders["train"], dataloaders["val"]
+    train_weights = utils.get_class_weights(train_loader)
 
-        test_loader = None
-        if os.path.isdir(os.path.join(args.dataset_dir, "test")) and args.test_only:
-            test_dataset = datasets.ImageFolder(
-                os.path.join(args.dataset_dir, "test"),
-                data_transforms["val"]
-            )
+    test_loader = None
+    if os.path.isdir(os.path.join(args.dataset_dir, "test")) and args.test_only:
+        test_dataset = datasets.ImageFolder(
+            os.path.join(args.dataset_dir, "test"),
+            data_transforms["val"]
+        )
 
-            test_loader = data.DataLoader(
-                test_dataset,
-                batch_size=args.batch_size,
-                sampler=samplers["val"],
-                num_workers=args.num_workers,
-                worker_init_fn=utils.set_seed_for_worker,
-                generator=g,
-                pin_memory=True,
-            )
+        test_loader = data.DataLoader(
+            test_dataset,
+            batch_size=args.batch_size,
+            sampler=samplers["val"],
+            num_workers=args.num_workers,
+            worker_init_fn=utils.set_seed_for_worker,
+            generator=g,
+            pin_memory=True,
+        )
 
-        criterion = torch.nn.CrossEntropyLoss(weight=train_weights, label_smoothing=args.label_smoothing).to(device)
+    criterion = torch.nn.CrossEntropyLoss(weight=train_weights, label_smoothing=args.label_smoothing).to(device)
 
-        num_classes = len(train_loader.dataset.classes)
-        task = "binary" if num_classes == 2 else "multiclass"
-        top_k = 1 if task == "multiclass" else None
-        average = "macro" if task == "multiclass" else "weighted"
+    num_classes = len(train_loader.dataset.classes)
+    task = "binary" if num_classes == 2 else "multiclass"
+    top_k = 1 if task == "multiclass" else None
+    average = "macro" if task == "multiclass" else "weighted"
 
-        metric_params = {
-            "task": task,
-            "average": average,
-            "num_classes": num_classes,
-            "top_k": top_k,
-        }
+    metric_params = {
+        "task": task,
+        "average": average,
+        "num_classes": num_classes,
+        "top_k": top_k,
+    }
 
-        metric_collection = MetricCollection({
-            "loss": HammingDistance(**metric_params),
-            "auc": AUROC(**metric_params),
-            "acc": Accuracy(**metric_params),
-            "f1": F1Score(**metric_params),
-            "recall": Recall(**metric_params),
-            "precision": Precision(**metric_params),
-            "cm": ConfusionMatrix(**metric_params)
-        })
+    metric_collection = MetricCollection({
+        "loss": HammingDistance(**metric_params),
+        "auc": AUROC(**metric_params),
+        "acc": Accuracy(**metric_params),
+        "f1": F1Score(**metric_params),
+        "recall": Recall(**metric_params),
+        "precision": Precision(**metric_params),
+        "cm": ConfusionMatrix(**metric_params)
+    })
 
-        roc_metric = ROC(**metric_params).to(device)
+    roc_metric = ROC(**metric_params).to(device)
 
-        train_metrics = metric_collection.to(device)
-        val_metrics = metric_collection.to(device)
+    train_metrics = metric_collection.to(device)
+    val_metrics = metric_collection.to(device)
 
-        run_ids_path = os.path.join(args.output_dir, "run_ids.json")
-        if os.path.isfile(run_ids_path):
-            run_ids = utils.load_json_file(file_path=run_ids_path)
-        else:
-            run_ids = None
+    run_ids_path = os.path.join(args.output_dir, "run_ids.json")
+    if os.path.isfile(run_ids_path):
+        run_ids = utils.load_json_file(file_path=run_ids_path)
+    else:
+        run_ids = None
 
-        file_path = os.path.join(args.output_dir, "results.jsonl")
-        try:
-            os.remove(file_path)
-        except FileNotFoundError:
-            pass
+    file_path = os.path.join(args.output_dir, "results.jsonl")
+    try:
+        os.remove(file_path)
+    except FileNotFoundError:
+        pass
 
-        for i, model_name in enumerate(args.models):
-            if not os.path.isdir(os.path.join(args.output_dir, model_name)):
-                os.makedirs(os.path.join(args.output_dir, model_name), exist_ok=True)
+    for i, model_name in enumerate(args.models):
+        if not os.path.isdir(os.path.join(args.output_dir, model_name)):
+            os.makedirs(os.path.join(args.output_dir, model_name), exist_ok=True)
 
-            model = utils.get_model(model_name=model_name, num_classes=num_classes, dropout=args.dropout)
-            model = accelerator.prepare_model(model)
+        model = utils.get_model(model_name=model_name, num_classes=num_classes, dropout=args.dropout)
+        model = accelerator.prepare_model(model)
 
-            params = utils.get_trainable_params(model)
-            optimizer = utils.get_optimizer(args, params)
-            lr_scheduler = utils.get_lr_scheduler(args, optimizer, len(train_loader))
+        params = utils.get_trainable_params(model)
+        optimizer = utils.get_optimizer(args, params)
+        lr_scheduler = utils.get_lr_scheduler(args, optimizer, len(train_loader))
 
-            optimizer, train_loader, val_loader, lr_scheduler = accelerator.prepare(optimizer, train_loader, val_loader,
-                                                                                    lr_scheduler)
+        optimizer, train_loader, val_loader, lr_scheduler = accelerator.prepare(optimizer, train_loader, val_loader,
+                                                                                lr_scheduler)
 
-            model_ema = None
-            if args.ema:
-                adjust = args.batch_size * args.ema_steps / args.epochs
-                alpha = 1.0 - args.ema_decay
-                alpha = min(1.0, alpha * adjust)
-                model_ema = utils.ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
+        model_ema = None
+        if args.ema:
+            adjust = args.batch_size * args.ema_steps / args.epochs
+            alpha = 1.0 - args.ema_decay
+            alpha = min(1.0, alpha * adjust)
+            model_ema = utils.ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
 
-            start_epoch = 0
-            best_f1 = 0.0
-            best_results = {}
-            best_checkpoints = []
+        start_epoch = 0
+        best_f1 = 0.0
+        best_results = {}
+        best_checkpoints = []
 
-            run_id = utils.get_run_id(run_ids, model_name) if run_ids is not None else None
+        run_id = utils.get_run_id(run_ids, model_name) if run_ids is not None else None
 
-            checkpoint_file = os.path.join(args.output_dir, model_name, "checkpoint.pth")
-            best_model_file = os.path.join(args.output_dir, model_name, "best_model")
+        checkpoint_file = os.path.join(args.output_dir, model_name, "checkpoint.pth")
+        best_model_file = os.path.join(args.output_dir, model_name, "best_model")
 
-            mlflow.set_experiment(args.experiment_name)
+        mlflow.set_experiment(args.experiment_name)
 
-            with mlflow.start_run(run_id=run_id, run_name=model_name) as run:
-                try:
-                    mlflow.log_params(vars(args))
-                except mlflow.exceptions.MlflowException:
-                    pass
-                mlflow.pytorch.log_model(model, model_name)
+        with mlflow.start_run(run_id=run_id, run_name=model_name) as run:
+            try:
+                mlflow.log_params(vars(args))
+            except mlflow.exceptions.MlflowException:
+                pass
+            mlflow.pytorch.log_model(model, model_name)
 
-                if run_id is None:
-                    run_id_pair = {model_name: run.info.run_id}
-                    utils.append_dict_to_json_file(file_path=run_ids_path, new_dict=run_id_pair)
+            if run_id is None:
+                run_id_pair = {model_name: run.info.run_id}
+                utils.append_dict_to_json_file(file_path=run_ids_path, new_dict=run_id_pair)
 
-                if os.path.isfile(checkpoint_file):
+            if os.path.isfile(checkpoint_file):
+                checkpoint = torch.load(checkpoint_file, map_location="cpu")
+                model.load_state_dict(checkpoint["model"])
+                if not args.test_only:
+                    optimizer.load_state_dict(checkpoint["optimizer"])
+                    lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+                if model_ema:
+                    model_ema.load_state_dict(checkpoint["model_ema"])
+
+                start_epoch = checkpoint["epoch"] + 1
+                best_f1 = checkpoint["best_f1"]
+                best_results = checkpoint["best_results"]
+
+                if start_epoch == args.epochs:
+                    args.logger.info("Training completed")
+                else:
+                    args.logger.info(f"Resuming training from epoch {start_epoch}\n")
+
+            if args.test_only:
+                if args.avg_ckpts:
+                    checkpoint_file = os.path.join(args.output_dir, model_name, "averaged", "best_model.pth")
                     checkpoint = torch.load(checkpoint_file, map_location="cpu")
-                    model.load_state_dict(checkpoint["model"])
-                    if not args.test_only:
-                        optimizer.load_state_dict(checkpoint["optimizer"])
-                        lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+                else:
+                    checkpoint_file = os.path.join(args.output_dir, model_name, "best_model.pth")
+                    checkpoint = torch.load(checkpoint_file, map_location="cpu")
+                model.load_state_dict(checkpoint["model"])
+                if model_ema:
+                    evaluate(args, test_loader, model_ema, val_metrics, roc_metric, accelerator, ema=True)
+                else:
+                    evaluate(args, test_loader, model, val_metrics, roc_metric, accelerator, ema=False)
+                return
+
+            start_time = time.time()
+
+            utils.heading(f"Training a {model_name} model: Model {i + 1} of {len(args.models)}")
+
+            for epoch in range(start_epoch, args.epochs):
+                train_metrics.reset()
+
+                try:
+                    total_train_metrics = train_one_epoch(args, epoch, train_loader, model, model_ema, optimizer,
+                                                          criterion, train_metrics, accelerator)
+                except ValueError:
+                    continue
+
+                if not accelerator.optimizer_step_was_skipped:
+                    lr_scheduler.step()
+
+                val_metrics.reset()
+                roc_metric.reset()
+
+                if model_ema:
+                    evaluate(args, val_loader, model, val_metrics, roc_metric, accelerator, ema=False)
+                    total_val_metrics, total_roc_metric = evaluate(args, val_loader, model_ema, val_metrics,
+                                                                   roc_metric, accelerator, ema=True)
+                else:
+                    total_val_metrics, total_roc_metric = evaluate(args, val_loader, model, val_metrics,
+                                                                   roc_metric, accelerator, ema=False)
+
+                if args.prune:
+                    parameters_to_prune = utils.prune_model(model, args.pruning_rate)
+                    utils.remove_pruning_reparam(parameters_to_prune)
+
+                train_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
+                                 total_train_metrics.items()}
+                val_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
+                               total_val_metrics.items()}
+
+                if val_results["f1"] >= best_f1:
+                    fpr, tpr, _ = total_roc_metric
+                    fpr, tpr = [ff.detach().tolist() for ff in fpr], [tt.detach().tolist() for tt in tpr]
+
+                    best_f1 = val_results["f1"]
+                    best_results = {**{"model": model_name, "fpr": fpr, "tpr": tpr}, **val_results}
+
                     if model_ema:
-                        model_ema.load_state_dict(checkpoint["model_ema"])
-
-                    start_epoch = checkpoint["epoch"] + 1
-                    best_f1 = checkpoint["best_f1"]
-                    best_results = checkpoint["best_results"]
-
-                    if start_epoch == args.epochs:
-                        args.logger.info("Training completed")
+                        best_model_state = deepcopy(model_ema.state_dict())
                     else:
-                        args.logger.info(f"Resuming training from epoch {start_epoch}\n")
+                        best_model_state = deepcopy(model.state_dict())
+                    accelerator.save({"model": best_model_state}, f"{best_model_file}_{best_f1}.pth")
 
-                if args.test_only:
-                    if args.avg_ckpts:
-                        checkpoint_file = os.path.join(args.output_dir, model_name, "averaged", "best_model.pth")
-                        checkpoint = torch.load(checkpoint_file, map_location="cpu")
-                    else:
-                        checkpoint_file = os.path.join(args.output_dir, model_name, "best_model.pth")
-                        checkpoint = torch.load(checkpoint_file, map_location="cpu")
-                    model.load_state_dict(checkpoint["model"])
-                    if model_ema:
-                        evaluate(args, test_loader, model_ema, val_metrics, roc_metric, accelerator, ema=True)
-                    else:
-                        evaluate(args, test_loader, model, val_metrics, roc_metric, accelerator, ema=False)
-                    return
+                    best_checkpoints.append(f"{best_model_file}_{best_f1}.pth")
 
-                start_time = time.time()
+                checkpoint = {
+                    "args": args,
+                    "epoch": epoch,
+                    "best_f1": best_f1,
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "lr_scheduler": lr_scheduler.state_dict(),
+                    "best_results": best_results,
+                }
+                if model_ema:
+                    checkpoint["model_ema"] = model_ema.state_dict()
 
-                utils.heading(f"Training a {model_name} model: Model {i + 1} of {len(args.models)}")
+                accelerator.save(checkpoint, os.path.join(args.output_dir, model_name, "checkpoint.pth"))
 
-                for epoch in range(start_epoch, args.epochs):
-                    train_metrics.reset()
+                if len(best_checkpoints) > args.num_ckpts:
+                    checkpoint_path_to_del = best_checkpoints.pop(0)
+                    if os.path.exists(checkpoint_path_to_del):
+                        os.remove(checkpoint_path_to_del)
 
-                    try:
-                        total_train_metrics = train_one_epoch(args, epoch, train_loader, model, model_ema, optimizer,
-                                                              criterion, train_metrics, accelerator)
-                    except ValueError:
-                        continue
+                mlflow.log_metrics(
+                    {f"train_{metric}": value for metric, value in train_results.items() if not metric == "cm"},
+                    step=epoch)
+                mlflow.log_metrics(
+                    {f"val_{metric}": value for metric, value in val_results.items() if not metric == "cm"}, step=epoch)
 
-                    if not accelerator.optimizer_step_was_skipped:
-                        lr_scheduler.step()
+        elapsed_time = time.time() - start_time
+        train_time = f"{elapsed_time // 60:.0f}m {elapsed_time % 60:.0f}s"
 
-                    val_metrics.reset()
-                    roc_metric.reset()
+        args.logger.info(f"{model_name} training completed in {train_time}")
+        args.logger.info(f"{model_name} best Val F1-score {best_f1:.4f}\n")
 
-                    if model_ema:
-                        evaluate(args, val_loader, model, val_metrics, roc_metric, accelerator, ema=False)
-                        total_val_metrics, total_roc_metric = evaluate(args, val_loader, model_ema, val_metrics,
-                                                                       roc_metric, accelerator, ema=True)
-                    else:
-                        total_val_metrics, total_roc_metric = evaluate(args, val_loader, model, val_metrics,
-                                                                       roc_metric, accelerator, ema=False)
+        if args.avg_ckpts:
+            path = os.path.join(args.output_dir, model_name, "averaged")
+            if not os.path.exists(path):
+                os.makedirs(path)
+            avg_model_states = utils.average_checkpoints(glob(f"{best_model_file}*.pth"))
+            torch.save({"model": avg_model_states["model"]}, os.path.join(path, "best_model.pth"))
+        else:
+            best_ckpt = sorted(glob(f"{best_model_file}*.pth"))[-1]
+            print(f"\nModel to convert as best model: {best_ckpt}\n")
+            shutil.copy(best_ckpt, f"{best_model_file}.pth")
 
-                    if args.prune:
-                        parameters_to_prune = utils.prune_model(model, args.pruning_rate)
-                        utils.remove_pruning_reparam(parameters_to_prune)
+        with open(os.path.join(args.output_dir, "results.jsonl"), "+a") as file:
+            json.dump(best_results, file)
+            file.write("\n")
 
-                    train_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
-                                     total_train_metrics.items()}
-                    val_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
-                                   total_val_metrics.items()}
+        explainability.process_results(args, model_name)
 
-                    if val_results["f1"] >= best_f1:
-                        fpr, tpr, _ = total_roc_metric
-                        fpr, tpr = [ff.detach().tolist() for ff in fpr], [tt.detach().tolist() for tt in tpr]
+        accelerator.free_memory()
+        del model, optimizer, lr_scheduler
 
-                        best_f1 = val_results["f1"]
-                        best_results = {**{"model": model_name, "fpr": fpr, "tpr": tpr}, **val_results}
+    results_list = utils.load_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
+    best_compare_model_name = results_list[0]["model"]
+    best_compare_model_file = os.path.join(args.output_dir,
+                                           os.path.join(best_compare_model_name, "averaged") if args.avg_ckpts
+                                           else best_compare_model_name,
+                                           "best_model.pth")
 
-                        if model_ema:
-                            best_model_state = deepcopy(model_ema.state_dict())
-                        else:
-                            best_model_state = deepcopy(model.state_dict())
-                        accelerator.save({"model": best_model_state}, f"{best_model_file}_{best_f1}.pth")
+    utils.convert_to_onnx(best_compare_model_name, best_compare_model_file, num_classes, args.dropout, args.crop_size)
+    args.logger.info(f"Exported best performing model, {best_compare_model_name}, to ONNX format. File is located in "
+                     f"{os.path.join(args.output_dir, best_compare_model_name)}")
 
-                        best_checkpoints.append(f"{best_model_file}_{best_f1}.pth")
+    args.logger.info(f"All results have been saved at {os.path.abspath(args.output_dir)}")
 
-                    checkpoint = {
-                        "args": args,
-                        "epoch": epoch,
-                        "best_f1": best_f1,
-                        "model": model.state_dict(),
-                        "optimizer": optimizer.state_dict(),
-                        "lr_scheduler": lr_scheduler.state_dict(),
-                        "best_results": best_results,
-                    }
-                    if model_ema:
-                        checkpoint["model_ema"] = model_ema.state_dict()
-
-                    accelerator.save(checkpoint, os.path.join(args.output_dir, model_name, "checkpoint.pth"))
-
-                    if len(best_checkpoints) > args.num_ckpts:
-                        checkpoint_path_to_del = best_checkpoints.pop(0)
-                        if os.path.exists(checkpoint_path_to_del):
-                            os.remove(checkpoint_path_to_del)
-
-                    mlflow.log_metrics(
-                        {f"train_{metric}": value for metric, value in train_results.items() if not metric == "cm"},
-                        step=epoch)
-                    mlflow.log_metrics(
-                        {f"val_{metric}": value for metric, value in val_results.items() if not metric == "cm"}, step=epoch)
-
-            elapsed_time = time.time() - start_time
-            train_time = f"{elapsed_time // 60:.0f}m {elapsed_time % 60:.0f}s"
-
-            args.logger.info(f"{model_name} training completed in {train_time}")
-            args.logger.info(f"{model_name} best Val F1-score {best_f1:.4f}\n")
-
-            if args.avg_ckpts:
-                path = os.path.join(args.output_dir, model_name, "averaged")
-                if not os.path.exists(path):
-                    os.makedirs(path)
-                avg_model_states = utils.average_checkpoints(glob(f"{best_model_file}*.pth"))
-                torch.save({"model": avg_model_states["model"]}, os.path.join(path, "best_model.pth"))
-            else:
-                best_ckpt = sorted(glob(f"{best_model_file}*.pth"))[-1]
-                print(f"\nModel to convert as best model: {best_ckpt}\n")
-                shutil.copy(best_ckpt, f"{best_model_file}.pth")
-
-            with open(os.path.join(args.output_dir, "results.jsonl"), "+a") as file:
-                json.dump(best_results, file)
-                file.write("\n")
-
-            explainability.process_results(args, model_name)
-
-            accelerator.free_memory()
-            del model, optimizer, lr_scheduler
-
-        results_list = utils.load_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
-        best_compare_model_name = results_list[0]["model"]
-        best_compare_model_file = os.path.join(args.output_dir,
-                                               os.path.join(best_compare_model_name, "averaged") if args.avg_ckpts
-                                               else best_compare_model_name,
-                                               "best_model.pth")
-
-        utils.convert_to_onnx(best_compare_model_name, best_compare_model_file, num_classes, args.dropout, args.crop_size)
-        args.logger.info(f"Exported best performing model, {best_compare_model_name}, to ONNX format. File is located in "
-                         f"{os.path.join(args.output_dir, best_compare_model_name)}")
-
-        args.logger.info(f"All results have been saved at {os.path.abspath(args.output_dir)}")
-
-    inner_main_loop()
+    # inner_main_loop()
 
 
 def get_args():
