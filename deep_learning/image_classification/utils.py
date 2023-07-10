@@ -13,6 +13,7 @@ import numpy as np
 import splitfolders
 import timm
 import torch
+from timm.optim import create_optimizer_v2
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from torch import nn, optim, Tensor
 import torch.nn.utils.prune as prune
@@ -750,7 +751,7 @@ def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
     return list(filter(lambda param: param.requires_grad, model.parameters()))
 
 
-def get_optimizer(args, params: List[nn.Parameter]) -> Union[optim.SGD, optim.AdamW, None]:
+def get_optimizer(args, params: List[nn.Parameter]) -> optim.Optimizer:
     """
     This function returns an optimizer object based on the provided optimization algorithm name.
 
@@ -762,7 +763,7 @@ def get_optimizer(args, params: List[nn.Parameter]) -> Union[optim.SGD, optim.Ad
         - params: A list of parameters for the optimizer.
 
     Returns:
-        - An optimizer object of the specified type, or None if the opt_name is not recognized.
+        - An optimizer object of the specified type.
 
     Example:
          args = Namespace(opt_name="sgd", lr=0.01, wd=0.0001)
@@ -770,11 +771,7 @@ def get_optimizer(args, params: List[nn.Parameter]) -> Union[optim.SGD, optim.Ad
          params = get_trainable_params(model)
          optimizer = get_optimizer(args, params)
     """
-    if args.opt_name == "sgd":
-        return optim.SGD(params, lr=args.lr, weight_decay=args.wd, momentum=0.9)
-    elif args.opt_name == "adamw":
-        return optim.AdamW(params, lr=args.lr, weight_decay=args.wd)
-    return None
+    return create_optimizer_v2(model_or_params=params, opt=args.opt_name, lr=args.lr, weight_decay=args.wd)
 
 
 def get_lr_scheduler(args, optimizer, num_iters) -> Union[optim.lr_scheduler.SequentialLR, None]:
@@ -811,7 +808,8 @@ def get_lr_scheduler(args, optimizer, num_iters) -> Union[optim.lr_scheduler.Seq
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs - args.warmup_epochs,
                                                          eta_min=args.eta_min)
     elif args.sched_name == "one_cycle":
-        scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.max_lr, epochs=args.epochs, steps_per_epoch=num_iters)
+        scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.max_lr, epochs=args.epochs,
+                                                  steps_per_epoch=num_iters)
     else:
         return None
 
