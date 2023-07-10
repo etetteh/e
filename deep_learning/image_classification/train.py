@@ -82,22 +82,18 @@ def train_one_epoch(
                     output = model(images.contiguous(memory_format=torch.channels_last))
                     loss = criterion(output, targets)
 
-            accelerator.backward(loss)
-            if accelerator.sync_gradients:
-                accelerator.clip_grad_norm_(model.parameters(), 1.0)
-
             if args.fgsm:
                 image_grad = images.grad.data
                 images_adversarial = utils.fgsm_attack(images, args.epsilon, image_grad)
 
-                optimizer.zero_grad()
                 with accelerator.autocast():
                     output_adversarial = model(images_adversarial)
                     loss_adversarial = criterion(output_adversarial, targets)
+                    loss = loss + loss_adversarial
 
-                accelerator.backward(loss_adversarial)
-                if accelerator.sync_gradients:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            accelerator.backward(loss)
+            if accelerator.sync_gradients:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
             optimizer.step()
 
@@ -467,7 +463,8 @@ def main(args: argparse.Namespace) -> None:
                         {f"train_{metric}": value for metric, value in train_results.items() if not metric == "cm"},
                         step=epoch)
                     mlflow.log_metrics(
-                        {f"val_{metric}": value for metric, value in val_results.items() if not metric == "cm"}, step=epoch)
+                        {f"val_{metric}": value for metric, value in val_results.items() if not metric == "cm"},
+                        step=epoch)
 
             elapsed_time = time.time() - start_time
             train_time = f"{elapsed_time // 60:.0f}m {elapsed_time % 60:.0f}s"
@@ -502,8 +499,10 @@ def main(args: argparse.Namespace) -> None:
                                                else best_compare_model_name,
                                                "best_model.pth")
 
-        utils.convert_to_onnx(best_compare_model_name, best_compare_model_file, num_classes, args.dropout, args.crop_size)
-        args.logger.info(f"Exported best performing model, {best_compare_model_name}, to ONNX format. File is located in "
+        utils.convert_to_onnx(best_compare_model_name, best_compare_model_file, num_classes, args.dropout,
+                              args.crop_size)
+        args.logger.info(f"Exported best performing model, {best_compare_model_name},"
+                         f" to ONNX format. File is located in "
                          f"{os.path.join(args.output_dir, best_compare_model_name)}")
 
         args.logger.info(f"All results have been saved at {os.path.abspath(args.output_dir)}")
@@ -564,13 +563,13 @@ def get_args():
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate for classifier head")
     parser.add_argument("--label_smoothing", default=0.1, type=float, help="Amount of label smoothing to use.")
 
-    parser.add_argument("--opt_name", default="adamw", type=str, help="Name of the optimizer to use.",
-                        choices=["adamw", "sgd"])
+    parser.add_argument("--opt_name", default="madgrad", type=str, help="Name of the optimizer to use.",)
+    parser.add_argument("--lr", default=0.001, type=float, help="Initial learning rate.")
+    parser.add_argument("--wd", default=1e-4, type=float, help="Weight decay.")
+
     parser.add_argument("--sched_name", default="one_cycle", type=str, help="Name of the learning rate scheduler "
                         "to use.", choices=["step", "cosine", "one_cycle"])
-    parser.add_argument("--lr", default=0.001, type=float, help="Initial learning rate.")
     parser.add_argument('--max_lr', type=float, default=0.1, help='Maximum learning rate')
-    parser.add_argument("--wd", default=1e-4, type=float, help="Weight decay.")
     parser.add_argument("--step_size", default=30, type=int, help="Step size for the learning rate scheduler.")
     parser.add_argument("--warmup_epochs", default=5, type=int, help="Number of epochs for the warmup period.")
     parser.add_argument("--warmup_decay", default=0.1, type=float, help="Decay rate for the warmup learning rate.")
