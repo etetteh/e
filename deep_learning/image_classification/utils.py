@@ -5,6 +5,7 @@ import random
 import re
 import shutil
 import sys
+import argparse
 from glob import glob
 from collections import OrderedDict
 from typing import Callable, Dict, List, Optional, Tuple, Union
@@ -112,9 +113,9 @@ def append_dict_to_json_file(new_dict: Dict, file_path: str):
          file_path = "data.json"  # Example file path
          append_dict_to_json_file(new_dict, file_path)
     """
-    try:
+    if os.path.isfile(file_path):
         data = load_json_file(file_path)
-    except FileNotFoundError:
+    else:
         data = {}
 
     data.update(new_dict)
@@ -174,6 +175,7 @@ def set_seed_for_all(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 
 def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
@@ -203,28 +205,37 @@ def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
         return None
 
 
-def fgsm_attack(image: Tensor, epsilon: float, image_grad: Tensor) -> Tensor:
+def fgsm_attack(model, loss, images, epsilon) -> Tensor:
     """
-    Applies Fast Gradient Sign Method (FGSM) attack to the input image.
+    Applies the Fast Gradient Sign Method (FGSM) attack to the input image.
 
     Parameters:
-        image (Tensor): The input image to be perturbed.
-        epsilon (float): The perturbation magnitude.
-        image_grad (Tensor): The gradient of the loss function with respect to the input image.
+        - model (nn.Module): The model used for generating gradients.
+        - loss (Tensor): The loss value used for calculating gradients.
+        - images (Tensor): The input image to be perturbed.
+        - epsilon (float): The perturbation magnitude.
 
     Returns:
-        Tensor: The perturbed image.
+        - Tensor: The perturbed image.
 
     Example:
-         import torch
-         image = torch.randn(3, 224, 224)  # Example input image
-         epsilon = 0.03  # Perturbation magnitude
-         image_grad = torch.randn(3, 224, 224)  # Gradient of the loss function with respect to the image
-         perturbed_image = fgsm_attack(image, epsilon, image_grad)
-         print(perturbed_image)  # Perturbed image after applying FGSM attack
+        import torch
+
+        model = MyModel()  # Example model
+        image = torch.randn(3, 224, 224)  # Example input image
+        epsilon = 0.03  # Perturbation magnitude
+        loss = calculate_loss(model, image)  # Example loss calculation
+        perturbed_image = fgsm_attack(model, loss, image, epsilon)
+        print(perturbed_image)  # Perturbed image after applying FGSM attack
     """
-    image_grad_sign = image_grad.sign()
-    image_perturbed = image + epsilon * image_grad_sign
+    model.eval()
+    images.requires_grad_(True)
+
+    model.zero_grad()
+    loss.backward()
+
+    gradients = images.grad.data
+    image_perturbed = images + epsilon * torch.sign(gradients)
     image_perturbed = torch.clamp(image_perturbed, min=0, max=1)
     return image_perturbed
 
@@ -378,7 +389,7 @@ def convert_tensor_to_numpy(tensor: torch.Tensor) -> np.ndarray:
          numpy_array = convert_tensor_to_numpy(tensor)
          print(numpy_array)  # [1 2 3]
     """
-    return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+    return tensor.detach().cpu().numpy()
 
 
 def convert_to_channels_first(image: torch.Tensor) -> torch.Tensor:
@@ -403,40 +414,46 @@ def convert_to_channels_first(image: torch.Tensor) -> torch.Tensor:
 
 def convert_to_channels_last(image: torch.Tensor) -> torch.Tensor:
     """
-    Converts an image tensor from channels-first format to channels-last format.
+    Converts an image tensor from the channels-first format to the channels-last format.
 
     Parameters:
-        - image (torch.Tensor): A 4-D or 3-D image tensor.
+        - image (torch.Tensor): A 4-D or 3-D image tensor in channels-first format.
 
     Returns:
         - torch.Tensor: The image tensor in channels-last format.
 
     Example:
-         image = torch.randn(1, 3, 32, 32)  # Channels-first format
-         image_channels_last = convert_to_channels_last(image)
-         print(image_channels_last.shape)
-        torch.Size([1, 32, 32, 3])
+        import torch
+
+        image = torch.randn(1, 3, 32, 32)  # Channels-first format
+        image_channels_last = convert_to_channels_last(image)
+        print(image_channels_last.shape)
+        # torch.Size([1, 32, 32, 3])
     """
     return image.permute(0, 2, 3, 1) if image.dim() == 4 else image.permute(1, 2, 0)
 
 
-def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dropout: float, crop_size: int) -> None:
+def convert_to_onnx(
+    args: argparse.Namespace,
+    model_name: str,
+    checkpoint_path: str,
+    num_classes: int,
+) -> None:
     """
     Convert a PyTorch model to ONNX format.
 
     Parameters:
+        - args: A namespace object containing the following attributes:
+            - crop_size (int, optional): The size of the crop for the inference dataset/image. Default: None.
         - model_name (str): The name of the model.
         - checkpoint_path (str): The path to the PyTorch checkpoint.
         - num_classes (int): The number of classes in the dataset.
-        - dropout (float): The dropout rate to be used in the model.
-        - crop_size (int): The size of the crop for inference dataset/image.
 
     Example:
-         convert_to_onnx("resnet18", "./best_model.pt", 10, 0.2)
-
+        convert_to_onnx(args, "resnet18", "./best_model.pt", 10)
     """
 
-    model = get_model(model_name, num_classes, dropout)
+    model = get_model(args, model_name, num_classes)
 
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     if "n_averaged" in checkpoint["model"]:
@@ -446,7 +463,7 @@ def convert_to_onnx(model_name: str, checkpoint_path: str, num_classes: int, dro
     model.eval()
 
     batch_size = 1
-    dummy_input = torch.randn(batch_size, 3, crop_size, crop_size, requires_grad=True)
+    dummy_input = torch.randn(batch_size, 3, args.crop_size, args.crop_size, requires_grad=True)
     filename = os.path.join(os.path.dirname(checkpoint_path), "best_model.onnx")
 
     torch.onnx.export(
@@ -466,18 +483,19 @@ def get_explain_data_aug() -> Tuple[transforms.Compose, transforms.Compose]:
     Returns the transforms for data augmentation used for explaining the model.
 
     Returns:
-        - A tuple of two transforms representing the data augmentation transforms
-          used for explanation and the inverse of those transforms.
+        - Tuple[transforms.Compose, transforms.Compose]: A tuple of two transforms representing the data augmentation
+        - transforms used for explanation and the inverse of those transforms.
 
     Example:
-         transform, inv_transform = get_explain_data_aug()
-         transformed_image = transform(original_image)
+        transform, inv_transform = get_explain_data_aug()
+        transformed_image = transform(original_image)
     """
-    transform = transforms.Compose([transforms.Lambda(convert_to_channels_first),
-                                    transforms.Lambda(lambda image: image * (1 / 255)),
-                                    transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
-                                    transforms.Lambda(convert_to_channels_last),
-                                    ])
+    transform = transforms.Compose([
+        transforms.Lambda(convert_to_channels_first),
+        transforms.Lambda(lambda image: image * (1 / 255)),
+        transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
+        transforms.Lambda(convert_to_channels_last),
+    ])
 
     inv_transform = transforms.Compose([
         transforms.Lambda(convert_to_channels_first),
@@ -496,17 +514,17 @@ def get_classes(dataset_dir: str) -> List[str]:
     Get a list of the classes in a dataset.
 
     Parameters:
-        - dataset_dir: Directory of the dataset.
+        - dataset_dir (str): Directory of the dataset.
 
     Returns:
-        - A sorted list of the classes in the dataset.
+        - List[str]: A sorted list of the classes in the dataset.
 
     Example:
-         classes = get_classes('path/to/dataset')
-         print(classes)
-        ['class1', 'class2', 'class3', ...]
+        classes = get_classes('path/to/dataset')
+        print(classes)
+        # ['class1', 'class2', 'class3', ...]
     """
-    class_dirs = glob(os.path.join(dataset_dir, "train/*"))
+    class_dirs = glob(os.path.join(dataset_dir, "train", "*"))
     classes = [os.path.basename(class_dir) for class_dir in class_dirs]
     classes.sort()
 
@@ -518,17 +536,17 @@ def get_model_names(image_size: int, model_size: str) -> List[str]:
     Get a list of model names that match the given image size and model size.
 
     Parameters:
-        - image_size: Image size the models should be trained on.
-        - model_size: Size of the model (e.g. "tiny", "small", etc.)
+        - image_size (int): Image size the models should be trained on.
+        - model_size (str): Size of the model (e.g., "tiny", "small", etc.).
 
     Returns:
-        - A list of model names that can be used for training.
+        - List[str]: A list of model names that can be used for training.
 
     Example:
-         get_model_names(224, "small")
-        ['tf_efficientnet_b0_ns_small_224', 'tf_efficientnet_b1_ns_small_224', 'tf_efficientnet_b2_ns_small_224', ...]
+        get_model_names(224, "small")
+        # ['tf_efficientnet_b0_ns_small_224', 'tf_efficientnet_b1_ns_small_224', 'tf_efficientnet_b2_ns_small_224', ...]
     """
-    model_names = timm.list_pretrained()
+    model_names = timm.list_models(pretrained=True)
 
     model_names = [m for m in model_names if str(image_size) in m and model_size in m]
 
@@ -588,7 +606,7 @@ def remove_pruning_reparam(parameters_to_prune: List[Tuple[nn.Module, str]]) -> 
         prune.remove(module, parameter_name)
 
 
-def get_model(model_name: str, num_classes: int, dropout: float) -> nn.Module:
+def get_model(args: argparse.Namespace, model_name: str, num_classes: int) -> nn.Module:
     """
     Returns a pretrained model with a new head and the model name.
 
@@ -596,55 +614,44 @@ def get_model(model_name: str, num_classes: int, dropout: float) -> nn.Module:
     number of classes.
 
     Parameters:
-        - dropout (float): The dropout rate
+        - args: A namespace object containing the following attributes:
+            - feat_extract: Whether to freeze the parameters of the model.
+            - dropout: The dropout rate.
         - model_name (str): The name of the model to be created using the `timm` library.
         - num_classes (int): The number of classes for the new head of the model.
 
     Returns:
-        - Tuple[nn.Module, str]: A tuple containing the modified model and the model name.
+        - nn.Module: The modified model with the new head.
 
     Example:
-         model = get_model("tf_efficientnet_b0_ns", num_classes=10, dropout=0.1)
+         model = get_model(args, "tf_efficientnet_b0_ns", num_classes=10)
     """
-    model = timm.create_model(model_name,
-                              pretrained=True,
-                              scriptable=True,
-                              exportable=True,
-                              drop_rate=dropout
-                              )
-    freeze_params(model)
+    model = timm.create_model(
+        model_name,
+        pretrained=True,
+        scriptable=True,
+        exportable=True,
+        drop_rate=args.dropout
+    )
 
-    if hasattr(model.head, "fc"):
-        num_ftrs = model.head.fc.in_features
-        model.head.fc = nn.Linear(num_ftrs, num_classes, bias=True)
+    if args.feat_extract:
+        for param in model.parameters():
+            param.requires_grad = False
 
-        if hasattr(model, "head_dist"):
-            model.head_dist = nn.Linear(num_ftrs, num_classes, bias=True)
+    num_ftrs = 0
+    if hasattr(model, "head"):
+        if hasattr(model.head, "fc"):
+            num_ftrs = model.head.fc.in_features
+            model.head.fc = nn.Linear(num_ftrs, num_classes, bias=True)
+        elif hasattr(model.head, "in_features"):
+            num_ftrs = model.head.in_features
+            model.head = nn.Linear(num_ftrs, num_classes, bias=True)
 
-    if hasattr(model.head, "in_features") and not hasattr(model.head, "fc"):
-        num_ftrs = model.head.in_features
-        model.head = nn.Linear(num_ftrs, num_classes, bias=True)
-
-        if hasattr(model, "head_dist"):
-            model.head_dist = nn.Linear(num_ftrs, num_classes, bias=True)
+    if hasattr(model, "head_dist"):
+        assert num_ftrs != 0, "num_ftrs should be non-zero when using head_dist"
+        model.head_dist = nn.Linear(num_ftrs, num_classes, bias=True)
 
     return model
-
-
-def freeze_params(model: nn.Module) -> None:
-    """
-    Freezes the parameters in the given model.
-
-    Parameters:
-        - model (nn.Module): A PyTorch neural network model.
-
-    Example:
-         model = MyModel()
-         freeze_params(model)
-        # Now all the parameters in `model` are frozen and won't be updated during training.
-    """
-    for param in model.parameters():
-        param.requires_grad = False
 
 
 def get_class_weights(data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
@@ -670,8 +677,8 @@ def get_class_weights(data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
     """
     targets = data_loader.dataset.targets
     class_counts = np.bincount(targets)
-    class_weights = len(targets) / (len(data_loader.dataset.classes) * class_counts)
-    return torch.Tensor(class_weights)
+    class_weights = torch.tensor(len(targets) / (len(data_loader.dataset.classes) * class_counts), dtype=torch.float32)
+    return class_weights
 
 
 # adapted from https://github.com/pytorch/vision/blob/a5035df501747c8fc2cd7f6c1a41c44ce6934db3/references
@@ -751,7 +758,7 @@ def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
     return list(filter(lambda param: param.requires_grad, model.parameters()))
 
 
-def get_optimizer(args, params: List[nn.Parameter]) -> optim.Optimizer:
+def get_optimizer(args, params: List[nn.Parameter]) -> List[optim.Optimizer]:
     """
     This function returns an optimizer object based on the provided optimization algorithm name.
 
@@ -774,12 +781,13 @@ def get_optimizer(args, params: List[nn.Parameter]) -> optim.Optimizer:
     return create_optimizer_v2(model_or_params=params, opt=args.opt_name, lr=args.lr, weight_decay=args.wd)
 
 
-def get_lr_scheduler(args, optimizer, num_iters) -> Union[optim.lr_scheduler.SequentialLR, None]:
+def get_lr_scheduler(args, optimizer, num_iters) -> List[optim.lr_scheduler.SequentialLR |
+                                                        optim.lr_scheduler.LRScheduler | None]:
     """
     This function returns a learning rate scheduler object based on the provided scheduling algorithm name.
 
     Parameters:
-        - args: A namespace object containing the following attributes:
+        args: A namespace object containing the following attributes:
             - sched_name: The name of the scheduling algorithm.
             - warmup_decay: The decay rate for the warmup scheduler.
             - warmup_epochs: The number of epochs for the warmup scheduler.
@@ -787,35 +795,40 @@ def get_lr_scheduler(args, optimizer, num_iters) -> Union[optim.lr_scheduler.Seq
             - gamma: The gamma for the StepLR scheduler.
             - epochs: The total number of epochs for training.
             - eta_min: The minimum learning rate for the CosineAnnealingLR scheduler.
-        - optimizer: The optimizer object to be used with the scheduler.
-        - num_iters: The total number of iterations in an epoch
+        optimizer: The optimizer object to be used with the scheduler.
+        num_iters: The total number of iterations in an epoch.
 
     Returns:
         - A learning rate scheduler object of the specified type, or None if the sched_name is not recognized.
 
     Example:
-         scheduler = get_lr_scheduler(args, optimizer)
-         if scheduler is not None:
-             for epoch in range(args.epochs):
+        scheduler = get_lr_scheduler(args, optimizer)
+        if scheduler is not None:
+            for epoch in range(args.epochs):
                 scheduler.step()
                 train_one_epoch()
                 evaluate()
     """
-    warmup_lr = optim.lr_scheduler.LinearLR(optimizer, start_factor=args.warmup_decay, total_iters=args.warmup_epochs)
     if args.sched_name == "step":
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
     elif args.sched_name == "cosine":
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs - args.warmup_epochs,
                                                          eta_min=args.eta_min)
+    elif args.sched_name == "cosine_wr":
+        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=args.t0, eta_min=args.eta_min)
     elif args.sched_name == "one_cycle":
         scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.max_lr, epochs=args.epochs,
                                                   steps_per_epoch=num_iters)
     else:
         return None
 
-    lr_scheduler = optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_lr, scheduler],
-                                                   milestones=[args.warmup_epochs])
-    return lr_scheduler
+    if args.warmup_epochs > 0:
+        warmup_lr = optim.lr_scheduler.LinearLR(optimizer, start_factor=args.warmup_decay,
+                                                total_iters=args.warmup_epochs)
+        scheduler = optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_lr, scheduler],
+                                                    milestones=[args.warmup_epochs])
+
+    return scheduler
 
 
 # adapted from https://github.com/pytorch/vision/blob/a5035df501747c8fc2cd7f6c1a41c44ce6934db3/references
@@ -889,8 +902,8 @@ class CreateImgSubclasses:
         Initialize the object with the path to the source and destination directories.
 
         Parameters:
-            - img_src: Path to the source directory.
-            - img_dest: Path to the destination directory.
+            img_src (str): Path to the source directory.
+            img_dest (str): Path to the destination directory.
         """
         self.img_src = img_src
         self.img_dest = img_dest
@@ -900,31 +913,30 @@ class CreateImgSubclasses:
         Get a list of the classes in the source directory.
 
         Returns:
-            - A list of the classes in the source directory.
+            List[str]: A list of the classes in the source directory.
         """
-        ls = glob(os.path.join(self.img_src, "/*"))
+        ls = glob(os.path.join(self.img_src, "*"))
 
-        file_set = []
+        file_set = set()
         pattern = r'[^A-Za-z]+'
         for file in ls:
             file_name = os.path.basename(file).split(".")[0]
             cls_name = re.sub(pattern, '', file_name)
-            if cls_name not in file_set:
-                file_set.append(cls_name)
+            file_set.add(cls_name)
 
-        return file_set
+        return list(file_set)
 
-    def create_class_dirs(self, class_names: List[str]):
+    def create_class_dirs(self, class_names: List[str]) -> None:
         """
         Create directories for each class in `class_names` under `self.img_dest` directory.
 
         Parameters:
-            - class_names: A list of strings containing the names of the image classes.
+            class_names (List[str]): A list of strings containing the names of the image classes.
         """
-        for fdir in class_names:
-            os.makedirs(os.path.join(self.img_dest, fdir), exist_ok=True)
+        for dir_name in class_names:
+            os.makedirs(os.path.join(self.img_dest, dir_name), exist_ok=True)
 
-    def copy_img_to_dirs(self):
+    def copy_img_to_dirs(self) -> None:
         """
         Copy images from `self.img_src` to corresponding class directories in `self.img_dest`.
 
@@ -932,7 +944,7 @@ class CreateImgSubclasses:
         If no class name is found in the file name, the file is not copied.
         """
         class_names = self.get_image_classes()
-        for file in glob(os.path.join(self.img_src, "/*")):
+        for file in glob(os.path.join(self.img_src, "*")):
             for dir_name in class_names:
                 if dir_name in file:
                     shutil.copy(file, os.path.join(self.img_dest, dir_name))
