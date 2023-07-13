@@ -83,13 +83,11 @@ def train_one_epoch(
                     loss = criterion(output, targets)
 
             if args.fgsm:
-                image_grad = images.grad.data
-                images_adversarial = utils.fgsm_attack(images, args.epsilon, image_grad)
-
+                images_adversarial = utils.fgsm_attack(model, loss, images, args.epsilon)
                 with accelerator.autocast():
                     output_adversarial = model(images_adversarial)
                     loss_adversarial = criterion(output_adversarial, targets)
-                    loss = loss + loss_adversarial
+                    loss = loss_adversarial
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
@@ -118,7 +116,7 @@ def train_one_epoch(
         total_train_metrics["f1"].item(),
         total_train_metrics["recall"].item(),
         total_train_metrics["precision"].item(),
-        total_train_metrics["cm"].detach(),
+        total_train_metrics["cm"].detach().numpy(),
     )
 
     args.logger.info(
@@ -129,7 +127,7 @@ def train_one_epoch(
         f"f1: {f1:.4f} | "
         f"recall : {recall:.4f} | "
         f"precision : {prec:.4f} | "
-        f"Confusion Matrix {cm}"
+        f"Confusion Matrix \n{cm}"
     )
 
     return total_train_metrics
@@ -153,7 +151,6 @@ def evaluate(
         - model: The model to be evaluated.
         - val_metrics: An object for storing and computing validation metrics.
         - roc_metric: An object for computing the ROC curve.
-        - device: The device to be used for evaluation.
         - ema: Whether evaluation is being performed on model_ema or not
         - accelerator: The accelerator object for distributed training.
 
@@ -184,7 +181,7 @@ def evaluate(
             total_val_metrics["f1"].item(),
             total_val_metrics["recall"].item(),
             total_val_metrics["precision"].item(),
-            total_val_metrics["cm"].detach(),
+            total_val_metrics["cm"].detach().numpy(),
         )
         roc = roc_metric.compute()
 
@@ -196,7 +193,7 @@ def evaluate(
             f"f1: {f1:.4f} | "
             f"recall: {recall:.4f} | "
             f"precision: {prec:.4f} | "
-            f"Confusion Matrix {cm}\n"
+            f"Confusion Matrix \n{cm}\n"
         )
 
     return total_val_metrics, roc
@@ -317,7 +314,7 @@ def main(args: argparse.Namespace) -> None:
             if not os.path.isdir(os.path.join(args.output_dir, model_name)):
                 os.makedirs(os.path.join(args.output_dir, model_name), exist_ok=True)
 
-            model = utils.get_model(model_name=model_name, num_classes=num_classes, dropout=args.dropout)
+            model = utils.get_model(args, model_name=model_name, num_classes=num_classes)
             model = accelerator.prepare_model(model)
 
             params = utils.get_trainable_params(model)
@@ -499,8 +496,7 @@ def main(args: argparse.Namespace) -> None:
                                                else best_compare_model_name,
                                                "best_model.pth")
 
-        utils.convert_to_onnx(best_compare_model_name, best_compare_model_file, num_classes, args.dropout,
-                              args.crop_size)
+        utils.convert_to_onnx(args, best_compare_model_name, best_compare_model_file, num_classes)
         args.logger.info(f"Exported best performing model, {best_compare_model_name},"
                          f" to ONNX format. File is located in "
                          f"{os.path.join(args.output_dir, best_compare_model_name)}")
@@ -521,6 +517,7 @@ def get_args():
     parser.add_argument("--dataset_dir", required=True, type=str, help="Directory of the dataset.")
     parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
 
+    parser.add_argument("--feat_extract", action="store_true", help="Whether to enable feature extraction or not")
     parser.add_argument("--model_name", nargs="*", default=None, help="The name of the model to use")
     parser.add_argument("--model_size", type=str, default="small", help="Size of the model to use",
                         choices=["nano", "tiny", "small", "base", "large", "giant"])
@@ -568,14 +565,15 @@ def get_args():
     parser.add_argument("--wd", default=1e-4, type=float, help="Weight decay.")
 
     parser.add_argument("--sched_name", default="one_cycle", type=str, help="Name of the learning rate scheduler "
-                        "to use.", choices=["step", "cosine", "one_cycle"])
+                        "to use.", choices=["step", "cosine", "cosine_wr", "one_cycle"])
     parser.add_argument('--max_lr', type=float, default=0.1, help='Maximum learning rate')
     parser.add_argument("--step_size", default=30, type=int, help="Step size for the learning rate scheduler.")
     parser.add_argument("--warmup_epochs", default=5, type=int, help="Number of epochs for the warmup period.")
     parser.add_argument("--warmup_decay", default=0.1, type=float, help="Decay rate for the warmup learning rate.")
     parser.add_argument("--gamma", default=0.1, type=float, help="Gamma for the learning rate scheduler.")
-    parser.add_argument("--eta_min", default=1e-4, type=float,
+    parser.add_argument("--eta_min", default=1e-6, type=float,
                         help="Minimum learning rate for the learning rate scheduler.")
+    parser.add_argument("--t0", type=int, default=5, help="Number of iterations for the first restart")
 
     parser.add_argument("--sorting_metric", default="f1", type=str, help="Metric to sort the results by.",
                         choices=["f1", "auc", "accuracy", "precision", "recall"])
