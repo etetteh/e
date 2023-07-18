@@ -215,8 +215,7 @@ def explain_model(args: argparse.Namespace) -> None:
     images = images.permute(0, 2, 3, 1)
     images = transform(images)
 
-    model = utils.get_model(model_name=args.model_name, num_classes=len(classes),
-                            dropout=args.dropout)
+    model = utils.get_pretrained_model(args, model_name=args.model_name, num_classes=len(classes))
 
     checkpoint_file = os.path.join(os.path.join(args.output_dir, "best_model.pth"))
     checkpoint = torch.load(checkpoint_file, map_location="cpu")
