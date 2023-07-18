@@ -547,6 +547,7 @@ def get_args():
 
     parser.add_argument("--seed", default=999333666, type=int, help="Random seed.")
 
+    parser.add_argument('--gray', action='store_true', help='Convert images to grayscale')
     parser.add_argument("--crop_size", default=224, type=int, help="Size to crop the input images to.")
     parser.add_argument("--val_resize", default=256, type=int, help="Size to resize the validation images to.")
     parser.add_argument("--mag_bins", default=31, type=int, help="Number of magnitude bins.")
