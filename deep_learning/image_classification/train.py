@@ -7,12 +7,14 @@ import warnings
 
 from copy import deepcopy
 from glob import glob
-from typing import Tuple, Dict
+from typing import Any, Callable, Dict, Optional, Tuple
+from argparse import Namespace
 
 import mlflow
 import mlflow.pytorch
 
 import torch
+from torch import nn, optim
 from torch.utils import data
 from torchmetrics import MetricCollection
 from torchmetrics.classification import (
@@ -34,30 +36,29 @@ import explainability
 
 
 def train_one_epoch(
-        args,
-        epoch,
-        train_loader,
-        model,
-        model_ema,
-        optimizer,
-        criterion,
-        train_metrics,
-        accelerator
-) -> Dict:
+    args: Namespace,
+    epoch: int,
+    train_loader: data.DataLoader,
+    model: nn.Module,
+    model_ema: Optional[utils.ExponentialMovingAverage],
+    optimizer: optim.Optimizer,
+    criterion: Callable,
+    train_metrics: Any,
+    accelerator: Any
+) -> Dict[str, Any]:
     """
     This function trains the model for one epoch and returns the metrics for the epoch.
 
     Parameters:
-        - args: A namespace object containing the following attributes:
-            - epochs: The total number of epochs for training.
-        - epoch: The current epoch number.
-        - train_loader: A DataLoader object for the training dataset.
-        - model: The model to be trained.
-        - model_ema: The exponential moving average model for model updates.
-        - optimizer: The optimizer to be used for training.
-        - criterion: The loss function to be used.
-        - train_metrics: An object for storing and computing training metrics.
-        - accelerator: The accelerator object for distributed training.
+        args (Namespace): A namespace object containing training attributes.
+        epoch (int): The current epoch number.
+        train_loader (DataLoader): The training data loader.
+        model (nn.Module): The model to be trained.
+        model_ema (ExponentialMovingAverage, optional): The exponential moving average model.
+        optimizer (optim.Optimizer): The optimizer for training.
+        criterion (Callable): The loss function.
+        train_metrics (Any): Object for storing and computing training metrics.
+        accelerator (Any): The accelerator object for distributed training.
 
     Returns:
         Dict: A dictionary containing the metrics computed during training.
@@ -70,11 +71,11 @@ def train_one_epoch(
             optimizer.zero_grad()
             with accelerator.autocast():
                 if args.mixup:
-                    mixed_images, targets_a, targets_b, lam = utils.mixup_data(images, targets, alpha=args.mixup_alpha)
+                    mixed_images, targets_a, targets_b, lam = utils.apply_mixup(images, targets, alpha=args.mixup_alpha)
                     output = model(mixed_images.contiguous(memory_format=torch.channels_last))
                     loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
                 elif args.cutmix:
-                    mixed_images, targets_a, targets_b, lam = utils.cutmix_data(images, targets,
+                    mixed_images, targets_a, targets_b, lam = utils.apply_cutmix(images, targets,
                                                                                 alpha=args.cutmix_alpha)
                     output = model(mixed_images.contiguous(memory_format=torch.channels_last))
                     loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
@@ -83,11 +84,11 @@ def train_one_epoch(
                     loss = criterion(output, targets)
 
             if args.fgsm:
-                images_adversarial = utils.fgsm_attack(model, loss, images, args.epsilon)
+                adversarial_images = utils.apply_fgsm_attack(model, loss, images, args.epsilon)
                 with accelerator.autocast():
-                    output_adversarial = model(images_adversarial)
-                    loss_adversarial = criterion(output_adversarial, targets)
-                    loss = loss_adversarial
+                    adversarial_output = model(adversarial_images)
+                    adversarial_loss = criterion(adversarial_output, targets)
+                    loss = adversarial_loss
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
@@ -104,9 +105,10 @@ def train_one_epoch(
             _, pred = torch.max(output, 1)
         else:
             pred = output
-        train_metrics.update(accelerator.gather_for_metrics(pred),
-                             accelerator.gather_for_metrics(targets)
-                             )
+        train_metrics.update(
+            accelerator.gather_for_metrics(pred),
+            accelerator.gather_for_metrics(targets)
+        )
 
     total_train_metrics = train_metrics.compute()
     loss, acc, auc, f1, recall, prec, cm = (
@@ -222,7 +224,7 @@ def main(args: argparse.Namespace) -> None:
         device = accelerator.device
         g = torch.Generator()
         g.manual_seed(args.seed)
-        utils.set_seed_for_all(args.seed)
+        utils.set_random_seeds(args.seed)
 
         data_transforms = utils.get_data_augmentation(args)
         image_datasets = {
@@ -250,7 +252,7 @@ def main(args: argparse.Namespace) -> None:
         }
 
         train_loader, val_loader = dataloaders["train"], dataloaders["val"]
-        train_weights = utils.get_class_weights(train_loader)
+        train_weights = utils.calculate_class_weights(train_loader)
 
         test_loader = None
         if os.path.isdir(os.path.join(args.dataset_dir, "test")) and args.test_only:
@@ -300,7 +302,7 @@ def main(args: argparse.Namespace) -> None:
 
         run_ids_path = os.path.join(args.output_dir, "run_ids.json")
         if os.path.isfile(run_ids_path):
-            run_ids = utils.load_json_file(file_path=run_ids_path)
+            run_ids = utils.read_json_file(file_path=run_ids_path)
         else:
             run_ids = None
 
@@ -314,15 +316,17 @@ def main(args: argparse.Namespace) -> None:
             if not os.path.isdir(os.path.join(args.output_dir, model_name)):
                 os.makedirs(os.path.join(args.output_dir, model_name), exist_ok=True)
 
-            model = utils.get_model(args, model_name=model_name, num_classes=num_classes)
+            model = utils.get_pretrained_model(args, model_name=model_name, num_classes=num_classes)
             model = accelerator.prepare_model(model)
 
             params = utils.get_trainable_params(model)
             optimizer = utils.get_optimizer(args, params)
             lr_scheduler = utils.get_lr_scheduler(args, optimizer, len(train_loader))
 
-            optimizer, train_loader, val_loader, lr_scheduler = accelerator.prepare(optimizer, train_loader, val_loader,
-                                                                                    lr_scheduler)
+            train_loader, val_loader = accelerator.prepare_data_loader(train_loader), \
+                accelerator.prepare_data_loader(val_loader)
+            optimizer, lr_scheduler = accelerator.prepare_optimizer(optimizer), \
+                accelerator.prepare_scheduler(lr_scheduler)
 
             model_ema = None
             if args.ema:
@@ -336,7 +340,7 @@ def main(args: argparse.Namespace) -> None:
             best_results = {}
             best_checkpoints = []
 
-            run_id = utils.get_run_id(run_ids, model_name) if run_ids is not None else None
+            run_id = utils.get_model_run_id(run_ids, model_name) if run_ids is not None else None
 
             checkpoint_file = os.path.join(args.output_dir, model_name, "checkpoint.pth")
             best_model_file = os.path.join(args.output_dir, model_name, "best_model")
@@ -352,7 +356,7 @@ def main(args: argparse.Namespace) -> None:
 
                 if run_id is None:
                     run_id_pair = {model_name: run.info.run_id}
-                    utils.append_dict_to_json_file(file_path=run_ids_path, new_dict=run_id_pair)
+                    utils.append_dictionary_to_json_file(file_path=run_ids_path, new_dict=run_id_pair)
 
                 if os.path.isfile(checkpoint_file):
                     checkpoint = torch.load(checkpoint_file, map_location="cpu")
@@ -388,7 +392,7 @@ def main(args: argparse.Namespace) -> None:
 
                 start_time = time.time()
 
-                utils.heading(f"Training a {model_name} model: Model {i + 1} of {len(args.models)}")
+                utils.print_heading(f"Training a {model_name} model: Model {i + 1} of {len(args.models)}")
 
                 for epoch in range(start_epoch, args.epochs):
                     train_metrics.reset()
@@ -489,7 +493,7 @@ def main(args: argparse.Namespace) -> None:
             accelerator.free_memory()
             del model, optimizer, lr_scheduler
 
-        results_list = utils.load_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
+        results_list = utils.read_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
         best_compare_model_name = results_list[0]["model"]
         best_compare_model_file = os.path.join(args.output_dir,
                                                os.path.join(best_compare_model_name, "averaged") if args.avg_ckpts
@@ -600,7 +604,7 @@ if __name__ == "__main__":
         else:
             cfgs.models = [cfgs.model_name]
     else:
-        cfgs.models = sorted(utils.get_model_names(cfgs.crop_size, cfgs.model_size))
+        cfgs.models = sorted(utils.get_matching_model_names(cfgs.crop_size, cfgs.model_size))
 
     cfgs.logger = utils.get_logger(f"Training and Evaluation of Image Classifiers",
                                    os.path.join(cfgs.output_dir, "training_logs.log")
