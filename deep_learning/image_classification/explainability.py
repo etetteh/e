@@ -29,7 +29,7 @@ def display_results_dataframe(output_dir: str, sorting_metric: str) -> pd.DataFr
     Returns:
         - A sorted DataFrame of the results.
     """
-    results_list = utils.load_json_lines_file(os.path.join(output_dir, "results.jsonl"))
+    results_list = utils.read_json_lines_file(os.path.join(output_dir, "results.jsonl"))
 
     results_df = pd.DataFrame(results_list)
 
@@ -190,7 +190,7 @@ def explain_model(args: argparse.Namespace) -> None:
         Returns:
             - torch.Tensor: Class probabilities.
         """
-        img = utils.convert_to_channels_first(torch.Tensor(img))
+        img = utils.to_channels_first(torch.Tensor(img))
         img = img.to(device)
         output = model(img)
         return output
@@ -198,7 +198,7 @@ def explain_model(args: argparse.Namespace) -> None:
     accelerator = Accelerator()
 
     device = accelerator.device
-    transform, inv_transform = utils.get_explain_data_aug()
+    transform, inv_transform = utils.get_explanation_transforms()
     classes = utils.get_classes(args.dataset_dir)
 
     train_data = torchvision.datasets.ImageFolder(os.path.join(args.dataset_dir, "val"),
