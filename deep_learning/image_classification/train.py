@@ -5,59 +5,51 @@ import shutil
 import time
 import warnings
 
+from accelerate import Accelerator, FullyShardedDataParallelPlugin, find_executable_batch_size
+from argparse import Namespace
 from copy import deepcopy
 from glob import glob
-from typing import Tuple, Dict
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import mlflow
 import mlflow.pytorch
 
+import explainability
 import torch
-from torch.utils import data
-from torchmetrics import MetricCollection
-from torchmetrics.classification import (
-    HammingDistance,
-    AUROC,
-    Accuracy,
-    F1Score,
-    Recall,
-    Precision,
-    ConfusionMatrix,
-    ROC,
-)
-from torchvision import datasets
+from torch import nn, optim
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConfig
-from accelerate import Accelerator, FullyShardedDataParallelPlugin, find_executable_batch_size
+from torch.utils import data
+from torchvision import datasets
+from torchmetrics import MetricCollection
+import torchmetrics.classification as metrics
 
 import utils
-import explainability
 
 
 def train_one_epoch(
-        args,
-        epoch,
-        train_loader,
-        model,
-        model_ema,
-        optimizer,
-        criterion,
-        train_metrics,
-        accelerator
-) -> Dict:
+    args: Namespace,
+    epoch: int,
+    train_loader: data.DataLoader,
+    model: nn.Module,
+    model_ema: Optional[utils.ExponentialMovingAverage],
+    optimizer: optim.Optimizer,
+    criterion: Callable,
+    train_metrics: Any,
+    accelerator: Any
+) -> Dict[str, Any]:
     """
     This function trains the model for one epoch and returns the metrics for the epoch.
 
     Parameters:
-        - args: A namespace object containing the following attributes:
-            - epochs: The total number of epochs for training.
-        - epoch: The current epoch number.
-        - train_loader: A DataLoader object for the training dataset.
-        - model: The model to be trained.
-        - model_ema: The exponential moving average model for model updates.
-        - optimizer: The optimizer to be used for training.
-        - criterion: The loss function to be used.
-        - train_metrics: An object for storing and computing training metrics.
-        - accelerator: The accelerator object for distributed training.
+        args (Namespace): A namespace object containing training attributes.
+        epoch (int): The current epoch number.
+        train_loader (DataLoader): The training data loader.
+        model (nn.Module): The model to be trained.
+        model_ema (ExponentialMovingAverage, optional): The exponential moving average model.
+        optimizer (optim.Optimizer): The optimizer for training.
+        criterion (Callable): The loss function.
+        train_metrics (Any): Object for storing and computing training metrics.
+        accelerator (Any): The accelerator object for distributed training.
 
     Returns:
         Dict: A dictionary containing the metrics computed during training.
@@ -70,11 +62,11 @@ def train_one_epoch(
             optimizer.zero_grad()
             with accelerator.autocast():
                 if args.mixup:
-                    mixed_images, targets_a, targets_b, lam = utils.mixup_data(images, targets, alpha=args.mixup_alpha)
+                    mixed_images, targets_a, targets_b, lam = utils.apply_mixup(images, targets, alpha=args.mixup_alpha)
                     output = model(mixed_images.contiguous(memory_format=torch.channels_last))
                     loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
                 elif args.cutmix:
-                    mixed_images, targets_a, targets_b, lam = utils.cutmix_data(images, targets,
+                    mixed_images, targets_a, targets_b, lam = utils.apply_cutmix(images, targets,
                                                                                 alpha=args.cutmix_alpha)
                     output = model(mixed_images.contiguous(memory_format=torch.channels_last))
                     loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
@@ -83,11 +75,11 @@ def train_one_epoch(
                     loss = criterion(output, targets)
 
             if args.fgsm:
-                images_adversarial = utils.fgsm_attack(model, loss, images, args.epsilon)
+                adversarial_images = utils.apply_fgsm_attack(model, loss, images, args.epsilon)
                 with accelerator.autocast():
-                    output_adversarial = model(images_adversarial)
-                    loss_adversarial = criterion(output_adversarial, targets)
-                    loss = loss_adversarial
+                    adversarial_output = model(adversarial_images)
+                    adversarial_loss = criterion(adversarial_output, targets)
+                    loss = adversarial_loss
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
@@ -104,9 +96,10 @@ def train_one_epoch(
             _, pred = torch.max(output, 1)
         else:
             pred = output
-        train_metrics.update(accelerator.gather_for_metrics(pred),
-                             accelerator.gather_for_metrics(targets)
-                             )
+        train_metrics.update(
+            accelerator.gather_for_metrics(pred),
+            accelerator.gather_for_metrics(targets)
+        )
 
     total_train_metrics = train_metrics.compute()
     loss, acc, auc, f1, recall, prec, cm = (
@@ -223,7 +216,7 @@ def main(args: argparse.Namespace) -> None:
         device = accelerator.device
         g = torch.Generator()
         g.manual_seed(args.seed)
-        utils.set_seed_for_all(args.seed)
+        utils.set_random_seeds(args.seed)
 
         data_transforms = utils.get_data_augmentation(args)
         image_datasets = {
@@ -251,7 +244,7 @@ def main(args: argparse.Namespace) -> None:
         }
 
         train_loader, val_loader = dataloaders["train"], dataloaders["val"]
-        train_weights = utils.get_class_weights(train_loader)
+        train_weights = utils.calculate_class_weights(train_loader)
 
         test_loader = None
         if os.path.isdir(os.path.join(args.dataset_dir, "test")) and args.test_only:
@@ -285,23 +278,23 @@ def main(args: argparse.Namespace) -> None:
         }
 
         metric_collection = MetricCollection({
-            "loss": HammingDistance(**metric_params),
-            "auc": AUROC(**metric_params),
-            "acc": Accuracy(**metric_params),
-            "f1": F1Score(**metric_params),
-            "recall": Recall(**metric_params),
-            "precision": Precision(**metric_params),
-            "cm": ConfusionMatrix(**metric_params)
+            "loss": metrics.HammingDistance(**metric_params),
+            "auc": metrics.AUROC(**metric_params),
+            "acc": metrics.Accuracy(**metric_params),
+            "f1": metrics.F1Score(**metric_params),
+            "recall": metrics.Recall(**metric_params),
+            "precision": metrics.Precision(**metric_params),
+            "cm": metrics.ConfusionMatrix(**metric_params)
         })
 
-        roc_metric = ROC(**metric_params).to(device)
+        roc_metric = metrics.ROC(**metric_params).to(device)
 
         train_metrics = metric_collection.to(device)
         val_metrics = metric_collection.to(device)
 
         run_ids_path = os.path.join(args.output_dir, "run_ids.json")
         if os.path.isfile(run_ids_path):
-            run_ids = utils.load_json_file(file_path=run_ids_path)
+            run_ids = utils.read_json_file(file_path=run_ids_path)
         else:
             run_ids = None
 
@@ -315,15 +308,17 @@ def main(args: argparse.Namespace) -> None:
             if not os.path.isdir(os.path.join(args.output_dir, model_name)):
                 os.makedirs(os.path.join(args.output_dir, model_name), exist_ok=True)
 
-            model = utils.get_model(args, model_name=model_name, num_classes=num_classes)
+            model = utils.get_pretrained_model(args, model_name=model_name, num_classes=num_classes)
             model = accelerator.prepare_model(model)
 
             params = utils.get_trainable_params(model)
             optimizer = utils.get_optimizer(args, params)
             lr_scheduler = utils.get_lr_scheduler(args, optimizer, len(train_loader))
 
-            optimizer, train_loader, val_loader, lr_scheduler = accelerator.prepare(optimizer, train_loader, val_loader,
-                                                                                    lr_scheduler)
+            train_loader, val_loader = accelerator.prepare_data_loader(train_loader), \
+                accelerator.prepare_data_loader(val_loader)
+            optimizer, lr_scheduler = accelerator.prepare_optimizer(optimizer), \
+                accelerator.prepare_scheduler(lr_scheduler)
 
             model_ema = None
             if args.ema:
@@ -337,7 +332,7 @@ def main(args: argparse.Namespace) -> None:
             best_results = {}
             best_checkpoints = []
 
-            run_id = utils.get_run_id(run_ids, model_name) if run_ids is not None else None
+            run_id = utils.get_model_run_id(run_ids, model_name) if run_ids is not None else None
 
             checkpoint_file = os.path.join(args.output_dir, model_name, "checkpoint.pth")
             best_model_file = os.path.join(args.output_dir, model_name, "best_model")
@@ -353,7 +348,7 @@ def main(args: argparse.Namespace) -> None:
 
                 if run_id is None:
                     run_id_pair = {model_name: run.info.run_id}
-                    utils.append_dict_to_json_file(file_path=run_ids_path, new_dict=run_id_pair)
+                    utils.append_dictionary_to_json_file(file_path=run_ids_path, new_dict=run_id_pair)
 
                 if os.path.isfile(checkpoint_file):
                     checkpoint = torch.load(checkpoint_file, map_location="cpu")
@@ -389,7 +384,7 @@ def main(args: argparse.Namespace) -> None:
 
                 start_time = time.time()
 
-                utils.heading(f"Training a {model_name} model: Model {i + 1} of {len(args.models)}")
+                utils.print_heading(f"Training a {model_name} model: Model {i + 1} of {len(args.models)}")
 
                 for epoch in range(start_epoch, args.epochs):
                     train_metrics.reset()
@@ -490,7 +485,7 @@ def main(args: argparse.Namespace) -> None:
             accelerator.free_memory()
             del model, optimizer, lr_scheduler
 
-        results_list = utils.load_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
+        results_list = utils.read_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
         best_compare_model_name = results_list[0]["model"]
         best_compare_model_file = os.path.join(args.output_dir,
                                                os.path.join(best_compare_model_name, "averaged") if args.avg_ckpts
@@ -513,37 +508,42 @@ def get_args():
     """
     parser = argparse.ArgumentParser(description="Image Classification")
 
+    # General Configuration
     parser.add_argument("--experiment_name", required=True, type=str, default="Experiment_1",
                         help="Name of the MLflow experiment")
     parser.add_argument("--dataset_dir", required=True, type=str, help="Directory of the dataset.")
     parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
 
+    # Model Configuration
     parser.add_argument("--feat_extract", action="store_true", help="Whether to enable feature extraction or not")
-    parser.add_argument("--model_name", nargs="*", default=None, help="The name of the model to use")
+    parser.add_argument("--model_name", nargs="*", default=None, help="The name of the model to use. NOte that the "
+                                                                      "models are from the TIMM library")
     parser.add_argument("--model_size", type=str, default="small", help="Size of the model to use",
                         choices=["nano", "tiny", "small", "base", "large", "giant"])
 
+    # Training Configuration
+    # Checkpoint Averaging:
     parser.add_argument("--avg_ckpts", action="store_true", help="Whether to enable checkpoint averaging or not.")
     parser.add_argument("--num_ckpts", type=int, default=5, help="Number of best checkpoints to save")
 
-    parser.add_argument("--mixup", action="store_true", help="Whether to enable mixup or not")
-    parser.add_argument("--mixup_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
-
-    parser.add_argument("--cutmix", action="store_true", help="Whether to enable mixup or not")
-    parser.add_argument("--cutmix_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
-
+    # FGSM Adversarial Training
     parser.add_argument("--fgsm", action="store_true", help="Whether to enable FGSM adversarial training")
     parser.add_argument("--epsilon", type=float, default=0.03, help="Epsilon value for FGSM attack")
 
+    # Exponential Moving Average (EMA)
     parser.add_argument("--ema", action="store_true", help="Whether to perform Exponential Moving Average or not")
     parser.add_argument("--ema_steps", type=int, default=32, help="number of iterations to update the EMA model ")
     parser.add_argument("--ema_decay", type=float, default=0.99998, help="EMA decay factor")
 
+    # Pruning
     parser.add_argument("--prune", action="store_true", help="Whether to perform pruning or not")
     parser.add_argument("--pruning_rate", type=float, default=0.25, help="Pruning rate")
 
+    # Random Seed
     parser.add_argument("--seed", default=999333666, type=int, help="Random seed.")
 
+    # Data Augmentation
+    parser.add_argument('--gray', action='store_true', help='Convert images to grayscale')
     parser.add_argument("--crop_size", default=224, type=int, help="Size to crop the input images to.")
     parser.add_argument("--val_resize", default=256, type=int, help="Size to resize the validation images to.")
     parser.add_argument("--mag_bins", default=31, type=int, help="Number of magnitude bins.")
@@ -554,19 +554,28 @@ def get_args():
     parser.add_argument("--hflip", default=0.5, type=float,
                         help="Probability of randomly horizontally flipping the input data.")
 
+    # Mixup Augmentation
+    parser.add_argument("--mixup", action="store_true", help="Whether to enable mixup or not")
+    parser.add_argument("--mixup_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
+
+    # Cutmix Augmentation
+    parser.add_argument("--cutmix", action="store_true", help="Whether to enable cutmix or not")
+    parser.add_argument("--cutmix_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
+
+    # Training Parameters
     parser.add_argument("--batch_size", default=16, type=int, help="Batch size for training and evaluation.")
     parser.add_argument("--num_workers", default=4, type=int, help="Number of workers for data loading.")
     parser.add_argument("--epochs", default=100, type=int, help="Number of epochs to train.")
-
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate for classifier head")
     parser.add_argument("--label_smoothing", default=0.1, type=float, help="Amount of label smoothing to use.")
 
-    parser.add_argument("--opt_name", default="madgrad", type=str, help="Name of the optimizer to use.",)
+    # Optimization and Learning Rate Scheduling
+    parser.add_argument("--opt_name", default="madgrad", type=str, help="Name of the optimizer to use.", )
     parser.add_argument("--lr", default=0.001, type=float, help="Initial learning rate.")
     parser.add_argument("--wd", default=1e-4, type=float, help="Weight decay.")
-
     parser.add_argument("--sched_name", default="one_cycle", type=str, help="Name of the learning rate scheduler "
-                        "to use.", choices=["step", "cosine", "cosine_wr", "one_cycle"])
+                                                                            "to use.",
+                        choices=["step", "cosine", "cosine_wr", "one_cycle"])
     parser.add_argument('--max_lr', type=float, default=0.1, help='Maximum learning rate')
     parser.add_argument("--step_size", default=30, type=int, help="Step size for the learning rate scheduler.")
     parser.add_argument("--warmup_epochs", default=5, type=int, help="Number of epochs for the warmup period.")
@@ -576,9 +585,9 @@ def get_args():
                         help="Minimum learning rate for the learning rate scheduler.")
     parser.add_argument("--t0", type=int, default=5, help="Number of iterations for the first restart")
 
+    # Evaluation Metrics and Testing
     parser.add_argument("--sorting_metric", default="f1", type=str, help="Metric to sort the results by.",
                         choices=["f1", "auc", "accuracy", "precision", "recall"])
-
     parser.add_argument("--test_only", action="store_true", help="Whether to enable testing the trained model or not.")
 
     return parser.parse_args()
@@ -601,7 +610,7 @@ if __name__ == "__main__":
         else:
             cfgs.models = [cfgs.model_name]
     else:
-        cfgs.models = sorted(utils.get_model_names(cfgs.crop_size, cfgs.model_size))
+        cfgs.models = sorted(utils.get_matching_model_names(cfgs.crop_size, cfgs.model_size))
 
     cfgs.logger = utils.get_logger(f"Training and Evaluation of Image Classifiers",
                                    os.path.join(cfgs.output_dir, "training_logs.log")
