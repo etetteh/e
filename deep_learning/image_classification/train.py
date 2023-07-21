@@ -277,17 +277,17 @@ def main(args: argparse.Namespace) -> None:
             "top_k": top_k,
         }
 
-        metric_params_notop = metric_params.copy()
-        metric_params_notop.pop("top_k", None)
+        metric_params_clone = metric_params.copy()
+        metric_params_clone.pop("top_k", None)
 
         metric_collection = MetricCollection({
             "loss": metrics.HammingDistance(**metric_params),
-            "auc": metrics.AUROC(**metric_params_notop),
+            "auc": metrics.AUROC(**metric_params_clone),
             "acc": metrics.Accuracy(**metric_params),
             "f1": metrics.F1Score(**metric_params),
             "recall": metrics.Recall(**metric_params),
             "precision": metrics.Precision(**metric_params),
-            "cm": metrics.ConfusionMatrix(**metric_params_notop)
+            "cm": metrics.ConfusionMatrix(**{"task": task, "num_classes": num_classes})
         })
 
         roc_metric = metrics.ROC(**metric_params).to(device)
