@@ -290,7 +290,7 @@ def main(args: argparse.Namespace) -> None:
             "cm": metrics.ConfusionMatrix(**{"task": task, "num_classes": num_classes})
         })
 
-        roc_metric = metrics.ROC(**metric_params).to(device)
+        roc_metric = metrics.ROC(**{"task": task, "num_classes": num_classes}).to(device)
 
         train_metrics = metric_collection.to(device)
         val_metrics = metric_collection.to(device)
