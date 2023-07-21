@@ -313,6 +313,7 @@ def main(args: argparse.Namespace) -> None:
 
             model = utils.get_pretrained_model(args, model_name=model_name, num_classes=num_classes)
             model = accelerator.prepare_model(model)
+            unwrapped_model = accelerator.unwrap_model(model)
 
             params = utils.get_trainable_params(model)
             optimizer = utils.get_optimizer(args, params)
@@ -347,7 +348,7 @@ def main(args: argparse.Namespace) -> None:
                     mlflow.log_params(vars(args))
                 except mlflow.exceptions.MlflowException:
                     pass
-                mlflow.pytorch.log_model(model, model_name)
+                mlflow.pytorch.log_model(unwrapped_model, model_name)
 
                 if run_id is None:
                     run_id_pair = {model_name: run.info.run_id}
