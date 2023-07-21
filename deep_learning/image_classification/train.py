@@ -5,34 +5,25 @@ import shutil
 import time
 import warnings
 
+from accelerate import Accelerator, FullyShardedDataParallelPlugin, find_executable_batch_size
+from argparse import Namespace
 from copy import deepcopy
 from glob import glob
 from typing import Any, Callable, Dict, Optional, Tuple
-from argparse import Namespace
 
 import mlflow
 import mlflow.pytorch
 
+import explainability
 import torch
 from torch import nn, optim
-from torch.utils import data
-from torchmetrics import MetricCollection
-from torchmetrics.classification import (
-    HammingDistance,
-    AUROC,
-    Accuracy,
-    F1Score,
-    Recall,
-    Precision,
-    ConfusionMatrix,
-    ROC,
-)
-from torchvision import datasets
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConfig
-from accelerate import Accelerator, FullyShardedDataParallelPlugin, find_executable_batch_size
+from torch.utils import data
+from torchvision import datasets
+from torchmetrics import MetricCollection
+import torchmetrics.classification as metrics
 
 import utils
-import explainability
 
 
 def train_one_epoch(
@@ -286,16 +277,16 @@ def main(args: argparse.Namespace) -> None:
         }
 
         metric_collection = MetricCollection({
-            "loss": HammingDistance(**metric_params),
-            "auc": AUROC(**metric_params),
-            "acc": Accuracy(**metric_params),
-            "f1": F1Score(**metric_params),
-            "recall": Recall(**metric_params),
-            "precision": Precision(**metric_params),
-            "cm": ConfusionMatrix(**metric_params)
+            "loss": metrics.HammingDistance(**metric_params),
+            "auc": metrics.AUROC(**metric_params),
+            "acc": metrics.Accuracy(**metric_params),
+            "f1": metrics.F1Score(**metric_params),
+            "recall": metrics.Recall(**metric_params),
+            "precision": metrics.Precision(**metric_params),
+            "cm": metrics.ConfusionMatrix(**metric_params)
         })
 
-        roc_metric = ROC(**metric_params).to(device)
+        roc_metric = metrics.ROC(**metric_params).to(device)
 
         train_metrics = metric_collection.to(device)
         val_metrics = metric_collection.to(device)
@@ -516,37 +507,41 @@ def get_args():
     """
     parser = argparse.ArgumentParser(description="Image Classification")
 
+    # General Configuration
     parser.add_argument("--experiment_name", required=True, type=str, default="Experiment_1",
                         help="Name of the MLflow experiment")
     parser.add_argument("--dataset_dir", required=True, type=str, help="Directory of the dataset.")
     parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
 
+    # Model Configuration
     parser.add_argument("--feat_extract", action="store_true", help="Whether to enable feature extraction or not")
-    parser.add_argument("--model_name", nargs="*", default=None, help="The name of the model to use")
+    parser.add_argument("--model_name", nargs="*", default=None, help="The name of the model to use. NOte that the "
+                                                                      "models are from the TIMM library")
     parser.add_argument("--model_size", type=str, default="small", help="Size of the model to use",
                         choices=["nano", "tiny", "small", "base", "large", "giant"])
 
+    # Training Configuration
+    # Checkpoint Averaging:
     parser.add_argument("--avg_ckpts", action="store_true", help="Whether to enable checkpoint averaging or not.")
     parser.add_argument("--num_ckpts", type=int, default=5, help="Number of best checkpoints to save")
 
-    parser.add_argument("--mixup", action="store_true", help="Whether to enable mixup or not")
-    parser.add_argument("--mixup_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
-
-    parser.add_argument("--cutmix", action="store_true", help="Whether to enable mixup or not")
-    parser.add_argument("--cutmix_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
-
+    # FGSM Adversarial Training
     parser.add_argument("--fgsm", action="store_true", help="Whether to enable FGSM adversarial training")
     parser.add_argument("--epsilon", type=float, default=0.03, help="Epsilon value for FGSM attack")
 
+    # Exponential Moving Average (EMA)
     parser.add_argument("--ema", action="store_true", help="Whether to perform Exponential Moving Average or not")
     parser.add_argument("--ema_steps", type=int, default=32, help="number of iterations to update the EMA model ")
     parser.add_argument("--ema_decay", type=float, default=0.99998, help="EMA decay factor")
 
+    # Pruning
     parser.add_argument("--prune", action="store_true", help="Whether to perform pruning or not")
     parser.add_argument("--pruning_rate", type=float, default=0.25, help="Pruning rate")
 
+    # Random Seed
     parser.add_argument("--seed", default=999333666, type=int, help="Random seed.")
 
+    # Data Augmentation
     parser.add_argument('--gray', action='store_true', help='Convert images to grayscale')
     parser.add_argument("--crop_size", default=224, type=int, help="Size to crop the input images to.")
     parser.add_argument("--val_resize", default=256, type=int, help="Size to resize the validation images to.")
@@ -558,19 +553,28 @@ def get_args():
     parser.add_argument("--hflip", default=0.5, type=float,
                         help="Probability of randomly horizontally flipping the input data.")
 
+    # Mixup Augmentation
+    parser.add_argument("--mixup", action="store_true", help="Whether to enable mixup or not")
+    parser.add_argument("--mixup_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
+
+    # Cutmix Augmentation
+    parser.add_argument("--cutmix", action="store_true", help="Whether to enable cutmix or not")
+    parser.add_argument("--cutmix_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
+
+    # Training Parameters
     parser.add_argument("--batch_size", default=16, type=int, help="Batch size for training and evaluation.")
     parser.add_argument("--num_workers", default=4, type=int, help="Number of workers for data loading.")
     parser.add_argument("--epochs", default=100, type=int, help="Number of epochs to train.")
-
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate for classifier head")
     parser.add_argument("--label_smoothing", default=0.1, type=float, help="Amount of label smoothing to use.")
 
-    parser.add_argument("--opt_name", default="madgrad", type=str, help="Name of the optimizer to use.",)
+    # Optimization and Learning Rate Scheduling
+    parser.add_argument("--opt_name", default="madgrad", type=str, help="Name of the optimizer to use.", )
     parser.add_argument("--lr", default=0.001, type=float, help="Initial learning rate.")
     parser.add_argument("--wd", default=1e-4, type=float, help="Weight decay.")
-
     parser.add_argument("--sched_name", default="one_cycle", type=str, help="Name of the learning rate scheduler "
-                        "to use.", choices=["step", "cosine", "cosine_wr", "one_cycle"])
+                                                                            "to use.",
+                        choices=["step", "cosine", "cosine_wr", "one_cycle"])
     parser.add_argument('--max_lr', type=float, default=0.1, help='Maximum learning rate')
     parser.add_argument("--step_size", default=30, type=int, help="Step size for the learning rate scheduler.")
     parser.add_argument("--warmup_epochs", default=5, type=int, help="Number of epochs for the warmup period.")
@@ -580,9 +584,9 @@ def get_args():
                         help="Minimum learning rate for the learning rate scheduler.")
     parser.add_argument("--t0", type=int, default=5, help="Number of iterations for the first restart")
 
+    # Evaluation Metrics and Testing
     parser.add_argument("--sorting_metric", default="f1", type=str, help="Metric to sort the results by.",
                         choices=["f1", "auc", "accuracy", "precision", "recall"])
-
     parser.add_argument("--test_only", action="store_true", help="Whether to enable testing the trained model or not.")
 
     return parser.parse_args()
