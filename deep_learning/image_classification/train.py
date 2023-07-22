@@ -109,7 +109,7 @@ def train_one_epoch(
         total_train_metrics["f1"].item(),
         total_train_metrics["recall"].item(),
         total_train_metrics["precision"].item(),
-        total_train_metrics["cm"].detach().numpy(),
+        total_train_metrics["cm"].detach().cpu().numpy(),
     )
 
     args.logger.info(
@@ -175,7 +175,7 @@ def evaluate(
             total_val_metrics["f1"].item(),
             total_val_metrics["recall"].item(),
             total_val_metrics["precision"].item(),
-            total_val_metrics["cm"].detach().numpy(),
+            total_val_metrics["cm"].detach().cpu().numpy(),
         )
         roc = roc_metric.compute()
 
@@ -348,7 +348,6 @@ def main(args: argparse.Namespace) -> None:
                     mlflow.log_params(vars(args))
                 except mlflow.exceptions.MlflowException:
                     pass
-                mlflow.pytorch.log_model(unwrapped_model, model_name)
 
                 if run_id is None:
                     run_id_pair = {model_name: run.info.run_id}
