@@ -312,7 +312,6 @@ def main(args: argparse.Namespace) -> None:
 
             model = utils.get_pretrained_model(args, model_name=model_name, num_classes=num_classes)
             model = accelerator.prepare_model(model)
-            unwrapped_model = accelerator.unwrap_model(model)
 
             params = utils.get_trainable_params(model)
             optimizer = utils.get_optimizer(args, params)
