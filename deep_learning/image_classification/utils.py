@@ -3,7 +3,6 @@ import re
 import json
 import random
 import shutil
-import logging
 
 from glob import glob
 from argparse import Namespace
@@ -867,48 +866,6 @@ class ExponentialMovingAverage(swa_utils.AveragedModel):
             return decay * avg_model_param + (1 - decay) * model_param
 
         super().__init__(model, device, ema_avg, use_buffers=True)
-
-
-def get_logger(logger_name: str, log_file: str, log_level: int = logging.DEBUG,
-               console_level: int = logging.INFO) -> logging.Logger:
-    """
-    Creates a logger with a specified name, log file, and log level.
-    The logger logs messages to a file and to the console.
-
-    Parameters:
-        logger_name (str): The name of the logger.
-        log_file (str): The file path of the log file.
-        log_level (int, optional): The log level for the file handler. Defaults to logging.DEBUG.
-        console_level (int, optional): The log level for the console handler. Defaults to logging.INFO.
-
-    Returns:
-        logging.Logger: A logger object.
-
-    Example:
-        logger = get_logger("my_logger", "my_log.log")
-        logger.debug("This is a debug message")
-        logger.info("This is an info message")
-        logger.warning("This is a warning message")
-        logger.error("This is an error message")
-        logger.critical("This is a critical message")
-    """
-    logger = logging.getLogger(logger_name)
-    logger.setLevel(log_level)
-
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(log_level)
-
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(console_level)
-
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
-    file_handler.setFormatter(formatter)
-    console_handler.setFormatter(formatter)
-
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-    return logger
 
 
 class CreateImgSubclasses:
