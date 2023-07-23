@@ -3,7 +3,6 @@ import re
 import json
 import random
 import shutil
-import logging
 
 from glob import glob
 from argparse import Namespace
@@ -171,26 +170,6 @@ def read_json_lines_file(file_path: str) -> List[Union[dict, Any]]:
     with open(file_path, "r") as file_in:
         data = [json.loads(line) for line in file_in]
         return data
-
-
-def set_random_seeds(seed: int) -> None:
-    """
-    Sets the seed for the random number generators in NumPy, Python's random module, and PyTorch.
-
-    Parameters:
-        seed (int): The seed to be set.
-
-    Returns:
-        None
-
-    Example:
-        seed_value = 123  # Example seed value
-        set_random_seeds(seed_value)
-    """
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
 
 
 def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
@@ -572,12 +551,13 @@ def get_matching_model_names(image_size: int, model_size: str) -> List[str]:
 
     matching_models = [name for name in model_names if str(image_size) in name and model_size in name]
 
-    training_models = [
-        name for name in matching_models if isinstance(list(timm.create_model(name).named_modules())[-1][1],
-                                                       torch.nn.Linear)
-    ]
+    if model_size == "tiny":
+        matching_models.remove("deit_tiny_distilled_patch16_224.fb_in1k")
 
-    return training_models
+    if model_size == "small":
+        matching_models.remove("deit_small_distilled_patch16_224.fb_in1k")
+
+    return matching_models
 
 
 def prune_model(model: nn.Module, pruning_rate: float) -> List[Tuple[nn.Module, str]]:
@@ -652,20 +632,15 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
         scriptable=True,
         exportable=True,
         drop_rate=args.dropout,
-        in_chans=1 if args.gray else 3
+        in_chans=1 if args.gray else 3,
+        num_classes=num_classes
     )
 
     if args.feat_extract:
         for param in model.parameters():
             param.requires_grad = False
-
-    if isinstance(model.head, nn.Linear):
-        model.head = nn.Linear(model.head.in_features, num_classes, bias=True)
-    elif hasattr(model.head, "fc") and isinstance(model.head.fc, nn.Linear):
-        model.head.fc = nn.Linear(model.head.fc.in_features, num_classes, bias=True)
-
-    if hasattr(model, "head_dist") and isinstance(model.head_dist, nn.Linear):
-        model.head_dist = nn.Linear(model.head_dist.in_features, num_classes, bias=True)
+        for param in model.get_classifier().parameters():
+            param.requires_grad = True
 
     return model
 
@@ -871,48 +846,6 @@ class ExponentialMovingAverage(swa_utils.AveragedModel):
             return decay * avg_model_param + (1 - decay) * model_param
 
         super().__init__(model, device, ema_avg, use_buffers=True)
-
-
-def get_logger(logger_name: str, log_file: str, log_level: int = logging.DEBUG,
-               console_level: int = logging.INFO) -> logging.Logger:
-    """
-    Creates a logger with a specified name, log file, and log level.
-    The logger logs messages to a file and to the console.
-
-    Parameters:
-        logger_name (str): The name of the logger.
-        log_file (str): The file path of the log file.
-        log_level (int, optional): The log level for the file handler. Defaults to logging.DEBUG.
-        console_level (int, optional): The log level for the console handler. Defaults to logging.INFO.
-
-    Returns:
-        logging.Logger: A logger object.
-
-    Example:
-        logger = get_logger("my_logger", "my_log.log")
-        logger.debug("This is a debug message")
-        logger.info("This is an info message")
-        logger.warning("This is a warning message")
-        logger.error("This is an error message")
-        logger.critical("This is a critical message")
-    """
-    logger = logging.getLogger(logger_name)
-    logger.setLevel(log_level)
-
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(log_level)
-
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(console_level)
-
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
-    file_handler.setFormatter(formatter)
-    console_handler.setFormatter(formatter)
-
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-    return logger
 
 
 class CreateImgSubclasses:
