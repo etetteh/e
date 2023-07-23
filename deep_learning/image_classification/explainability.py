@@ -1,5 +1,4 @@
 import argparse
-import json
 from typing import List
 
 import numpy as np
@@ -129,7 +128,7 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
         fig.write_html(os.path.join(output_dir, model_name, "roc_curve.html"))
 
 
-def process_results(args: argparse.Namespace, model_name: str) -> None:
+def process_results(args: argparse.Namespace, model_name: str, accelerator) -> None:
     """
     Processes and saves the performance metrics and plots confusion matrix and ROC curve.
 
@@ -138,7 +137,6 @@ def process_results(args: argparse.Namespace, model_name: str) -> None:
             - output_dir : a string representing the directory where the results will be saved
             - sorting_metric : a string representing the metric to sort the results by
             - dataset_dir : a string representing the directory of the dataset
-            - logger : a logger object to log the results
         - model_name : name of model
 
     Returns:
@@ -153,9 +151,9 @@ def process_results(args: argparse.Namespace, model_name: str) -> None:
                          lines=True)
 
     if args.model_name and len(args.model_name) == 1:
-        args.logger.info(f"\nModel performance:\n{results_drop}\n")
+        accelerator.print(f"\nModel performance:\n{results_drop}\n")
     else:
-        args.logger.info(f"\nModel performance against other models:\n{results_drop}\n")
+        accelerator.print(f"\nModel performance against other models:\n{results_drop}\n")
 
     classes = utils.get_classes(args.dataset_dir)
 
