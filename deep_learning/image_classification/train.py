@@ -7,6 +7,7 @@ import warnings
 
 import accelerate
 from accelerate import Accelerator, DeepSpeedPlugin, FullyShardedDataParallelPlugin, find_executable_batch_size
+from accelerate.utils import set_seed
 from argparse import Namespace
 from glob import glob
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -206,7 +207,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
         device = accelerator.device
         g = torch.Generator()
         g.manual_seed(args.seed)
-        utils.set_random_seeds(args.seed)
+        set_seed(args.seed)
 
         data_transforms = utils.get_data_augmentation(args)
         image_datasets = {
