@@ -344,31 +344,33 @@ def main(args: argparse.Namespace, accelerator) -> None:
                     utils.append_dictionary_to_json_file(file_path=run_ids_path, new_dict=run_id_pair)
 
                 if os.path.isfile(checkpoint_file):
-                    checkpoint = torch.load(checkpoint_file, map_location="cpu")
-                    model.load_state_dict(checkpoint["model"])
-                    if not args.test_only:
-                        optimizer.load_state_dict(checkpoint["optimizer"])
-                        lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
-                    if model_ema:
-                        model_ema.load_state_dict(checkpoint["model_ema"])
+                    with accelerator.main_process_first():
+                        checkpoint = torch.load(checkpoint_file, map_location="cpu")
+                        model.load_state_dict(checkpoint["model"])
+                        if not args.test_only:
+                            optimizer.load_state_dict(checkpoint["optimizer"])
+                            lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+                        if model_ema:
+                            model_ema.load_state_dict(checkpoint["model_ema"])
 
-                    start_epoch = checkpoint["epoch"] + 1
-                    best_f1 = checkpoint["best_f1"]
-                    best_results = checkpoint["best_results"]
+                        start_epoch = checkpoint["epoch"] + 1
+                        best_f1 = checkpoint["best_f1"]
+                        best_results = checkpoint["best_results"]
 
-                    if start_epoch == args.epochs:
-                        accelerator.print("Training completed")
-                    else:
-                        accelerator.print(f"Resuming training from epoch {start_epoch}\n")
+                        if start_epoch == args.epochs:
+                            accelerator.print("Training completed")
+                        else:
+                            accelerator.print(f"Resuming training from epoch {start_epoch}\n")
 
                 if args.test_only:
-                    if args.avg_ckpts:
-                        checkpoint_file = os.path.join(args.output_dir, model_name, "averaged", "best_model.pth")
-                        checkpoint = torch.load(checkpoint_file, map_location="cpu")
-                    else:
-                        checkpoint_file = os.path.join(args.output_dir, model_name, "best_model.pth")
-                        checkpoint = torch.load(checkpoint_file, map_location="cpu")
-                    model.load_state_dict(checkpoint["model"])
+                    with accelerator.main_process_first():
+                        if args.avg_ckpts:
+                            checkpoint_file = os.path.join(args.output_dir, model_name, "averaged", "best_model.pth")
+                            checkpoint = torch.load(checkpoint_file, map_location="cpu")
+                        else:
+                            checkpoint_file = os.path.join(args.output_dir, model_name, "best_model.pth")
+                            checkpoint = torch.load(checkpoint_file, map_location="cpu")
+                        model.load_state_dict(checkpoint["model"])
                     if model_ema:
                         evaluate(test_loader, model_ema, val_metrics, roc_metric, accelerator, ema=True)
                     else:
@@ -430,9 +432,9 @@ def main(args: argparse.Namespace, accelerator) -> None:
                         "args": args,
                         "epoch": epoch,
                         "best_f1": best_f1,
-                        "model": model.state_dict(),
-                        "optimizer": optimizer.state_dict(),
-                        "lr_scheduler": lr_scheduler.state_dict(),
+                        "model": accelerator.get_state_dict(model),
+                        "optimizer": accelerator.get_state_dict(optimizer),
+                        "lr_scheduler": accelerator.get_state_dict(lr_scheduler),
                         "best_results": best_results,
                     }
                     if model_ema:
@@ -618,4 +620,5 @@ if __name__ == "__main__":
     else:
         cfgs.models = sorted(utils.get_matching_model_names(cfgs.crop_size, cfgs.model_size))
 
+    cfgs.lr *= accelerator_var.num_processes
     main(cfgs, accelerator_var)
