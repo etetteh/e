@@ -172,26 +172,6 @@ def read_json_lines_file(file_path: str) -> List[Union[dict, Any]]:
         return data
 
 
-def set_random_seeds(seed: int) -> None:
-    """
-    Sets the seed for the random number generators in NumPy, Python's random module, and PyTorch.
-
-    Parameters:
-        seed (int): The seed to be set.
-
-    Returns:
-        None
-
-    Example:
-        seed_value = 123  # Example seed value
-        set_random_seeds(seed_value)
-    """
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-
 def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
     """
     Sets the seed for NumPy and Python's random module for the given worker.
