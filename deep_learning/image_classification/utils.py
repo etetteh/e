@@ -572,12 +572,13 @@ def get_matching_model_names(image_size: int, model_size: str) -> List[str]:
 
     matching_models = [name for name in model_names if str(image_size) in name and model_size in name]
 
-    training_models = [
-        name for name in matching_models if isinstance(list(timm.create_model(name).named_modules())[-1][1],
-                                                       torch.nn.Linear)
-    ]
+    if model_size == "tiny":
+        matching_models.remove("deit_tiny_distilled_patch16_224.fb_in1k")
 
-    return training_models
+    if model_size == "small":
+        matching_models.remove("deit_small_distilled_patch16_224.fb_in1k")
+
+    return matching_models
 
 
 def prune_model(model: nn.Module, pruning_rate: float) -> List[Tuple[nn.Module, str]]:
@@ -652,20 +653,15 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
         scriptable=True,
         exportable=True,
         drop_rate=args.dropout,
-        in_chans=1 if args.gray else 3
+        in_chans=1 if args.gray else 3,
+        num_classes=num_classes
     )
 
     if args.feat_extract:
         for param in model.parameters():
             param.requires_grad = False
-
-    if isinstance(model.head, nn.Linear):
-        model.head = nn.Linear(model.head.in_features, num_classes, bias=True)
-    elif hasattr(model.head, "fc") and isinstance(model.head.fc, nn.Linear):
-        model.head.fc = nn.Linear(model.head.fc.in_features, num_classes, bias=True)
-
-    if hasattr(model, "head_dist") and isinstance(model.head_dist, nn.Linear):
-        model.head_dist = nn.Linear(model.head_dist.in_features, num_classes, bias=True)
+        for param in model.get_classifier().parameters():
+            param.requires_grad = True
 
     return model
 
