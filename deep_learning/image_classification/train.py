@@ -10,7 +10,7 @@ from accelerate import Accelerator, DeepSpeedPlugin, FullyShardedDataParallelPlu
 from accelerate.utils import set_seed
 from argparse import Namespace
 from glob import glob
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple, List
 
 import mlflow
 import mlflow.pytorch
@@ -28,15 +28,16 @@ import utils
 
 
 def train_one_epoch(
-    args: Namespace,
-    epoch: int,
-    train_loader: data.DataLoader,
-    model: nn.Module,
-    model_ema: Optional[utils.ExponentialMovingAverage],
-    optimizer: optim.Optimizer,
-    criterion: Callable,
-    train_metrics: Any,
-    accelerator: accelerate.Accelerator
+        args: Namespace,
+        epoch: int,
+        classes: List,
+        train_loader: data.DataLoader,
+        model: nn.Module,
+        model_ema: Optional[utils.ExponentialMovingAverage],
+        optimizer: optim.Optimizer,
+        criterion: Callable,
+        train_metrics: Any,
+        accelerator: accelerate.Accelerator
 ) -> Dict[str, Any]:
     """
     This function trains the model for one epoch and returns the metrics for the epoch.
@@ -57,7 +58,8 @@ def train_one_epoch(
     """
     model.train()
     with accelerator.join_uneven_inputs([model], even_batches=False):
-        for idx, (images, targets) in enumerate(train_loader):
+        for idx, batch in enumerate(train_loader):
+            images, targets = batch["pixel_values"], batch["label"]
             images.requires_grad = True
 
             with accelerator.accumulate(model):
@@ -68,7 +70,7 @@ def train_one_epoch(
                     loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
                 elif args.cutmix:
                     mixed_images, targets_a, targets_b, lam = utils.apply_cutmix(images, targets,
-                                                                                alpha=args.cutmix_alpha)
+                                                                                 alpha=args.cutmix_alpha)
                     output = model(mixed_images.contiguous(memory_format=torch.channels_last))
                     loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
                 else:
@@ -91,7 +93,7 @@ def train_one_epoch(
                 if epoch < args.warmup_epochs:
                     model_ema.n_averaged.fill_(0)
 
-            if len(train_loader.dataset.classes) == 2:
+            if len(classes) == 2:
                 _, pred = torch.max(output, 1)
             else:
                 pred = output
@@ -126,6 +128,7 @@ def train_one_epoch(
 
 
 def evaluate(
+        classes: List,
         val_loader: data.DataLoader,
         model: nn.Module,
         val_metrics: Any,
@@ -150,10 +153,11 @@ def evaluate(
     """
     model.eval()
     with torch.no_grad():
-        for images, targets in val_loader:
+        for batch in val_loader:
+            images, targets = batch["pixel_values"], batch["label"]
             output = model(images.contiguous(memory_format=torch.channels_last))
 
-            if len(val_loader.dataset.classes) == 2:
+            if len(classes) == 2:
                 _, pred = torch.max(output, 1)
                 val_metrics.update(accelerator.gather_for_metrics(pred),
                                    accelerator.gather_for_metrics(targets))
@@ -200,6 +204,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
     Returns:
         - None
     """
+
     @find_executable_batch_size(starting_batch_size=args.batch_size)
     def inner_main_loop(batch_size):
         nonlocal accelerator
@@ -211,20 +216,48 @@ def main(args: argparse.Namespace, accelerator) -> None:
         set_seed(args.seed)
 
         data_transforms = utils.get_data_augmentation(args)
+        image_dataset = utils.load_image_dataset(args.dataset)
+
+        def preprocess_train(example_batch):
+            example_batch["pixel_values"] = [
+                data_transforms["train"](image.convert("RGB")) for image in example_batch["image"]
+            ]
+            return example_batch
+
+        def preprocess_val(example_batch):
+            example_batch["pixel_values"] = [
+                data_transforms["val"](image.convert("RGB")) for image in example_batch["image"]
+            ]
+            return example_batch
+
+        def collate_fn(examples):
+            images = []
+            labels = []
+            for example in examples:
+                images.append((example["pixel_values"]))
+                labels.append(example["label"])
+
+            pixel_values = torch.stack(images)
+            labels = torch.tensor(labels)
+            return {"pixel_values": pixel_values, "label": labels}
+
+        train_dataset = image_dataset["train"].with_transform(preprocess_train)
+        val_dataset = image_dataset["validation"].with_transform(preprocess_val)
+
         image_datasets = {
-            x: datasets.ImageFolder(
-                os.path.join(args.dataset_dir, x), data_transforms[x]
-            )
-            for x in ["train", "val"]
+            "train": train_dataset,
+            "val": val_dataset
         }
 
         samplers = {
-            "train": data.RandomSampler(image_datasets["train"]),
-            "val": data.SequentialSampler(image_datasets["val"]),
+            "train": data.RandomSampler(train_dataset),
+            "val": data.SequentialSampler(val_dataset),
         }
+
         dataloaders = {
             x: data.DataLoader(
                 image_datasets[x],
+                collate_fn=collate_fn,
                 batch_size=batch_size,
                 sampler=samplers[x],
                 num_workers=args.num_workers,
@@ -239,16 +272,15 @@ def main(args: argparse.Namespace, accelerator) -> None:
         train_weights = utils.calculate_class_weights(train_loader)
 
         test_loader = None
-        if os.path.isdir(os.path.join(args.dataset_dir, "test")) and args.test_only:
-            test_dataset = datasets.ImageFolder(
-                os.path.join(args.dataset_dir, "test"),
-                data_transforms["val"]
-            )
+        if os.path.isdir(os.path.join(args.dataset, "test")) and args.test_only:
+            test_dataset = image_dataset["test"].with_transform(preprocess_val)
+            test_sampler = data.SequentialSampler(test_dataset)
 
             test_loader = data.DataLoader(
                 test_dataset,
+                collate_fn=collate_fn,
                 batch_size=args.batch_size,
-                sampler=samplers["val"],
+                sampler=test_sampler,
                 num_workers=args.num_workers,
                 worker_init_fn=utils.set_seed_for_worker,
                 generator=g,
@@ -257,7 +289,8 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
         criterion = torch.nn.CrossEntropyLoss(weight=train_weights, label_smoothing=args.label_smoothing).to(device)
 
-        num_classes = len(train_loader.dataset.classes)
+        classes = utils.get_classes(train_loader)
+        num_classes = len(classes)
         task = "binary" if num_classes == 2 else "multiclass"
         top_k = 1 if task == "multiclass" else None
         average = "macro" if task == "multiclass" else "weighted"
@@ -387,7 +420,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
                     train_metrics.reset()
 
                     with accelerator.autocast():
-                        total_train_metrics = train_one_epoch(args, epoch, train_loader, model, model_ema, optimizer,
+                        total_train_metrics = train_one_epoch(args, epoch, classes, train_loader, model, model_ema, optimizer,
                                                               criterion, train_metrics, accelerator)
 
                     if not accelerator.optimizer_step_was_skipped:
@@ -397,11 +430,11 @@ def main(args: argparse.Namespace, accelerator) -> None:
                     roc_metric.reset()
 
                     if model_ema:
-                        evaluate(val_loader, model, val_metrics, roc_metric, accelerator, ema=False)
-                        total_val_metrics, total_roc_metric = evaluate(val_loader, model_ema, val_metrics,
+                        evaluate(classes, val_loader, model, val_metrics, roc_metric, accelerator, ema=False)
+                        total_val_metrics, total_roc_metric = evaluate(classes, val_loader, model_ema, val_metrics,
                                                                        roc_metric, accelerator, ema=True)
                     else:
-                        total_val_metrics, total_roc_metric = evaluate(val_loader, model, val_metrics,
+                        total_val_metrics, total_roc_metric = evaluate(classes, val_loader, model, val_metrics,
                                                                        roc_metric, accelerator, ema=False)
 
                     if args.prune:
@@ -479,7 +512,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
                     json.dump(best_results, file)
                     file.write("\n")
 
-                explainability.process_results(args, model_name, accelerator)
+                explainability.process_results(args, model_name, classes, accelerator)
 
                 accelerator.free_memory()
                 del model, optimizer, lr_scheduler
@@ -493,8 +526,8 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
         utils.convert_to_onnx(args, best_compare_model_name, best_compare_model_file, num_classes)
         accelerator.print(f"Exported best performing model, {best_compare_model_name},"
-                         f" to ONNX format. File is located in "
-                         f"{os.path.join(args.output_dir, best_compare_model_name)}")
+                          f" to ONNX format. File is located in "
+                          f"{os.path.join(args.output_dir, best_compare_model_name)}")
 
         accelerator.print(f"All results have been saved at {os.path.abspath(args.output_dir)}")
 
@@ -510,7 +543,8 @@ def get_args():
     # General Configuration
     parser.add_argument("--experiment_name", required=True, type=str, default="Experiment_1",
                         help="Name of the MLflow experiment")
-    parser.add_argument("--dataset_dir", required=True, type=str, help="Directory of the dataset.")
+    parser.add_argument("--dataset", required=True, type=str, help="The path to a local dataset directory or a "
+                                                                   "HuggingFace dataset name.")
     parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
 
     # Model Configuration
