@@ -16,8 +16,11 @@ import splitfolders
 import torch.nn.utils.prune as prune
 import torch.optim.lr_scheduler as lr_scheduler
 
+from datasets import load_dataset
+from datasets.arrow_dataset import Dataset
 from torch.optim import swa_utils
 from torch import nn, optim, Tensor
+from torch.utils import data
 from torchvision import transforms
 from torchvision.transforms import functional as f
 from timm.optim import create_optimizer_v2
@@ -198,6 +201,29 @@ def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
         np.random.seed(initial_seed)
         random.seed(initial_seed)
         return None
+
+
+def load_image_dataset(dataset):
+    """
+    Load an image dataset using Hugging Face's 'datasets' library.
+
+    Parameters:
+        dataset (str or os.PathLike): The path to a local dataset directory or a Hugging Face dataset name.
+
+    Returns:
+        datasets.arrow_dataset.Dataset: The loaded image dataset.
+
+    Raises:
+        ValueError: If the provided dataset is not a valid path to a directory or a string (Hugging Face dataset name).
+    """
+    if os.path.isdir(dataset):
+        image_dataset = load_dataset("imagefolder", data_dir=dataset, drop_labels=False)
+    elif isinstance(dataset, str):
+        image_dataset = load_dataset(dataset)
+    else:
+        raise ValueError("Dataset should be a path to a local dataset on disk or a dataset name of an image dataset "
+                         "from Hugging Face datasets")
+    return image_dataset
 
 
 def apply_fgsm_attack(model: nn.Module, loss: Tensor, images: Tensor, epsilon: float) -> Tensor:
@@ -510,12 +536,12 @@ def get_explanation_transforms() -> Tuple[transforms.Compose, transforms.Compose
     return transform, inv_transform
 
 
-def get_classes(dataset_dir: str) -> List[str]:
+def get_classes(data_loader: data.DataLoader) -> List[str]:
     """
     Get a list of the classes in a dataset.
 
     Parameters:
-        dataset_dir (str): Directory of the dataset.
+        data_loader: Directory of the dataset.
 
     Returns:
         List[str]: A sorted list of the classes in the dataset.
@@ -525,11 +551,9 @@ def get_classes(dataset_dir: str) -> List[str]:
         print(classes)
         # ['class1', 'class2', 'class3', ...]
     """
-    class_dirs = glob(os.path.join(dataset_dir, "train", "*"))
-    classes = [os.path.basename(class_dir) for class_dir in class_dirs]
-    classes.sort()
+    classes = data_loader.dataset.features["label"].names
 
-    return classes
+    return sorted(classes)
 
 
 def get_matching_model_names(image_size: int, model_size: str) -> List[str]:
@@ -666,10 +690,10 @@ def calculate_class_weights(data_loader: torch.utils.data.DataLoader) -> torch.T
          data_loader = DataLoader(dataset, batch_size=32, shuffle=True)
          class_weights = calculate_class_weights(data_loader)
     """
-    targets = data_loader.dataset.targets
+    targets = data_loader.dataset[:]["label"]
     class_counts = np.bincount(targets)
     total_samples = len(targets)
-    num_classes = len(data_loader.dataset.classes)
+    num_classes = len(get_classes(data_loader))
     class_weights = torch.tensor(total_samples / (num_classes * class_counts), dtype=torch.float32)
     return class_weights
 
