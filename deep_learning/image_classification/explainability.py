@@ -128,7 +128,7 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
         fig.write_html(os.path.join(output_dir, model_name, "roc_curve.html"))
 
 
-def process_results(args: argparse.Namespace, model_name: str, accelerator) -> None:
+def process_results(args: argparse.Namespace, model_name: str, classes, accelerator) -> None:
     """
     Processes and saves the performance metrics and plots confusion matrix and ROC curve.
 
@@ -154,8 +154,6 @@ def process_results(args: argparse.Namespace, model_name: str, accelerator) -> N
         accelerator.print(f"\nModel performance:\n{results_drop}\n")
     else:
         accelerator.print(f"\nModel performance against other models:\n{results_drop}\n")
-
-    classes = utils.get_classes(args.dataset_dir)
 
     plot_confusion_matrix(results_df, model_name, classes, args.output_dir)
 
