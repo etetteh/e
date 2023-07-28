@@ -20,7 +20,6 @@ import torch
 from torch import nn, optim
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConfig
 from torch.utils import data
-from torchvision import datasets
 from torchmetrics import MetricCollection
 import torchmetrics.classification as metrics
 
@@ -30,36 +29,37 @@ import utils
 def train_one_epoch(
         args: Namespace,
         epoch: int,
-        classes: List,
+        classes: List[str],
         train_loader: data.DataLoader,
         model: nn.Module,
         model_ema: Optional[utils.ExponentialMovingAverage],
         optimizer: optim.Optimizer,
         criterion: Callable,
         train_metrics: Any,
-        accelerator: accelerate.Accelerator
+        accelerator: accelerate.Accelerator,
 ) -> Dict[str, Any]:
     """
-    This function trains the model for one epoch and returns the metrics for the epoch.
+    Trains the model for one epoch and returns the computed metrics.
 
     Parameters:
         args (Namespace): A namespace object containing training attributes.
         epoch (int): The current epoch number.
+        classes (List[str]): The list of class labels.
         train_loader (DataLoader): The training data loader.
         model (nn.Module): The model to be trained.
         model_ema (ExponentialMovingAverage, optional): The exponential moving average model.
-        optimizer (optim.Optimizer): The optimizer for training.
+        optimizer (optim.Optimizer): The optimizer used for training.
         criterion (Callable): The loss function.
-        train_metrics (Any): Object for storing and computing training metrics.
-        accelerator (Any): The accelerator object for distributed training.
+        train_metrics (Any): An object for storing and computing training metrics.
+        accelerator (accelerate.Accelerator): The accelerator object for distributed training.
 
     Returns:
-        Dict: A dictionary containing the metrics computed during training.
+        Dict[str, Any]: A dictionary containing the computed metrics for the epoch.
     """
     model.train()
     with accelerator.join_uneven_inputs([model], even_batches=False):
         for idx, batch in enumerate(train_loader):
-            images, targets = batch["pixel_values"], batch["label"]
+            images, targets = batch["pixel_values"], batch["labels"]
             images.requires_grad = True
 
             with accelerator.accumulate(model):
@@ -137,23 +137,25 @@ def evaluate(
         ema: bool,
 ) -> Tuple[Dict, torch.Tensor]:
     """
-    This function evaluates the model on the validation dataset and returns the metrics.
+    Evaluate the model on the validation dataset and return the metrics.
 
     Parameters:
-        - val_loader: A DataLoader object for the validation dataset.
-        - model: The model to be evaluated.
-        - val_metrics: An object for storing and computing validation metrics.
-        - roc_metric: An object for computing the ROC curve.
-        - ema: Whether evaluation is being performed on model_ema or not
-        - accelerator: The accelerator object for distributed training.
+        classes (List[str]): The list of class labels.
+        val_loader (DataLoader): A DataLoader object for the validation dataset.
+        model (nn.Module): The model to be evaluated.
+        val_metrics (Any): An object for storing and computing validation metrics.
+        roc_metric (Any): An object for computing the ROC curve.
+        accelerator (accelerate.Accelerator): The accelerator object for distributed training.
+        ema (bool): Whether evaluation is being performed on model_ema or not.
 
     Returns:
-       - Tuple: A tuple containing a dictionary of computed metrics and the predicted probabilities.
+        Tuple[Dict[str, Any], torch.Tensor]: A tuple containing a dictionary of computed metrics
+                                             and the predicted probabilities.
     """
     model.eval()
     with torch.no_grad():
         for batch in val_loader:
-            images, targets = batch["pixel_values"], batch["label"]
+            images, targets = batch["pixel_values"], batch["labels"]
             output = model(images.contiguous(memory_format=torch.channels_last))
 
             if len(classes) == 2:
@@ -198,12 +200,14 @@ def main(args: argparse.Namespace, accelerator) -> None:
     Runs the training and evaluation of the model.
 
     Parameters:
-        - args (argparse.Namespace): The command-line and default arguments.
+        args (argparse.Namespace): The command-line and default arguments.
+        accelerator: The accelerator object for distributed training.
 
     Returns:
-        - None
+        None
     """
 
+    # noinspection PyTypeChecker
     @find_executable_batch_size(starting_batch_size=args.batch_size)
     def inner_main_loop(batch_size):
         nonlocal accelerator
@@ -216,6 +220,8 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
         data_transforms = utils.get_data_augmentation(args)
         image_dataset = utils.load_image_dataset(args.dataset)
+        if "label" in image_dataset.column_names["train"]:
+            image_dataset = image_dataset.rename_columns({"label": "labels"})
 
         def preprocess_train(example_batch):
             example_batch["pixel_values"] = [
@@ -228,17 +234,6 @@ def main(args: argparse.Namespace, accelerator) -> None:
                 data_transforms["val"](image.convert("RGB")) for image in example_batch["image"]
             ]
             return example_batch
-
-        def collate_fn(examples):
-            images = []
-            labels = []
-            for example in examples:
-                images.append((example["pixel_values"]))
-                labels.append(example["label"])
-
-            pixel_values = torch.stack(images)
-            labels = torch.tensor(labels)
-            return {"pixel_values": pixel_values, "label": labels}
 
         train_dataset = image_dataset["train"].with_transform(preprocess_train)
         val_dataset = image_dataset["validation"].with_transform(preprocess_val)
@@ -256,7 +251,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
         dataloaders = {
             x: data.DataLoader(
                 image_datasets[x],
-                collate_fn=collate_fn,
+                collate_fn=utils.collate_fn,
                 batch_size=batch_size,
                 sampler=samplers[x],
                 num_workers=args.num_workers,
@@ -277,7 +272,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
             test_loader = data.DataLoader(
                 test_dataset,
-                collate_fn=collate_fn,
+                collate_fn=utils.collate_fn,
                 batch_size=args.batch_size,
                 sampler=test_sampler,
                 num_workers=args.num_workers,
@@ -405,9 +400,9 @@ def main(args: argparse.Namespace, accelerator) -> None:
                             checkpoint = torch.load(checkpoint_file, map_location="cpu")
                         model.load_state_dict(checkpoint["model"])
                     if model_ema:
-                        evaluate(test_loader, model_ema, val_metrics, roc_metric, accelerator, ema=True)
+                        evaluate(classes, test_loader, model_ema, val_metrics, roc_metric, accelerator, ema=True)
                     else:
-                        evaluate(test_loader, model, val_metrics, roc_metric, accelerator, ema=False)
+                        evaluate(classes, test_loader, model, val_metrics, roc_metric, accelerator, ema=False)
                     return
 
                 start_time = time.time()
@@ -419,7 +414,8 @@ def main(args: argparse.Namespace, accelerator) -> None:
                     train_metrics.reset()
 
                     with accelerator.autocast():
-                        total_train_metrics = train_one_epoch(args, epoch, classes, train_loader, model, model_ema, optimizer,
+                        total_train_metrics = train_one_epoch(args, epoch, classes, train_loader, model, model_ema,
+                                                              optimizer,
                                                               criterion, train_metrics, accelerator)
 
                     if not accelerator.optimizer_step_was_skipped:
