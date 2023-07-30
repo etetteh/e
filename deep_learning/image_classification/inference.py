@@ -17,32 +17,48 @@ import utils
 
 def run_inference(onnx_model_path: str, img_path: str, dataset_dir_or_classes_file: str) -> dict:
     """
-    Runs one inference on a given ONNX model and image.
+    Run inference on a given ONNX model for image classification.
 
     Parameters:
-        - onnx_model_path (str): Path to the ONNX model.
-        - img_path (str): Path to a single image or a directory containing images to be classified.
-        - dataset_dir_or_classes_file (str): Path to the directory containing the dataset classes or Path to a text file
-                                containing class names (each class name on a separate line).
+        onnx_model_path (str): Path to the ONNX model.
+        img_path (str): Path to a single image or a directory containing images to be classified.
+        dataset_dir_or_classes_file (str): Path to the directory containing the dataset classes or Path to a text file
+                                           containing class names (each class name on a separate line).
 
     Returns:
-        - dict: A dict of dictionary[ies] containing image name and its predicted label and the associated probability.
+        dict: A dictionary containing image names as keys and a list of dictionaries with top predicted labels and their
+              associated probabilities as values. The list contains at most three dictionaries, showing the top 3
+              predicted labels and probabilities if available, otherwise the top 2.
 
+    Example:
+        >>> onnx_model_path = "path/to/onnx/model.onnx"
+        >>> img_path = "path/to/image.jpg"
+        >>> dataset_dir_or_classes_file = "path/to/dataset_classes.txt"
+        >>> results = run_inference(onnx_model_path, img_path, dataset_dir_or_classes_file)
+        >>> print(results)
+        {
+            'image.jpg': [
+                {'Predicted class': 'cat', 'Probability': 0.68},
+                {'Predicted class': 'dog', 'Probability': 0.18},
+                {'Predicted class': 'bird', 'Probability': 0.08}
+            ]
+        }
     """
 
     if os.path.isfile(dataset_dir_or_classes_file):
         with open(dataset_dir_or_classes_file, "r") as file_in:
             classes = sorted(file_in.read().splitlines())
     else:
-        classes = utils.get_classes(dataset_dir_or_classes_file)
+        image_dataset = utils.load_image_dataset(dataset_dir_or_classes_file)
+        if "label" in image_dataset.column_names["train"]:
+            image_dataset = image_dataset.rename_columns({"label": "labels"})
+        classes = utils.get_classes(image_dataset["train"])
 
-    transform_img = transforms.Compose([
+    data_aug = [
         transforms.Resize(256),
         transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD)
-        ]
-       )
+    ]
+    transform_img = transforms.Compose(utils.apply_normalization(data_aug, args.gray))
 
     if os.path.isdir(img_path):
         imgs_path = glob(os.path.join(img_path, "*"))
@@ -56,18 +72,20 @@ def run_inference(onnx_model_path: str, img_path: str, dataset_dir_or_classes_fi
     ort_session = onnxruntime.InferenceSession(onnx_model_path)
 
     results = {}
+    num_out = range(3) if len(classes) >= 3 else range(2)
     for i, img in enumerate(imgs):
-        ort_inputs = {ort_session.get_inputs()[0].name: utils.convert_tensor_to_numpy(img)}
+        ort_inputs = {ort_session.get_inputs()[0].name: img.detach().cpu().numpy()}
         ort_outs = ort_session.run(None, ort_inputs)
 
         prob = f.softmax(torch.from_numpy(ort_outs[0]), dim=1)
-        top_p, top_class = torch.topk(prob, 1, dim=1)
+        top_p, top_class = torch.topk(prob, len(classes), dim=1)
 
         results.update({
-            f"{os.path.basename(imgs_path[i])}": {
-                "Predicted Label": classes[top_class.item()],
-                "Probability": round(top_p.item() * 100, 2),
-            }
+            f"{os.path.basename(imgs_path[i])}":
+                [
+                    {"Predicted class": classes[top_class[0][i].item()], "Probability": round(top_p[0][i].item(), 2)}
+                    for i in num_out
+                ]
         }
         )
 
@@ -83,7 +101,7 @@ def get_args():
                                                                     "images to be classified")
     parser.add_argument("--dataset_dir_or_classes_file", type=str, required=True,
             help="Path to the directory containing the dataset classes or Path to a text file containing class names")
-
+    parser.add_argument('--gray', action='store_true', help='Convert images to grayscale')
     return parser.parse_args()
 
 
@@ -96,6 +114,6 @@ if __name__ == "__main__":
         os.makedirs(args.output_dir, exist_ok=True)
 
     result = run_inference(args.onnx_model_path, args.img_path, args.dataset_dir_or_classes_file)
-    utils.write_json_file(dict_obj=result, file_path=f"{args.output_dir}/inference_results.json")
+    utils.write_dictionary_to_json(dictionary=result, file_path=f"{args.output_dir}/inference_results.json")
 
     print(f"Inference results have been saved to {args.output_dir}/inference_results.json")
