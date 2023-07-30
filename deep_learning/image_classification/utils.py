@@ -683,27 +683,23 @@ def collate_fn(examples):
     return {"pixel_values": pixel_values, "labels": labels}
 
 
-def get_classes(data_loader: torch.utils.data.DataLoader) -> List[str]:
+def get_classes(dataset: torch.utils.data.Dataset) -> List[str]:
     """
     Get a list of the classes in a dataset.
 
     Parameters:
-        data_loader: Directory of the dataset.
+        dataset: dataset to get classes from.
 
     Returns:
         List[str]: A sorted list of the classes in the dataset.
 
     Example:
-        >>> from torchvision import datasets, transforms
-        >>> data_transform = transforms.Compose([transforms.Resize(256), transforms.CenterCrop(224),
-                                                transforms.ToTensor()])
-        >>> dataset = datasets.ImageFolder(root='path/to/dataset', transform=data_transform)
-        >>> data_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
-        >>> classes = get_classes(data_loader)
+        >>> dataset = load_image_dataset('dataset')
+        >>> classes = get_classes(dataset)
         >>> print(classes)
         Output: ['class1', 'class2', 'class3', ...]
     """
-    classes = data_loader.dataset.features["labels"].names
+    classes = dataset.features["labels"].names
 
     return sorted(classes)
 
@@ -732,6 +728,15 @@ def get_matching_model_names(image_size: int, model_size: str) -> List[str]:
 
     if model_size == "small":
         matching_models.remove("deit_small_distilled_patch16_224.fb_in1k")
+        matching_models.remove("swin_s3_small_224.ms_in1k")
+
+    if model_size == "base":
+        matching_models.remove("deit_base_distilled_patch16_224.fb_in1k")
+        matching_models.remove("maxxvitv2_rmlp_base_rw_224.sw_in12k_ft_in1k")
+        matching_models.remove("swin_base_patch4_window7_224.ms_in22k")
+        matching_models.remove("vit_base_patch16_224.orig_in21k_ft_in1k")
+        matching_models.remove("vit_base_patch8_224.augreg_in21k_ft_in1k")
+        matching_models.remove("vit_base_patch8_224.dino")
 
     return matching_models
 
@@ -853,7 +858,7 @@ def calculate_class_weights(data_loader: torch.utils.data.DataLoader) -> torch.T
     targets = data_loader.dataset[:]["labels"]
     class_counts = np.bincount(targets)
     total_samples = len(targets)
-    num_classes = len(get_classes(data_loader))
+    num_classes = len(get_classes(data_loader.dataset))
     class_weights = torch.tensor(total_samples / (num_classes * class_counts), dtype=torch.float32)
     return class_weights
 
