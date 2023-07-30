@@ -355,39 +355,38 @@ def apply_fgsm_attack(model: nn.Module, loss: Tensor, images: Tensor, epsilon: f
     return image_perturbed
 
 
-def apply_normalization(aug_list: List, args: Namespace) -> List:
+def apply_normalization(aug_list: List[transforms.Transform], gray: bool) -> List[transforms.Transform]:
     """
     Apply normalization to the augmentation list based on grayscale conversion.
 
     Parameters:
         aug_list (List[transforms.Transform]): The list of transformation functions for data augmentation.
-        args (Namespace): A namespace object containing the following attributes:
-            - gray (bool): Whether to convert the images to grayscale.
+        gray (bool): Whether to convert the images to grayscale.
 
     Returns:
-        List: The updated list of transformation functions with normalization applied.
+        List[transforms.Transform]: The updated list of transformation functions with normalization applied.
 
     Example:
         >>> import argparse
         >>> args = argparse.Namespace(gray=True)
         >>> aug_list = [transforms.RandomResizedCrop(224), transforms.ToTensor()]
-        >>> updated_aug_list = apply_normalization(aug_list, args)
+        >>> updated_aug_list = apply_normalization(aug_list, args.gray)
 
-        # If 'gray' is True, the updated_aug_list will contain additional transformations: # [
-        transforms.RandomResizedCrop(224), transforms.Grayscale(), transforms.ToTensor(), transforms.Normalize(mean=[
-        0.5], std=[0.5])]
+        If 'gray' is True, the updated_aug_list will contain additional transformations:
+        [transforms.RandomResizedCrop(224), transforms.Grayscale(), transforms.ToTensor(),
+         transforms.Normalize(mean=[0.5], std=[0.5])]
 
-        # If 'gray' is False, the updated_aug_list will contain different normalization values: # [
-        transforms.RandomResizedCrop(224), transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225])]
-
+        If 'gray' is False, the updated_aug_list will contain different normalization values:
+        [transforms.RandomResizedCrop(224), transforms.ToTensor(),
+         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]
     """
-    if args.gray:
+
+    if gray:
         aug_list.append(transforms.Grayscale())
 
     aug_list.extend([
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5], std=[0.5]) if args.gray else transforms.Normalize(
+        transforms.Normalize(mean=[0.5], std=[0.5]) if gray else transforms.Normalize(
             mean=IMAGENET_DEFAULT_MEAN,
             std=IMAGENET_DEFAULT_STD
         )
@@ -441,7 +440,7 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
         transforms.Resize(args.val_resize, interpolation=f.InterpolationMode(args.interpolation)),
         transforms.CenterCrop(args.crop_size),
     ]
-    val_transform = transforms.Compose(apply_normalization(val_aug, args))
+    val_transform = transforms.Compose(apply_normalization(val_aug, args.gray))
 
     return {"train": train_transform, "val": val_transform}
 
