@@ -6,7 +6,12 @@ import time
 import warnings
 
 import accelerate
-from accelerate import Accelerator, DeepSpeedPlugin, FullyShardedDataParallelPlugin, find_executable_batch_size
+from accelerate import (
+    Accelerator,
+    DeepSpeedPlugin,
+    FullyShardedDataParallelPlugin,
+    find_executable_batch_size
+)
 from accelerate.utils import set_seed
 from argparse import Namespace
 from glob import glob
@@ -283,7 +288,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
         criterion = torch.nn.CrossEntropyLoss(weight=train_weights, label_smoothing=args.label_smoothing).to(device)
 
-        classes = utils.get_classes(train_loader)
+        classes = utils.get_classes(train_dataset)
         num_classes = len(classes)
         task = "binary" if num_classes == 2 else "multiclass"
         top_k = 1 if task == "multiclass" else None
