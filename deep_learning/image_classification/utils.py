@@ -608,7 +608,7 @@ def convert_to_onnx(
     model.eval()
 
     batch_size = 1
-    dummy_input = torch.randn(batch_size, 1 if args.scale else 3, args.crop_size, args.crop_size, requires_grad=True)
+    dummy_input = torch.randn(batch_size, 1 if args.grayscale else 3, args.crop_size, args.crop_size, requires_grad=True)
     filename = os.path.join(os.path.dirname(checkpoint_path), "best_model.onnx")
 
     torch.onnx.export(
@@ -733,10 +733,10 @@ def get_matching_model_names(image_size: int, model_size: str) -> List[str]:
     if model_size == "base":
         matching_models.remove("deit_base_distilled_patch16_224.fb_in1k")
         matching_models.remove("maxxvitv2_rmlp_base_rw_224.sw_in12k_ft_in1k")
-        matching_models.remove("swin_base_patch4_window7_224.ms_in22k")
-        matching_models.remove("vit_base_patch16_224.orig_in21k_ft_in1k")
-        matching_models.remove("vit_base_patch8_224.augreg_in21k_ft_in1k")
-        matching_models.remove("vit_base_patch8_224.dino")
+    #     matching_models.remove("swin_base_patch4_window7_224.ms_in22k")
+    #     matching_models.remove("vit_base_patch16_224.orig_in21k_ft_in1k")
+    #     matching_models.remove("vit_base_patch8_224.augreg_in21k_ft_in1k")
+    #     matching_models.remove("vit_base_patch8_224.dino")
 
     return matching_models
 
