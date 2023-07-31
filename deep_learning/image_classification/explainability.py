@@ -27,6 +27,13 @@ def display_results_dataframe(output_dir: str, sorting_metric: str) -> pd.DataFr
 
     Returns:
         - A sorted DataFrame of the results.
+    Example:
+        >>> output_dir = "results"
+        >>> sorting_metric = "accuracy"
+        >>> results_df = display_results_dataframe(output_dir, sorting_metric)
+        # The function will load the results from the "results.jsonl" file in the "results" directory,
+        # convert them into a DataFrame, and sort the DataFrame based on the "accuracy" metric in descending order.
+        # The sorted DataFrame will be stored in the variable "results_df".
     """
     results_list = utils.read_json_lines_file(os.path.join(output_dir, "results.jsonl"))
 
@@ -81,6 +88,14 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
 
     Returns:
         - None
+    Example:
+        >>> classes = ["ClassA", "ClassB", "ClassC"]
+        >>> results_df = pd.DataFrame({"model": ["MyModel"], "fpr": [[0.1, 0.2, 0.3], [0.2, 0.3, 0.4], [0.3, 0.4, 0.5]],
+        ...                            "tpr": [[0.6, 0.7, 0.8], [0.7, 0.8, 0.9], [0.8, 0.9, 0.95]]})
+        >>> model_name = "MyModel"
+        >>> output_dir = "output"
+        >>> plot_roc_curve(classes, results_df, model_name, output_dir)
+        # The function will plot the ROC curve for each class and save the plot as an HTML file in the 'output' directory.
     """
     num_classes = len(classes)
 
@@ -128,19 +143,35 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
         fig.write_html(os.path.join(output_dir, model_name, "roc_curve.html"))
 
 
-def process_results(args: argparse.Namespace, model_name: str, accelerator) -> None:
+def process_results(args: argparse.Namespace, model_name: str, classes: List[str], accelerator: Accelerator) -> None:
     """
     Processes and saves the performance metrics and plots confusion matrix and ROC curve.
 
     Parameters:
-        - args : a Namespace object containing the following attributes:
-            - output_dir : a string representing the directory where the results will be saved
-            - sorting_metric : a string representing the metric to sort the results by
-            - dataset_dir : a string representing the directory of the dataset
-        - model_name : name of model
+        args (argparse.Namespace): A Namespace object with the following attributes:
+            - output_dir (str): The directory where the results will be saved.
+            - sorting_metric (str): The metric to sort the results by.
+            - dataset_dir (str): The directory of the dataset.
+        model_name (str): The name of the model.
+        classes (List[str]): A list of strings representing the classes.
+        accelerator (Accelerator): An object representing the accelerator.
 
     Returns:
-        - None
+        None
+
+    Side Effects:
+        - Saves the performance metrics as a JSONL file in the 'args.output_dir'.
+        - Prints the model's performance or its performance compared to other models.
+        - Plots the confusion matrix and ROC curve and saves them in the 'args.output_dir'.
+    Example:
+        >>> args = argparse.Namespace(output_dir="results", sorting_metric="accuracy", dataset_dir="data")
+        >>> model_name = "MyModel"
+        >>> classes = ["class1", "class2", "class3"]
+        >>> accelerator = Accelerator()
+        >>> process_results(args, model_name, classes, accelerator)
+        # The function will process the results, save performance metrics as a JSONL file in the 'results' directory,
+        # and print the model's performance or its performance compared to other models. It will also plot the confusion
+        # matrix and ROC curve and save them in the 'results' directory.
     """
     results_df = display_results_dataframe(output_dir=args.output_dir, sorting_metric=args.sorting_metric)
     results_drop = results_df.drop(columns=["loss", "fpr", "tpr", "cm"])
@@ -154,8 +185,6 @@ def process_results(args: argparse.Namespace, model_name: str, accelerator) -> N
         accelerator.print(f"\nModel performance:\n{results_drop}\n")
     else:
         accelerator.print(f"\nModel performance against other models:\n{results_drop}\n")
-
-    classes = utils.get_classes(args.dataset_dir)
 
     plot_confusion_matrix(results_df, model_name, classes, args.output_dir)
 
@@ -176,8 +205,29 @@ def explain_model(args: argparse.Namespace) -> None:
             - n_samples (int): Number of samples to explain.
             - max_evals (int): Maximum number of evaluations for SHAP.
             - topk (int): Number of top-k predictions to plot.
-    """
+    Returns:
+        None
 
+    Side Effects:
+        - Plots the SHAP value interpretation for the model predictions on a subset of images from the dataset.
+
+    Example:
+        >>> args = argparse.Namespace(
+        ...     dataset_dir="data",
+        ...     model_name="MyModel",
+        ...     crop_size=224,
+        ...     batch_size=32,
+        ...     num_workers=4,
+        ...     n_samples=5,
+        ...     max_evals=100,
+        ...     topk=5
+        ... )
+        >>> explain_model(args)
+        # The function will use the provided arguments to load the model, dataset, and then explain the model
+        # predictions using SHAP values. It will plot the SHAP value interpretation for the top-k predictions on
+        # a subset of n_samples images from the dataset. The results will be displayed in the console or as a
+        # visualization, depending on the implementation.
+    """
     def predict(img: np.ndarray) -> torch.Tensor:
         """
         Predict the class probabilities for an image.
@@ -197,19 +247,34 @@ def explain_model(args: argparse.Namespace) -> None:
 
     device = accelerator.device
     transform, inv_transform = utils.get_explanation_transforms()
-    classes = utils.get_classes(args.dataset_dir)
 
-    train_data = torchvision.datasets.ImageFolder(os.path.join(args.dataset_dir, "val"),
-                                                  transform=torchvision.transforms.Compose([
-                                                      torchvision.transforms.RandomResizedCrop(args.crop_size),
-                                                      torchvision.transforms.PILToTensor(),
-                                                  ])
-                                                  )
+    image_dataset = utils.load_image_dataset(args.dataset)
+    if "label" in image_dataset.column_names["train"]:
+        image_dataset = image_dataset.rename_columns({"label": "labels"})
+    classes = utils.get_classes(image_dataset["train"])
 
-    data_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
+    augmentation = torchvision.transforms.Compose([
+        torchvision.transforms.RandomResizedCrop(args.crop_size),
+        torchvision.transforms.PILToTensor(),
+    ])
+    def preprocess_val(example_batch):
+        example_batch["pixel_values"] = [
+            augmentation(image.convert("RGB")) for image in example_batch["image"]
+        ]
+        return example_batch
+
+    val_dataset = image_dataset["validation"].with_transform(preprocess_val)
+
+
+    data_loader = DataLoader(val_dataset,
+                             batch_size=args.batch_size,
+                             shuffle=True,
+                             num_workers=args.num_workers,
+                             collate_fn=utils.collate_fn
+                             )
 
     batch = next(iter(data_loader))
-    images, labels = batch
+    images, labels = batch["pixel_values"], batch["labels"]
     images = images.permute(0, 2, 3, 1)
     images = transform(images)
 

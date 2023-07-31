@@ -144,7 +144,6 @@ def evaluate(
         - model: The model to be evaluated.
         - val_metrics: An object for storing and computing validation metrics.
         - roc_metric: An object for computing the ROC curve.
-        - device: The device to be used for evaluation.
         - ema: Whether evaluation is being performed on model_ema or not
         - accelerator: The accelerator object for distributed training.
 
