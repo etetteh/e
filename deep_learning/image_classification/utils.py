@@ -355,41 +355,40 @@ def apply_fgsm_attack(model: nn.Module, loss: Tensor, images: Tensor, epsilon: f
     return image_perturbed
 
 
-def apply_normalization(aug_list: List[transforms.Transform], gray: bool) -> List[transforms.Transform]:
+def apply_normalization(args: Namespace, aug_list: List) -> List:
     """
     Apply normalization to the augmentation list based on grayscale conversion.
 
     Parameters:
+        args (Namespace) : Namespace object containing arguments
+             grayscale (bool): Whether to convert the images to grayscale.
         aug_list (List[transforms.Transform]): The list of transformation functions for data augmentation.
-        gray (bool): Whether to convert the images to grayscale.
+
 
     Returns:
-        List[transforms.Transform]: The updated list of transformation functions with normalization applied.
+        List: The updated list of transformation functions with normalization applied.
 
     Example:
         >>> import argparse
-        >>> args = argparse.Namespace(gray=True)
+        >>> args = argparse.Namespace(grayscale=True)
         >>> aug_list = [transforms.RandomResizedCrop(224), transforms.ToTensor()]
-        >>> updated_aug_list = apply_normalization(aug_list, args.gray)
+        >>> updated_aug_list = apply_normalization(args, aug_list)
 
-        If 'gray' is True, the updated_aug_list will contain additional transformations:
+        If 'grayscale' is True, the updated_aug_list will contain additional transformations:
         [transforms.RandomResizedCrop(224), transforms.Grayscale(), transforms.ToTensor(),
          transforms.Normalize(mean=[0.5], std=[0.5])]
 
-        If 'gray' is False, the updated_aug_list will contain different normalization values:
+        If 'grayscale' is False, the updated_aug_list will contain different normalization values:
         [transforms.RandomResizedCrop(224), transforms.ToTensor(),
          transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]
     """
 
-    if gray:
+    if args.grayscale:
         aug_list.append(transforms.Grayscale())
 
     aug_list.extend([
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5], std=[0.5]) if gray else transforms.Normalize(
-            mean=IMAGENET_DEFAULT_MEAN,
-            std=IMAGENET_DEFAULT_STD
-        )
+        transforms.Normalize(mean=[0.5], std=[0.5]) if args.grayscale else transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD)
     ])
 
     return aug_list
@@ -402,10 +401,12 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
 
     Parameters:
         args: A namespace object containing the following attributes:
-            - crop_size (int): The size of the crop for the training and validation sets.
-            - interpolation (int): The interpolation method for resizing and cropping.
-            - hflip (bool): Whether to apply random horizontal flip to the training set.
-            - aug_type (str): The type of augmentation to apply to the training set.
+            crop_size (int): The size of the crop for the training and validation sets.
+            val_resize (int): The target size for resizing the validation images.
+                                 The validation images will be resized to this size while maintaining their aspect ratio.
+            interpolation (int): The interpolation method for resizing and cropping.
+            hflip (bool): Whether to apply random horizontal flip to the training set.
+            aug_type (str): The type of augmentation to apply to the training set.
                               Must be one of "trivial", "augmix", or "rand".
 
     Returns:
@@ -434,13 +435,13 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
     elif args.aug_type == "rand":
         train_aug.append(transforms.RandAugment(num_magnitude_bins=args.mag_bins,
                                                 interpolation=f.InterpolationMode(args.interpolation)))
-    train_transform = transforms.Compose(apply_normalization(train_aug, args))
+    train_transform = transforms.Compose(apply_normalization(args, train_aug))
 
     val_aug = [
         transforms.Resize(args.val_resize, interpolation=f.InterpolationMode(args.interpolation)),
         transforms.CenterCrop(args.crop_size),
     ]
-    val_transform = transforms.Compose(apply_normalization(val_aug, args.gray))
+    val_transform = transforms.Compose(apply_normalization(args, val_aug))
 
     return {"train": train_transform, "val": val_transform}
 
@@ -584,7 +585,7 @@ def convert_to_onnx(
 
     Parameters:
         args: A namespace object containing the following attributes:
-            - crop_size (int, optional): The size of the crop for the inference dataset/image. Default: None.
+            crop_size (int, optional): The size of the crop for the inference dataset/image. Default: None.
         model_name (str): The name of the model.
         checkpoint_path (str): The path to the PyTorch checkpoint.
         num_classes (int): The number of classes in the dataset.
@@ -607,7 +608,7 @@ def convert_to_onnx(
     model.eval()
 
     batch_size = 1
-    dummy_input = torch.randn(batch_size, 1 if args.gray else 3, args.crop_size, args.crop_size, requires_grad=True)
+    dummy_input = torch.randn(batch_size, 1 if args.scale else 3, args.crop_size, args.crop_size, requires_grad=True)
     filename = os.path.join(os.path.dirname(checkpoint_path), "best_model.onnx")
 
     torch.onnx.export(
@@ -808,7 +809,7 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
         nn.Module: The modified model with the new head.
 
     Example:
-        >>> args = Namespace(feat_extract=True, dropout=0.5, gray=False)
+        >>> args = Namespace(feat_extract=True, dropout=0.5, grayscale=False)
         >>> model = get_pretrained_model(args, "tf_efficientnet_b0_ns", num_classes=10)
     """
     model = timm.create_model(
@@ -817,7 +818,7 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
         scriptable=True,
         exportable=True,
         drop_rate=args.dropout,
-        in_chans=1 if args.gray else 3,
+        in_chans=1 if args.grayscale else 3,
         num_classes=num_classes
     )
 
