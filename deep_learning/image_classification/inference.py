@@ -15,16 +15,20 @@ from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 import utils
 
 
-def run_inference(onnx_model_path: str, img_path: str, dataset_dir_or_classes_file: str) -> dict:
+def run_inference(args: argparse.Namespace) -> dict:
     """
     Run inference on a given ONNX model for image classification.
 
     Parameters:
-        onnx_model_path (str): Path to the ONNX model.
-        img_path (str): Path to a single image or a directory containing images to be classified.
-        dataset_dir_or_classes_file (str): Path to the directory containing the dataset classes or Path to a text file
-                                           containing class names (each class name on a separate line).
-
+        args (argparse.Namespace):
+            onnx_model_path (str): Path to the ONNX model.
+            img_path (str): Path to a single image or a directory containing images to be classified.
+            dataset_dir_or_classes_file (str): Path to the directory containing the dataset classes or Path to a text file
+                                               containing class names (each class name on a separate line).
+            grayscale (bool): Whether to use grayscale images or not
+            crop_size (int): The size of the crop for the training and validation sets.
+            val_resize (int): The target size for resizing the validation images.
+                                 The validation images will be resized to this size while maintaining their aspect ratio.
     Returns:
         dict: A dictionary containing image names as keys and a list of dictionaries with top predicted labels and their
               associated probabilities as values. The list contains at most three dictionaries, showing the top 3
@@ -45,31 +49,31 @@ def run_inference(onnx_model_path: str, img_path: str, dataset_dir_or_classes_fi
         }
     """
 
-    if os.path.isfile(dataset_dir_or_classes_file):
-        with open(dataset_dir_or_classes_file, "r") as file_in:
+    if os.path.isfile(args.dataset_dir_or_classes_file):
+        with open(args.dataset_dir_or_classes_file, "r") as file_in:
             classes = sorted(file_in.read().splitlines())
     else:
-        image_dataset = utils.load_image_dataset(dataset_dir_or_classes_file)
+        image_dataset = utils.load_image_dataset(args.dataset_dir_or_classes_file)
         if "label" in image_dataset.column_names["train"]:
             image_dataset = image_dataset.rename_columns({"label": "labels"})
         classes = utils.get_classes(image_dataset["train"])
 
     data_aug = [
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
+        transforms.Resize(args.val_resize),
+        transforms.CenterCrop(args.crop_size),
     ]
-    transform_img = transforms.Compose(utils.apply_normalization(data_aug, args.gray))
+    transform_img = transforms.Compose(utils.apply_normalization(args, data_aug))
 
-    if os.path.isdir(img_path):
-        imgs_path = glob(os.path.join(img_path, "*"))
+    if os.path.isdir(args.img_path):
+        imgs_path = glob(os.path.join(args.img_path, "*"))
     else:
-        imgs_path = [img_path]
+        imgs_path = [args.img_path]
 
     imgs = [Image.open(img) for img in imgs_path]
     imgs = [transform_img(img) for img in imgs]
     imgs = [img.unsqueeze_(0) for img in imgs]
 
-    ort_session = onnxruntime.InferenceSession(onnx_model_path)
+    ort_session = onnxruntime.InferenceSession(args.onnx_model_path)
 
     results = {}
     num_out = range(3) if len(classes) >= 3 else range(2)
@@ -101,7 +105,10 @@ def get_args():
                                                                     "images to be classified")
     parser.add_argument("--dataset_dir_or_classes_file", type=str, required=True,
             help="Path to the directory containing the dataset classes or Path to a text file containing class names")
-    parser.add_argument('--gray', action='store_true', help='Convert images to grayscale')
+    parser.add_argument('--grayscale', action='store_true', help='Whether to use grayscale images or not')
+    parser.add_argument("--crop_size", default=224, type=int, help="Size to crop the input images to.")
+    parser.add_argument("--val_resize", default=256, type=int, help="Size to resize the validation images to.")
+
     return parser.parse_args()
 
 
@@ -113,7 +120,7 @@ if __name__ == "__main__":
     if not os.path.isdir(args.output_dir):
         os.makedirs(args.output_dir, exist_ok=True)
 
-    result = run_inference(args.onnx_model_path, args.img_path, args.dataset_dir_or_classes_file)
+    result = run_inference(args)
     utils.write_dictionary_to_json(dictionary=result, file_path=f"{args.output_dir}/inference_results.json")
 
     print(f"Inference results have been saved to {args.output_dir}/inference_results.json")
