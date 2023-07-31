@@ -11,6 +11,14 @@
 * [Citation](#citation)
 
 ## Usage
+### July 2023
+Integrated <span style="color:green;font-weight:700;font-size:16px"> **HuggingFace's Accelerate and Datasets Libraries** </span> 
+1. Users can now perform single or distributed model training on CPUs, GPUs and TPUs
+2. Users can now pass a path to a local dataset directory or a Hugging Face dataset name (or an HTTPS URL for a remote dataset)
+3. The optimizers used during training now comes from the Timm library, giving the opportunity for several SOTA options
+4. All files in the repository have been updated accordingly.
+5. To Do: tune.py file for hyperparameter tuning is undergoing updates 
+
 ### June 25, 2023
 Added <span style="color:green;font-weight:700;font-size:16px"> **CutMix Data Augmentation** </span> functionality.\
 <span style="color:red;font-weight:700;font-size:15px">
@@ -19,7 +27,7 @@ Added <span style="color:green;font-weight:700;font-size:16px"> **CutMix Data Au
 to train an `xcit_nano_12_p8_224.fb_dist_in1k` model with cutmix, run the following code
 
 ```
-python train.py \
+accelerate launch train.py \
     --dataset_dir weather_data \
     --output_dir sample_run_1 \   
     --experiment_name exp_1 \
@@ -38,7 +46,7 @@ Added <span style="color:green;font-weight:700;font-size:16px"> **MixUp Data Aug
 to train an `xcit_nano_12_p8_224.fb_dist_in1k` model with mixup, run the following code
 
 ```
-python train.py \
+accelerate launch train.py \
     --dataset_dir weather_data \
     --output_dir sample_run_1 \   
     --experiment_name exp_1 \
@@ -58,7 +66,7 @@ Added <span style="color:green;font-weight:700;font-size:16px"> **Model Pruning*
 to train an `xcit_nano_12_p8_224.fb_dist_in1k` model and prune the model, run the following code
 
 ```
-python train.py \
+accelerate launch train.py \
     --dataset_dir weather_data \
     --output_dir sample_run_1 \   
     --experiment_name exp_1 \
@@ -79,7 +87,7 @@ Added <span style="color:green;font-weight:700;font-size:16px"> **Adversarial Tr
 to train an `xcit_nano_12_p8_224.fb_dist_in1k` model with FGSM attack, run the following code
 
 ```
-python train.py \
+accelerate launch train.py \
     --dataset_dir weather_data \
     --output_dir sample_run_1 \   
     --experiment_name exp_1 \
@@ -99,7 +107,7 @@ Added <span style="color:green;font-weight:700;font-size:16px"> **Best Checkpoin
  to train an `xcit_nano_12_p8_224.fb_dist_in1k` model and average the best 5 checkpoints to be used for inference, run the following code
 
 ```
-python train.py \
+accelerate launch train.py \
     --dataset_dir weather_data \
     --output_dir sample_run_1 \   
     --experiment_name exp_1 \
@@ -119,7 +127,7 @@ Added <span style="color:green;font-weight:700;font-size:16px"> **Best Checkpoin
 evaluation metric, run the following code
 
 ```
-python train.py \
+accelerate launch train.py \
     --dataset_dir weather_data \
     --output_dir sample_run_1 \   
     --experiment_name exp_1 \
@@ -137,7 +145,7 @@ Added <span style="color:green;font-weight:700;font-size:16px"> **Exponential Mo
  to train an `xcit_nano_12_p8_224.fb_dist_in1k` model with EMA, run the following code
 
 ```
-python train.py \
+accelerate launch train.py \
     --dataset_dir weather_data \
     --output_dir sample_run_1 \   
     --experiment_name exp_1 \
@@ -167,9 +175,12 @@ Added <span style="color:green;font-weight:700;font-size:16px"> [app.py](https:/
 **Sample JSON file**
 ```
 {
-  "onnx_model_path": "swinv2_cr_tiny_ns_224/best_model.onnx",
-  "img_path": <path_to_image> or <path_to_directory_containing_images>,
-  "dataset_dir_or_classes_file": <path_to_dataset_dir_or_classes_file>
+  "onnx_model_path": "nano/coatnet_nano_rw_224.sw_in1k/best_model.onnx",
+  "img_path": "/datasets/weather_data/val/cloudy/cloudy104.jpg",
+  "dataset_dir_or_classes_file": "/datasets/weather_data/",
+  "grayscale": False
+  "crop_size": 224,
+  "val_resize": 256
 }
 ```
 
@@ -182,32 +193,22 @@ uvicorn app:app --reload
 
 **Sample output**:
 ```
-[
-  {
-    "image 0": {
-      "Predicted Label": "rain",
-      "Probability": 43.74
-    }
-  },
-  {
-    "image 1": {
-      "Predicted Label": "cloudy",
-      "Probability": 43.97
-    }
-  },
-  {
-    "image 2": {
-      "Predicted Label": "shine",
-      "Probability": 92.02
-    }
-  },
-  {
-    "image 3": {
-      "Predicted Label": "sunrise",
-      "Probability": 87.66
-    }
-  }
-]
+{
+    "cloudy104.jpg": [
+        {
+            "Predicted class": "cloudy",
+            "Probability": 0.99
+        },
+        {
+            "Predicted class": "shine",
+            "Probability": 0.0
+        },
+        {
+            "Predicted class": "rain",
+            "Probability": 0.0
+        }
+    ]
+}
 ```
 
 ### Feb 07, 2023
@@ -217,11 +218,11 @@ Added <span style="color:green;font-weight:700;font-size:16px"> [inference.py](h
 </span>
  to predict the class and probability score of an image using a `swinv2_cr_tiny_ns_224` model, run
 ```
-python inference.py \
-    --onnx_model_path  <training_output_dir>/swinv2_cr_tiny_ns_224/best_model.onnx \
-    --img_path <path_to_image> or <path_to_directory_containing_images> \
-    --dataset_dir_or_classes_file <path_to_dataset_dir_or_classes_file> \
-    --output_dir <directory_to_save_inference_results>
+accelerate launch inference.py \
+    --onnx_model_path nano/swinv2_cr_tiny_ns_224/best_model.onnx \
+    --img_path datasets/weather_data/val/cloudy/cloudy104.jpg \
+    --dataset_dir_or_classes_file datasets/weather_data \
+    --output_dir infer
 ```
 Note that `dataset_dir_or_classes_file` takes as argument your dataset directory or a text file containing the classes 
 ### Jan 29, 2023
@@ -251,16 +252,18 @@ from explainability import explain_model
 
 class Args:
     def __init__(self):
-        self.output_dir = "<model_checkpoint_dir>"
-        self.dataset_dir = "<dataset_dir>"
+        self.output_dir = "nano/swinv2_cr_tiny_ns_224/"
+        self.dataset = "datasets/weather_data/"
         self.model_name = "swinv2_cr_tiny_ns_224"
         self.crop_size = 224
         self.batch_size = 30
         self.num_workers = 8
         self.n_samples = 4
-        self.max_evals = 1000
+        self.max_evals = 100
         self.topk = 4
         self.dropout = 0.2
+        self.grayscale = False
+        self.feat_extract = True
     
 args = Args()
 
@@ -276,8 +279,11 @@ The train script uses models from the [timm](https://github.com/rwightman/pytorc
   Example:
 </span> to train with the models `swinv2_cr_tiny_ns_224` and `vit_large_patch14_clip_224`, run
 ```
-python train.py \
-    --model_name swinv2_cr_tiny_ns_224 vit_large_patch14_clip_224
+accelerate launch train.py \
+    --dataset_dir weather_data \
+    --output_dir sample_run_1 \   
+    --experiment_name exp_1 \
+    --model_name swinv2_cr_tiny_ns_224 vit_large_patch14_clip_224 \
 ```
 Please, ensure that when passing a list of models, all the models should have been trained on the same image size.
 
@@ -287,14 +293,18 @@ Please, ensure that when passing a list of models, all the models should have be
 </span> to finetune all `tiny` models from the `timm` library that were pre-trained with image size 224, run
 
 ```
-python train.py \ 
+accelerate launch train.py \
+    --dataset_dir weather_data \
+    --output_dir sample_run_1 \   
+    --experiment_name exp_1 \
     --model_size tiny \
-    --crop_size 224
+    --crop_size 224 \
+    --feat_extract
 ```
 
 You can also pass `nano`, `small`, `base`, `large` or `giant` to train all models with that respective size
 
-Run `python train.py --help` to see all the arguments you can pass during training. 
+Run `accelerate launch train.py --help` to see all the arguments you can pass during training. 
 
 
 The training script:
@@ -309,7 +319,7 @@ All results are on the validation dataset, and are saved in `output_dir/<model_n
 </span> Sample output on the validation set after running the following code is shown below
 
 ```
-python train.py \
+accelerate launch train.py \
     --dataset_dir weather_data \
     --output_dir sample_run_1 \   
     --experiment_name exp_1 \
