@@ -225,7 +225,7 @@ def explain_model(args: argparse.Namespace) -> None:
         >>> explain_model(args)
         # The function will use the provided arguments to load the model, dataset, and then explain the model
         # predictions using SHAP values. It will plot the SHAP value interpretation for the top-k predictions on
-        # a subset of 'n_samples' images from the dataset. The results will be displayed in the console or as a
+        # a subset of n_samples images from the dataset. The results will be displayed in the console or as a
         # visualization, depending on the implementation.
     """
     def predict(img: np.ndarray) -> torch.Tensor:
@@ -247,19 +247,34 @@ def explain_model(args: argparse.Namespace) -> None:
 
     device = accelerator.device
     transform, inv_transform = utils.get_explanation_transforms()
-    classes = utils.get_classes(args.dataset_dir)
 
-    train_data = torchvision.datasets.ImageFolder(os.path.join(args.dataset_dir, "val"),
-                                                  transform=torchvision.transforms.Compose([
-                                                      torchvision.transforms.RandomResizedCrop(args.crop_size),
-                                                      torchvision.transforms.PILToTensor(),
-                                                  ])
-                                                  )
+    image_dataset = utils.load_image_dataset(args.dataset)
+    if "label" in image_dataset.column_names["train"]:
+        image_dataset = image_dataset.rename_columns({"label": "labels"})
+    classes = utils.get_classes(image_dataset["train"])
 
-    data_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
+    augmentation = torchvision.transforms.Compose([
+        torchvision.transforms.RandomResizedCrop(args.crop_size),
+        torchvision.transforms.PILToTensor(),
+    ])
+    def preprocess_val(example_batch):
+        example_batch["pixel_values"] = [
+            augmentation(image.convert("RGB")) for image in example_batch["image"]
+        ]
+        return example_batch
+
+    val_dataset = image_dataset["validation"].with_transform(preprocess_val)
+
+
+    data_loader = DataLoader(val_dataset,
+                             batch_size=args.batch_size,
+                             shuffle=True,
+                             num_workers=args.num_workers,
+                             collate_fn=utils.collate_fn
+                             )
 
     batch = next(iter(data_loader))
-    images, labels = batch
+    images, labels = batch["pixel_values"], batch["labels"]
     images = images.permute(0, 2, 3, 1)
     images = transform(images)
 
