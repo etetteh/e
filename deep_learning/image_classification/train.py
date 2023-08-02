@@ -420,8 +420,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
                     with accelerator.autocast():
                         total_train_metrics = train_one_epoch(args, epoch, classes, train_loader, model, model_ema,
-                                                              optimizer,
-                                                              criterion, train_metrics, accelerator)
+                                                              optimizer, criterion, train_metrics, accelerator)
 
                     if not accelerator.optimizer_step_was_skipped:
                         lr_scheduler.step()
@@ -455,12 +454,14 @@ def main(args: argparse.Namespace, accelerator) -> None:
                         best_results = {**{"model": model_name, "fpr": fpr, "tpr": tpr}, **val_results}
 
                         if model_ema:
-                            best_model_state = accelerator.get_state_dict(model_ema)
+                            accelerator.save({"model": accelerator.get_state_dict(model_ema)}, f"{best_model_file}_{best_f1}.pth")
                         else:
-                            best_model_state = accelerator.get_state_dict(model)
-                        accelerator.save({"model": best_model_state}, f"{best_model_file}_{best_f1}.pth")
+                            accelerator.save({"model": accelerator.get_state_dict(model)}, f"{best_model_file}_{best_f1}.pth")
 
                         best_checkpoints.append(f"{best_model_file}_{best_f1}.pth")
+
+                        if len(best_checkpoints) > args.num_ckpts:
+                            utils.keep_recent_files(os.path.join(args.output_dir, model_name), args.num_ckpts)
 
                     checkpoint = {
                         "args": args,
@@ -475,11 +476,6 @@ def main(args: argparse.Namespace, accelerator) -> None:
                         checkpoint["model_ema"] = model_ema.state_dict()
 
                     accelerator.save(checkpoint, os.path.join(args.output_dir, model_name, "checkpoint.pth"))
-
-                    if len(best_checkpoints) > args.num_ckpts:
-                        checkpoint_path_to_del = best_checkpoints.pop(0)
-                        if os.path.exists(checkpoint_path_to_del):
-                            os.remove(checkpoint_path_to_del)
 
                     if accelerator.is_main_process:
                         mlflow.log_metrics(
@@ -520,14 +516,14 @@ def main(args: argparse.Namespace, accelerator) -> None:
         results_list = utils.read_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
         best_compare_model_name = results_list[0]["model"]
         best_compare_model_file = os.path.join(args.output_dir,
-                                               os.path.join(best_compare_model_name, "averaged") if args.avg_ckpts
-                                               else best_compare_model_name,
-                                               "best_model.pth")
+                                                os.path.join(best_compare_model_name, "averaged") if args.avg_ckpts
+                                                else best_compare_model_name,
+                                                "best_model.pth")
 
         utils.convert_to_onnx(args, best_compare_model_name, best_compare_model_file, num_classes)
         accelerator.print(f"Exported best performing model, {best_compare_model_name},"
-                          f" to ONNX format. File is located in "
-                          f"{os.path.join(args.output_dir, best_compare_model_name)}")
+                            f" to ONNX format. File is located in "
+                            f"{os.path.join(args.output_dir, best_compare_model_name)}")
 
         accelerator.print(f"All results have been saved at {os.path.abspath(args.output_dir)}")
 
