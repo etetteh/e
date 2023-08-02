@@ -6,6 +6,7 @@ import shutil
 
 from glob import glob
 from os import PathLike
+from pathlib import Path
 from argparse import Namespace
 from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -21,6 +22,7 @@ import torch.optim.lr_scheduler as lr_scheduler
 from datasets import load_dataset
 from torch.optim import swa_utils
 from torch import nn, optim, Tensor
+from torch.distributions import Beta
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.transforms import functional as f
@@ -232,6 +234,39 @@ def read_json_lines_file(file_path: str) -> List[Union[dict, Any]]:
         return data
 
 
+def keep_recent_files(directory: str, num_files_to_keep: int) -> None:
+    """
+    Sorts files in the specified directory based on modification time and keeps
+    the most recent files. Older files beyond the specified number of files to keep
+    will be removed.
+
+    Parameters:
+        directory (str): The path to the directory containing the files.
+        num_files_to_keep (int): The number of most recent files to keep.
+
+    Returns:
+        None
+
+    Example:
+        >>> directory_path = "/path/to/directory"
+        >>> num_files_to_keep = 10
+        >>> keep_recent_files(directory_path, num_files_to_keep)
+    """
+    file_list = glob(os.path.join(directory, "best_model_", "*"))
+
+    sorted_files = sorted(file_list, key=os.path.getmtime, reverse=True)
+
+    files_to_keep = sorted_files[:num_files_to_keep]
+    files_to_remove = sorted_files[num_files_to_keep:]
+
+    for file_to_remove in files_to_remove:
+        try:
+            os.remove(file_to_remove)
+            print(f"Removed file: {file_to_remove}")
+        except OSError as e:
+            print(f"Error while removing {file_to_remove}: {e}")
+
+
 def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
     """
     Sets the seed for NumPy and Python's random module for the given worker.
@@ -266,7 +301,7 @@ def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
 
 
 # noinspection PyTypeChecker
-def load_image_dataset(dataset: str) -> datasets.arrow_dataset.Dataset:
+def load_image_dataset(dataset: Union[str, os.PathLike]) -> datasets.arrow_dataset.Dataset:
     """
     Load an image dataset using Hugging Face's 'datasets' library.
 
@@ -299,9 +334,9 @@ def load_image_dataset(dataset: str) -> datasets.arrow_dataset.Dataset:
         >>> print(loaded_dataset)
         Dataset(features: {'image': Image(shape=(None, None, 3), dtype=uint8)}, num_rows: 5000)
     """
-    if isinstance(dataset, PathLike) and os.path.isdir(dataset):
+    if isinstance(dataset, Path) and os.path.isdir(dataset):
         return load_dataset("imagefolder", data_dir=dataset)
-    elif dataset.startswith("https"):
+    elif isinstance(dataset, str) and dataset.startswith("https"):
         return load_dataset("imagefolder", data_files=dataset)
     elif isinstance(dataset, str):
         return load_dataset(dataset)
@@ -344,14 +379,16 @@ def apply_fgsm_attack(model: nn.Module, loss: Tensor, images: Tensor, epsilon: f
         print(perturbed_image)  # Perturbed image after applying FGSM attack
     """
     model.eval()
-    images.requires_grad_(True)
+    images = images.clone().detach().requires_grad_(True)
 
     model.zero_grad()
     loss.backward()
 
-    gradients = images.grad.data
-    image_perturbed = images + epsilon * torch.sign(gradients)
-    image_perturbed = torch.clamp(image_perturbed, min=0, max=1)
+    with torch.no_grad():
+        gradients = images.grad.data
+        image_perturbed = images + epsilon * torch.sign(gradients)
+        image_perturbed = torch.clamp(image_perturbed, min=0, max=1)
+
     return image_perturbed
 
 
@@ -360,17 +397,16 @@ def apply_normalization(args: Namespace, aug_list: List) -> List:
     Apply normalization to the augmentation list based on grayscale conversion.
 
     Parameters:
-        args (Namespace) : Namespace object containing arguments
-             grayscale (bool): Whether to convert the images to grayscale.
-        aug_list (List[transforms.Transform]): The list of transformation functions for data augmentation.
-
+        args (Namespace): Namespace object containing arguments.
+            grayscale (bool): Whether to convert the images to grayscale.
+        aug_list (List): The list of transformation functions for data augmentation.
 
     Returns:
         List: The updated list of transformation functions with normalization applied.
 
     Example:
-        >>> import argparse
-        >>> args = argparse.Namespace(grayscale=True)
+        >>> from argparse import Namespace
+        >>> args = Namespace(grayscale=True)
         >>> aug_list = [transforms.RandomResizedCrop(224), transforms.ToTensor()]
         >>> updated_aug_list = apply_normalization(args, aug_list)
 
@@ -382,13 +418,19 @@ def apply_normalization(args: Namespace, aug_list: List) -> List:
         [transforms.RandomResizedCrop(224), transforms.ToTensor(),
          transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]
     """
-
     if args.grayscale:
         aug_list.append(transforms.Grayscale())
 
+    if args.grayscale:
+        normalization_mean = [0.5]
+        normalization_std = [0.5]
+    else:
+        normalization_mean = [0.485, 0.456, 0.406]
+        normalization_std = [0.229, 0.224, 0.225]
+
     aug_list.extend([
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5], std=[0.5]) if args.grayscale else transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD)
+        transforms.Normalize(mean=normalization_mean, std=normalization_std)
     ])
 
     return aug_list
@@ -398,43 +440,49 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
     """
     Returns data augmentation transforms for training and validation sets.
 
-
     Parameters:
-        args: A namespace object containing the following attributes:
+        args (Namespace): A namespace object containing the following attributes:
             crop_size (int): The size of the crop for the training and validation sets.
             val_resize (int): The target size for resizing the validation images.
-                                 The validation images will be resized to this size while maintaining their aspect ratio.
+                              The validation images will be resized to this size while maintaining their aspect ratio.
             interpolation (int): The interpolation method for resizing and cropping.
             hflip (bool): Whether to apply random horizontal flip to the training set.
             aug_type (str): The type of augmentation to apply to the training set.
-                              Must be one of "trivial", "augmix", or "rand".
+                             Must be one of "trivial", "augmix", or "rand".
 
     Returns:
         Dict[str, Callable]: A dictionary of data augmentation transforms for the training and validation sets.
 
     Example:
-         >>> import torchvision.transforms as transforms
-         >>> args = Namespace(crop_size=224, interpolation=3, hflip=True, aug_type='augmix')
-         >>> transforms_dict = get_data_augmentation(args)
-         >>> train_transforms = transforms_dict['train']
-         >>> val_transforms = transforms_dict['val']
-         >>> print(train_transforms)
-         Output: Composed transform with random resized crop, random horizontal flip, and AugMix augmentation
-         >>> print(val_transforms)
-         Output: Composed transform with resize, center crop, and normalization
+        >>> import torchvision.transforms as transforms
+        >>> args = Namespace(crop_size=224, interpolation=3, hflip=True, aug_type='augmix')
+        >>> transforms_dict = get_data_augmentation(args)
+        >>> train_transforms = transforms_dict['train']
+        >>> val_transforms = transforms_dict['val']
+        >>> print(train_transforms)
+        Output: Composed transform with random resized crop, random horizontal flip, and AugMix augmentation
+        >>> print(val_transforms)
+        Output: Composed transform with resize, center crop, and normalization
     """
+    def get_augmentation_by_type(aug_type: str) -> Callable:
+        if aug_type == "trivial":
+            return transforms.TrivialAugmentWide(num_magnitude_bins=args.mag_bins,
+                                                 interpolation=f.InterpolationMode(args.interpolation))
+        elif aug_type == "augmix":
+            return transforms.AugMix(interpolation=f.InterpolationMode(args.interpolation))
+        elif aug_type == "rand":
+            return transforms.RandAugment(num_magnitude_bins=args.mag_bins,
+                                          interpolation=f.InterpolationMode(args.interpolation))
+        else:
+            raise ValueError(f"Invalid augmentation type: '{aug_type}'")
+
     train_aug = [
         transforms.RandomResizedCrop(args.crop_size, interpolation=f.InterpolationMode(args.interpolation)),
         transforms.RandomHorizontalFlip(args.hflip)
     ]
-    if args.aug_type == "trivial":
-        train_aug.append(transforms.TrivialAugmentWide(num_magnitude_bins=args.mag_bins,
-                                                       interpolation=f.InterpolationMode(args.interpolation)))
-    elif args.aug_type == "augmix":
-        train_aug.append(transforms.AugMix(interpolation=f.InterpolationMode(args.interpolation)))
-    elif args.aug_type == "rand":
-        train_aug.append(transforms.RandAugment(num_magnitude_bins=args.mag_bins,
-                                                interpolation=f.InterpolationMode(args.interpolation)))
+
+    train_aug.append(get_augmentation_by_type(args.aug_type))
+
     train_transform = transforms.Compose(apply_normalization(args, train_aug))
 
     val_aug = [
@@ -446,18 +494,17 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
     return {"train": train_transform, "val": val_transform}
 
 
-def apply_mixup(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) -> Tuple[torch.Tensor, torch.Tensor,
-torch.Tensor, float]:
+def apply_mixup(images: Tensor, targets: Tensor, alpha: float = 1.0) -> Tuple[Tensor, Tensor, Tensor, float]:
     """
     Applies Mixup augmentation to input data.
 
     Parameters:
-        images (torch.Tensor): Input images.
-        targets (torch.Tensor): Corresponding targets.
+        images (Tensor): Input images.
+        targets (Tensor): Corresponding targets.
         alpha (float, optional): Mixup parameter. Defaults to 1.0.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]: Mixed images, mixed labels (labels_a),
+        Tuple[Tensor, Tensor, Tensor, float]: Mixed images, mixed labels (labels_a),
         original labels (labels_b), and mixup factor (lambda).
     Example:
          >>> import torch
@@ -474,11 +521,15 @@ torch.Tensor, float]:
          >>> print(lam)
          Output: 0.5
     """
-    lam = torch.distributions.beta.Beta(alpha, alpha).sample().item()
+    beta_dist = Beta(alpha, alpha)
+    lam = beta_dist.sample().item()
+
     batch_size = images.size(0)
     index = torch.randperm(batch_size)
+
     mixed_images = lam * images + (1 - lam) * images[index, :]
     targets_a, targets_b = targets, targets[index]
+
     return mixed_images, targets_a, targets_b, lam
 
 
@@ -706,7 +757,7 @@ def get_classes(dataset: torch.utils.data.Dataset) -> List[str]:
 
 def get_matching_model_names(image_size: int, model_size: str) -> List[str]:
     """
-    Get a list of model names that match the given image size and model size.
+    Get a list of model names matching the given image and model sizes.
 
     Parameters:
         image_size (int): Image size the models should be trained on.
@@ -719,24 +770,19 @@ def get_matching_model_names(image_size: int, model_size: str) -> List[str]:
         >>> get_matching_model_names(224, "small")
         ['tf_efficientnet_b0_ns_small_224', 'tf_efficientnet_b1_ns_small_224', 'tf_efficientnet_b2_ns_small_224', ...]
     """
+    MODELS_TO_REMOVE = {
+        "tiny": {"deit_tiny_distilled_patch16_224.fb_in1k", "swin_s3_tiny_224.ms_in1k"},
+        "small": {"deit_small_distilled_patch16_224.fb_in1k"},
+        "base": {"deit_base_distilled_patch16_224.fb_in1k", "vit_base_patch8_224.augreg2_in21k_ft_in1k"}
+    }
     model_names = timm.list_models(pretrained=True)
+    image_size_str = str(image_size)
 
-    matching_models = [name for name in model_names if str(image_size) in name and model_size in name]
+    def is_matching_model(name: str) -> bool:
+        return image_size_str in name and model_size in name
 
-    if model_size == "tiny":
-        matching_models.remove("deit_tiny_distilled_patch16_224.fb_in1k")
-
-    if model_size == "small":
-        matching_models.remove("deit_small_distilled_patch16_224.fb_in1k")
-        matching_models.remove("swin_s3_small_224.ms_in1k")
-
-    if model_size == "base":
-        matching_models.remove("deit_base_distilled_patch16_224.fb_in1k")
-        matching_models.remove("maxxvitv2_rmlp_base_rw_224.sw_in12k_ft_in1k")
-    #     matching_models.remove("swin_base_patch4_window7_224.ms_in22k")
-    #     matching_models.remove("vit_base_patch16_224.orig_in21k_ft_in1k")
-    #     matching_models.remove("vit_base_patch8_224.augreg_in21k_ft_in1k")
-    #     matching_models.remove("vit_base_patch8_224.dino")
+    matching_models = [name for name in model_names if is_matching_model(name)]
+    matching_models = [name for name in matching_models if name not in MODELS_TO_REMOVE.get(model_size, set())]
 
     return matching_models
 
