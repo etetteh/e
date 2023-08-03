@@ -144,33 +144,33 @@ def write_dictionary_to_json(dictionary: Dict, file_path: str) -> None:
 def append_dictionary_to_json_file(new_dict: Dict, file_path: str) -> None:
     # noinspection PyShadowingNames
     """
-        Append a dictionary to a JSON file at the given file path.
-        If the file does not exist, it will be created.
+    Append a dictionary to a JSON file at the given file path.
+    If the file does not exist, it will be created.
 
-        Parameters:
-            new_dict (Dict): The dictionary to be appended to the JSON file.
-            file_path (str): The path to the JSON file.
+    Parameters:
+        new_dict (Dict): The dictionary to be appended to the JSON file.
+        file_path (str): The path to the JSON file.
 
-        Returns:
-            None
+    Returns:
+        None
 
-        Example:
-            >>> new_dict = {"key": "value"}  # Example dictionary to be appended
-            >>> file_path = "data.json"  # Example file path
-            >>> append_dictionary_to_json_file(new_dict, file_path)
+    Example:
+        >>> new_dict = {"key": "value"}  # Example dictionary to be appended
+        >>> file_path = "data.json"  # Example file path
+        >>> append_dictionary_to_json_file(new_dict, file_path)
 
-            # If data.json file does not exist previously, it will be created and contain the following content:
-            # {
-            #     "key": "value"
-            # }
+        # If data.json file does not exist previously, it will be created and contain the following content:
+        # {
+        #     "key": "value"
+        # }
 
-            # If data.json file already exists with content {"existing_key": "existing_value"},
-            # after appending new_dict, the content will be updated to:
-            # {
-            #     "existing_key": "existing_value",
-            #     "key": "value"
-            # }
-        """
+        # If data.json file already exists with content {"existing_key": "existing_value"},
+        # after appending new_dict, the content will be updated to:
+        # {
+        #     "existing_key": "existing_value",
+        #     "key": "value"
+        # }
+    """
     if os.path.isfile(file_path):
         data = read_json_file(file_path)
     else:
@@ -253,10 +253,7 @@ def keep_recent_files(directory: str, num_files_to_keep: int) -> None:
         >>> keep_recent_files(directory_path, num_files_to_keep)
     """
     file_list = glob(os.path.join(directory, "best_model_", "*"))
-
     sorted_files = sorted(file_list, key=os.path.getmtime, reverse=True)
-
-    files_to_keep = sorted_files[:num_files_to_keep]
     files_to_remove = sorted_files[num_files_to_keep:]
 
     for file_to_remove in files_to_remove:
@@ -476,12 +473,8 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
         else:
             raise ValueError(f"Invalid augmentation type: '{aug_type}'")
 
-    train_aug = [
-        transforms.RandomResizedCrop(args.crop_size, interpolation=f.InterpolationMode(args.interpolation)),
-        transforms.RandomHorizontalFlip(args.hflip)
-    ]
-
-    train_aug.append(get_augmentation_by_type(args.aug_type))
+    train_aug = [transforms.RandomResizedCrop(args.crop_size, interpolation=f.InterpolationMode(args.interpolation)),
+                 transforms.RandomHorizontalFlip(args.hflip), get_augmentation_by_type(args.aug_type)]
 
     train_transform = transforms.Compose(apply_normalization(args, train_aug))
 
@@ -770,7 +763,7 @@ def get_matching_model_names(image_size: int, model_size: str) -> List[str]:
         >>> get_matching_model_names(224, "small")
         ['tf_efficientnet_b0_ns_small_224', 'tf_efficientnet_b1_ns_small_224', 'tf_efficientnet_b2_ns_small_224', ...]
     """
-    MODELS_TO_REMOVE = {
+    models_to_remove = {
         "tiny": {"deit_tiny_distilled_patch16_224.fb_in1k", "swin_s3_tiny_224.ms_in1k"},
         "small": {"deit_small_distilled_patch16_224.fb_in1k"},
         "base": {"deit_base_distilled_patch16_224.fb_in1k", "vit_base_patch8_224.augreg2_in21k_ft_in1k"}
@@ -782,7 +775,7 @@ def get_matching_model_names(image_size: int, model_size: str) -> List[str]:
         return image_size_str in name and model_size in name
 
     matching_models = [name for name in model_names if is_matching_model(name)]
-    matching_models = [name for name in matching_models if name not in MODELS_TO_REMOVE.get(model_size, set())]
+    matching_models = [name for name in matching_models if name not in models_to_remove.get(model_size, set())]
 
     return matching_models
 
@@ -925,7 +918,7 @@ def average_checkpoints(checkpoint_paths: List[str]) -> OrderedDict:
         KeyError: If the checkpoints have different sets of parameters.
 
     Example:
-         >>> checkpoint_paths = ["checkpoint1.pth", "checkpoint2.pth", "checkpoint3.pth"]
+        >>> checkpoint_paths = ["checkpoint1.pth", "checkpoint2.pth", "checkpoint3.pth"]
         >>> averaged_params = average_checkpoints(checkpoint_paths)
         >>> print(averaged_params)  # Display the averaged parameters
     """
