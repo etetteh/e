@@ -227,7 +227,6 @@ def main(args: argparse.Namespace, accelerator) -> None:
         image_dataset = utils.load_image_dataset(args.dataset)
 
         def preprocess_train(example_batch):
-            print(example_batch)
             example_batch["pixel_values"] = [
                 data_transforms["train"](image.convert("RGB")) for image in example_batch["image"]
             ]
