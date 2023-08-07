@@ -332,14 +332,39 @@ def load_image_dataset(dataset: Union[str, os.PathLike]) -> datasets.arrow_datas
         Dataset(features: {'image': Image(shape=(None, None, 3), dtype=uint8)}, num_rows: 5000)
     """
     if isinstance(dataset, Path) and os.path.isdir(dataset):
-        return load_dataset("imagefolder", data_dir=dataset)
-    elif isinstance(dataset, str) and dataset.startswith("https"):
-        return load_dataset("imagefolder", data_files=dataset)
+        image_dataset = load_dataset("imagefolder", data_dir=dataset)
+    elif isinstance(dataset, str) and (dataset.startswith("https") or dataset.endswith(".zip")):
+        image_dataset = load_dataset("imagefolder", data_files=dataset)
     elif isinstance(dataset, str):
-        return load_dataset(dataset)
+        image_dataset = load_dataset(dataset, name=None)
     else:
         raise ValueError("Dataset should be a path to a local dataset on disk, a dataset name of an image dataset "
                          "from Hugging Face datasets, or an HTTPS URL for a remote dataset.")
+
+    image_column_names = image_dataset.column_names["train"]
+    if "img" in image_column_names:
+        image_dataset = image_dataset.rename_columns({"img": "image"})
+    if "label" in image_column_names:
+        image_dataset = image_dataset.rename_columns({"label": "labels"})
+    if "fine_label" in image_column_names:
+        image_dataset = image_dataset.rename_columns({"fine_label": "labels"})
+
+    if "validation" not in image_dataset.keys() and "test" in image_dataset.keys():
+        new = image_dataset["train"].train_test_split(test_size=0.2, stratify_by_column="labels")
+        new["validation"] = new["test"]
+        new["test"] = image_dataset["test"]
+        image_dataset = new
+    elif "validation" not in image_dataset.keys():
+        new = image_dataset["train"].train_test_split(test_size=0.2, stratify_by_column="labels")
+        new["validation"] = new["test"]
+        new.pop("test")
+        image_dataset = new
+    elif "test" not in image_dataset.keys() and "validation" in image_dataset.keys():
+        new = image_dataset["train"].train_test_split(test_size=0.2, stratify_by_column="labels")
+        new["validation"] = image_dataset["validation"]
+        image_dataset = new
+
+    return image_dataset
 
 
 def apply_fgsm_attack(model: nn.Module, loss: Tensor, images: Tensor, epsilon: float) -> Tensor:
