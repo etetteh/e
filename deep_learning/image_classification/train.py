@@ -142,7 +142,7 @@ def evaluate(
         ema: bool,
 ) -> Tuple[Dict, torch.Tensor]:
     """
-    Evaluate the model on the validation dataset and return the metrics.
+    Evaluates the model on the validation dataset and returns the metrics.
 
     Parameters:
         classes (List[str]): The list of class labels.
@@ -187,7 +187,7 @@ def evaluate(
         roc = roc_metric.compute()
 
         accelerator.print(
-            f"{'EMA ' if ema else ' '}Val Metrics - "
+            f"{'EMA ' if ema else ' '}{'Test' if cfgs.test_only else 'Val'} Metrics - "
             f"loss: {loss:.4f} | "
             f"accuracy: {acc:.4f} | "
             f"auc: {auc:.4f} | "
@@ -225,10 +225,9 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
         data_transforms = utils.get_data_augmentation(args)
         image_dataset = utils.load_image_dataset(args.dataset)
-        if "label" in image_dataset.column_names["train"]:
-            image_dataset = image_dataset.rename_columns({"label": "labels"})
 
         def preprocess_train(example_batch):
+            print(example_batch)
             example_batch["pixel_values"] = [
                 data_transforms["train"](image.convert("RGB")) for image in example_batch["image"]
             ]
@@ -271,7 +270,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
         train_weights = utils.calculate_class_weights(train_loader)
 
         test_loader = None
-        if os.path.isdir(os.path.join(args.dataset, "test")) and args.test_only:
+        if args.test_only:
             test_dataset = image_dataset["test"].with_transform(preprocess_val)
             test_sampler = data.SequentialSampler(test_dataset)
 
@@ -391,7 +390,10 @@ def main(args: argparse.Namespace, accelerator) -> None:
                         best_results = checkpoint["best_results"]
 
                         if start_epoch == args.epochs:
-                            accelerator.print("Training completed")
+                            if args.test_only:
+                                accelerator.print("Evaluation on test data completed")
+                            else:
+                                accelerator.print("Training completed")
                         else:
                             accelerator.print(f"Resuming training from epoch {start_epoch}\n")
 
@@ -544,11 +546,11 @@ def get_args():
     parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
 
     # Model Configuration
-    parser.add_argument("--feat_extract", action="store_true", help="Whether to enable feature extraction or not")
+    parser.add_argument("--feat_extract", action="store_true", help="Whether to enable feature extraction or not. That is to train")
     parser.add_argument("--model_name", nargs="*", default=None, help="The name of the model to use. NOte that the "
-                                                                      "models are from the TIMM library")
-    parser.add_argument("--model_size", type=str, default="small", help="Size of the model to use",
-                        choices=["nano", "tiny", "small", "base", "large", "giant"])
+                                     "models are from the TIMM library. Cannot be use when model_size is set")
+    parser.add_argument("--model_size", type=str, default="small", help="Size of the model to use. Cannot be use "
+                                     "when model_name is set", choices=["nano", "tiny", "small", "base", "large", "giant"])
 
     # Training Configuration
     # Checkpoint Averaging:
@@ -580,8 +582,7 @@ def get_args():
                         choices=["augmix", "rand", "trivial"])
     parser.add_argument("--interpolation", default="bilinear", type=str, help="Type of interpolation to use.",
                         choices=["nearest", "bicubic", "bilinear"])
-    parser.add_argument("--hflip", default=0.5, type=float,
-                        help="Probability of randomly horizontally flipping the input data.")
+    parser.add_argument("--hflip", default=0.5, type=float, help="Probability of randomly horizontally flipping the input data.")
 
     # Mixup Augmentation
     parser.add_argument("--mixup", action="store_true", help="Whether to enable mixup or not")
@@ -599,19 +600,18 @@ def get_args():
     parser.add_argument("--label_smoothing", default=0.1, type=float, help="Amount of label smoothing to use.")
 
     # Optimization and Learning Rate Scheduling
-    parser.add_argument("--opt_name", default="madgrad", type=str, help="Name of the optimizer to use.", )
+    parser.add_argument("--opt_name", default="madgrad", type=str, help="Name of the optimizer to use. "
+                                     "The optimizers are from the TIMM Library. Examples: 'lion', 'madgrad', 'adamw, 'adabelief'... etc")
     parser.add_argument("--lr", default=0.001, type=float, help="Initial learning rate.")
     parser.add_argument("--wd", default=1e-4, type=float, help="Weight decay.")
     parser.add_argument("--sched_name", default="one_cycle", type=str, help="Name of the learning rate scheduler "
-                                                                            "to use.",
-                        choices=["step", "cosine", "cosine_wr", "one_cycle"])
+                                     "to use.", choices=["step", "cosine", "cosine_wr", "one_cycle"])
     parser.add_argument('--max_lr', type=float, default=0.1, help='Maximum learning rate')
     parser.add_argument("--step_size", default=30, type=int, help="Step size for the learning rate scheduler.")
     parser.add_argument("--warmup_epochs", default=5, type=int, help="Number of epochs for the warmup period.")
     parser.add_argument("--warmup_decay", default=0.1, type=float, help="Decay rate for the warmup learning rate.")
     parser.add_argument("--gamma", default=0.1, type=float, help="Gamma for the learning rate scheduler.")
-    parser.add_argument("--eta_min", default=1e-6, type=float,
-                        help="Minimum learning rate for the learning rate scheduler.")
+    parser.add_argument("--eta_min", default=1e-6, type=float, help="Minimum learning rate for the learning rate scheduler.")
     parser.add_argument("--t0", type=int, default=5, help="Number of iterations for the first restart")
 
     # Evaluation Metrics and Testing
