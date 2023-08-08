@@ -64,28 +64,28 @@ def train_one_epoch(
     model.train()
     with accelerator.join_uneven_inputs([model], even_batches=False):
         for idx, batch in enumerate(train_loader):
-            images, targets = batch["pixel_values"], batch["labels"]
+            images, labels = batch["pixel_values"], batch["labels"]
             images.requires_grad = True
 
             with accelerator.accumulate(model):
                 optimizer.zero_grad()
                 if args.mixup:
-                    mixed_images, targets_a, targets_b, lam = utils.apply_mixup(images, targets, alpha=args.mixup_alpha)
+                    mixed_images, labels_a, labels_b, lam = utils.apply_mixup(images, labels, alpha=args.mixup_alpha)
                     output = model(mixed_images.contiguous(memory_format=torch.channels_last))
-                    loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
+                    loss = lam * criterion(output, labels_a) + (1 - lam) * criterion(output, labels_b)
                 elif args.cutmix:
-                    mixed_images, targets_a, targets_b, lam = utils.apply_cutmix(images, targets,
+                    mixed_images, labels_a, labels_b, lam = utils.apply_cutmix(images, labels,
                                                                                  alpha=args.cutmix_alpha)
                     output = model(mixed_images.contiguous(memory_format=torch.channels_last))
-                    loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
+                    loss = lam * criterion(output, labels_a) + (1 - lam) * criterion(output, labels_b)
                 else:
                     output = model(images.contiguous(memory_format=torch.channels_last))
-                    loss = criterion(output, targets)
+                    loss = criterion(output, labels)
 
                 if args.fgsm:
                     adversarial_images = utils.apply_fgsm_attack(model, loss, images, args.epsilon)
                     adversarial_output = model(adversarial_images)
-                    adversarial_loss = criterion(adversarial_output, targets)
+                    adversarial_loss = criterion(adversarial_output, labels)
                     loss = adversarial_loss
 
                 accelerator.backward(loss)
@@ -104,7 +104,7 @@ def train_one_epoch(
                 pred = output
             train_metrics.update(
                 accelerator.gather_for_metrics(pred),
-                accelerator.gather_for_metrics(targets)
+                accelerator.gather_for_metrics(labels)
             )
 
     total_train_metrics = train_metrics.compute()
@@ -160,19 +160,19 @@ def evaluate(
     model.eval()
     with torch.no_grad():
         for batch in val_loader:
-            images, targets = batch["pixel_values"], batch["labels"]
+            images, labels = batch["pixel_values"], batch["labels"]
             output = model(images.contiguous(memory_format=torch.channels_last))
 
             if len(classes) == 2:
                 _, pred = torch.max(output, 1)
                 val_metrics.update(accelerator.gather_for_metrics(pred),
-                                   accelerator.gather_for_metrics(targets))
+                                   accelerator.gather_for_metrics(labels))
                 roc_metric.update(accelerator.gather_for_metrics(output[:, 1]),
-                                  accelerator.gather_for_metrics(targets))
+                                  accelerator.gather_for_metrics(labels))
             else:
-                output, targets = accelerator.gather_for_metrics(output), accelerator.gather_for_metrics(targets)
-                val_metrics.update(output, targets)
-                roc_metric.update(output, targets)
+                output, labels = accelerator.gather_for_metrics(output), accelerator.gather_for_metrics(labels)
+                val_metrics.update(output, labels)
+                roc_metric.update(output, labels)
 
         total_val_metrics = val_metrics.compute()
         loss, acc, auc, f1, recall, prec, cm = (
@@ -511,6 +511,9 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
                 explainability.process_results(args, model_name, classes, accelerator)
 
+                if args.to_onnx:
+                    utils.convert_to_onnx(args, model_name, f"{best_model_file}.pth", num_classes)
+
                 accelerator.free_memory()
                 del model, optimizer, lr_scheduler
 
@@ -550,6 +553,8 @@ def get_args():
                                      "models are from the TIMM library. Cannot be use when model_size is set")
     parser.add_argument("--model_size", type=str, default="small", help="Size of the model to use. Cannot be use "
                                      "when model_name is set", choices=["nano", "tiny", "small", "base", "large", "giant"])
+    parser.add_argument("--to_onnx", action="store_true", help="When activated, all trained models are converted"
+                                     "onnx format. Otherwise only the best model is converted to onnx format")
 
     # Training Configuration
     # Checkpoint Averaging:
@@ -624,6 +629,8 @@ def get_args():
 if __name__ == "__main__":
     warnings.filterwarnings("ignore")
     cfgs = get_args()
+
+    set_seed(cfgs.seed)
 
     deepspeed_plugin = DeepSpeedPlugin(gradient_accumulation_steps=2, gradient_clipping=1.0)
     fsdp_plugin = FullyShardedDataParallelPlugin(
