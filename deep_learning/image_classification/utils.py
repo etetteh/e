@@ -333,8 +333,8 @@ def load_image_dataset(dataset: Union[str, os.PathLike]) -> datasets.arrow_datas
     """
     if isinstance(dataset, Path) and os.path.isdir(dataset):
         image_dataset = load_dataset("imagefolder", data_dir=dataset)
-    elif isinstance(dataset, str) and (dataset.startswith("https") or dataset.endswith(".zip")):
-        image_dataset = load_dataset("imagefolder", data_files=dataset)
+    # elif isinstance(dataset, str) and (dataset.startswith("https") or dataset.endswith(".zip")):
+    #     image_dataset = load_dataset("imagefolder", data_files=dataset)
     elif isinstance(dataset, str):
         image_dataset = load_dataset(dataset, name=None)
     else:
