@@ -54,8 +54,6 @@ def run_inference(args: argparse.Namespace) -> dict:
             classes = sorted(file_in.read().splitlines())
     else:
         image_dataset = utils.load_image_dataset(args.dataset_dir_or_classes_file)
-        if "label" in image_dataset.column_names["train"]:
-            image_dataset = image_dataset.rename_columns({"label": "labels"})
         classes = utils.get_classes(image_dataset["train"])
 
     data_aug = [
