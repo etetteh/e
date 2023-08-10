@@ -219,7 +219,7 @@ Added <span style="color:green;font-weight:700;font-size:16px"> [inference.py](h
  to predict the class and probability score of an image using a `swinv2_cr_tiny_ns_224` model, run
 ```
 accelerate launch inference.py \
-    --onnx_model_path nano/swinv2_cr_tiny_ns_224/best_model.onnx \
+    --onnx_model_path tiny/swinv2_cr_tiny_ns_224/best_model.onnx \
     --img_path datasets/weather_data/val/cloudy/cloudy104.jpg \
     --dataset_dir_or_classes_file datasets/weather_data \
     --output_dir infer
