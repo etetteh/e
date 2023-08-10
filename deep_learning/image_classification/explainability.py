@@ -249,8 +249,6 @@ def explain_model(args: argparse.Namespace) -> None:
     transform, inv_transform = utils.get_explanation_transforms()
 
     image_dataset = utils.load_image_dataset(args.dataset)
-    if "label" in image_dataset.column_names["train"]:
-        image_dataset = image_dataset.rename_columns({"label": "labels"})
     classes = utils.get_classes(image_dataset["train"])
 
     augmentation = torchvision.transforms.Compose([
