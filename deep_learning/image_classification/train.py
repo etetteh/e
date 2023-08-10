@@ -390,7 +390,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
                         if start_epoch == args.epochs:
                             if args.test_only:
-                                accelerator.print("Evaluation on test data completed")
+                                accelerator.print("Running evaluation on test data...")
                             else:
                                 accelerator.print("Training completed")
                         else:
@@ -549,6 +549,8 @@ def get_args():
 
     # Model Configuration
     parser.add_argument("--feat_extract", action="store_true", help="Whether to enable feature extraction or not. That is to train")
+    parser.add_argument("--module", type=str, help="A submodule for selecting models",
+                                     choices=["beit", "convnext", "deit", "resnet", "vision_transformer", "efficientnet", "xcit", "regnet", "nfnet", "metaformer"])
     parser.add_argument("--model_name", nargs="*", default=None, help="The name of the model to use. NOte that the "
                                      "models are from the TIMM library. Cannot be use when model_size is set")
     parser.add_argument("--model_size", type=str, default="small", help="Size of the model to use. Cannot be use "
@@ -655,7 +657,7 @@ if __name__ == "__main__":
         else:
             cfgs.models = [cfgs.model_name]
     else:
-        cfgs.models = sorted(utils.get_matching_model_names(cfgs.crop_size, cfgs.model_size))
+        cfgs.models = sorted(utils.get_matching_model_names(cfgs))
 
     cfgs.lr *= accelerator_var.num_processes
     main(cfgs, accelerator_var)
