@@ -773,34 +773,91 @@ def get_classes(dataset: torch.utils.data.Dataset) -> List[str]:
     return sorted(classes)
 
 
-def get_matching_model_names(image_size: int, model_size: str) -> List[str]:
+def get_matching_model_names(args: Namespace) -> List[str]:
     """
-    Get a list of model names matching the given image and model sizes.
+    Get a list of model names matching the given image crop size and model size or submodule name.
 
     Parameters:
-        image_size (int): Image size the models should be trained on.
-        model_size (str): Size of the model (e.g., "tiny", "small", etc.).
+        args:
+            crop_size (int): Image size the models should be trained on.
+            model_size (str): Size of the model (e.g., "tiny", "small", etc.).
+            module (str): A submodule for selecting models
 
     Returns:
         List[str]: A list of model names that can be used for training.
 
     Example:
-        >>> get_matching_model_names(224, "small")
+        >>> import argparse
+
+        ### Loading models based on model size
+        >>> args = argparse.Namespace(image_size=224, model_size="small")
+        >>> get_matching_model_names(args)
         ['tf_efficientnet_b0_ns_small_224', 'tf_efficientnet_b1_ns_small_224', 'tf_efficientnet_b2_ns_small_224', ...]
+
+        # Loading models based on specific submodule
+        >>> args = argparse.Namespace(image_size=224, module="resnet")
+        >>> get_matching_model_names(args)
+        ['ecaresnet50d.miil_in1k', 'ecaresnet50t.a1_in1k', 'ecaresnet50t.a3_in1k', 'ecaresnet101d.miil_in1k', ...]
     """
-    models_to_remove = {
-        "tiny": {"deit_tiny_distilled_patch16_224.fb_in1k", "swin_s3_tiny_224.ms_in1k"},
-        "small": {"deit_small_distilled_patch16_224.fb_in1k"},
-        "base": {"deit_base_distilled_patch16_224.fb_in1k", "vit_base_patch8_224.augreg2_in21k_ft_in1k"}
-    }
-    model_names = timm.list_models(pretrained=True)
-    image_size_str = str(image_size)
+
+    def filter_models(models: List[str], crop_size: int) -> List[str]:
+        """
+        Filter a list of model names based on crop size.
+
+        This function iterates through the list of model names and removes
+        those models that do not contain the given crop size in their name
+        and have numeric values greater than the crop size in their suffixes.
+
+        Args:
+            models (List[str]): A list of model names.
+            crop_size (int): The crop size to be checked against the models.
+
+        Returns:
+            List[str]: A filtered list of model names after the recurring filtering process.
+
+        Example:
+            >>> models = ['flexivit_base.300ep_in1k', 'vit_small_patch16_224.augreg_in1k', 'vit_tiny_patch16_384.augreg_in21k_ft_in1k']
+            >>> crop_size = 224
+            >>> filtered_models = filter_models(models, crop_size)
+            >>> print(filtered_models)
+            ['flexivit_base.300ep_in1k', 'vit_small_patch16_224.augreg_in1k']
+        """
+        changed = True
+        while changed:
+            changed = False
+            for model in models.copy():
+                lhs = model.split(".")[0].split("_")[-1]
+                rhs = model.split(".")[-1].split("_")[-1]
+                if str(crop_size) not in model:
+                    if model.isalpha():
+                        continue
+                    if lhs.isnumeric():
+                        if int(lhs) > crop_size:
+                            models.remove(model)
+                            changed = True
+                    if rhs.isnumeric():
+                        if int(rhs) > crop_size:
+                            models.remove(model)
+                            changed = True
+        return models
+
 
     def is_matching_model(name: str) -> bool:
-        return image_size_str in name and model_size in name
+        return str(args.crop_size) in name and model_size in name
 
-    matching_models = [name for name in model_names if is_matching_model(name)]
-    matching_models = [name for name in matching_models if name not in models_to_remove.get(model_size, set())]
+    if args.module:
+        model_names = timm.list_models(pretrained=True, module=args.module)
+        matching_models = filter_models(model_names, args.crop_size)
+    else:
+        model_names = timm.list_models(pretrained=True)
+
+        models_to_remove = {
+            "tiny": {"deit_tiny_distilled_patch16_224.fb_in1k", "swin_s3_tiny_224.ms_in1k"},
+            "small": {"deit_small_distilled_patch16_224.fb_in1k"},
+            "base": {"deit_base_distilled_patch16_224.fb_in1k", "vit_base_patch8_224.augreg2_in21k_ft_in1k"}
+        }
+        matching_models = [name for name in model_names if is_matching_model(name)]
+        matching_models = [name for name in matching_models if name not in models_to_remove.get(args.model_size, set())]
 
     return matching_models
 
