@@ -227,7 +227,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
         set_seed(args.seed)
 
         data_transforms = utils.get_data_augmentation(args)
-        image_dataset = utils.load_image_dataset(args.dataset)
+        image_dataset = utils.load_image_dataset(args)
         image_dataset.set_format("torch")
 
         def preprocess_train(example_batch):
@@ -549,6 +549,7 @@ def get_args():
                         help="Name of the MLflow experiment")
     parser.add_argument("--dataset", required=True, type=str, help="The path to a local dataset directory or a "
                                                                    "HuggingFace dataset name.")
+    parser.add_argument("--dataset_kwargs", type=str, help="The path to a JSON file containing kwargs of a HuggingFace dataset.")
     parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
 
     # Model Configuration

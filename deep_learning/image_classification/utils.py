@@ -298,13 +298,15 @@ def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
 
 
 # noinspection PyTypeChecker
-def load_image_dataset(dataset: Union[str, os.PathLike]) -> datasets.arrow_dataset.Dataset:
+def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
     """
     Load an image dataset using Hugging Face's 'datasets' library.
 
     Parameters:
-        dataset (str or os.PathLike): The path to a local dataset directory or a Hugging Face dataset name
+        args:
+            dataset (str or os.PathLike): The path to a local dataset directory or a Hugging Face dataset name
                                     (or an HTTPS URL for a remote dataset).
+            dataset_kwargs (json): The path to a JSON file containing kwargs of a HuggingFace dataset.
 
     Returns:
         datasets.arrow_dataset.Dataset: The loaded image dataset.
@@ -315,7 +317,7 @@ def load_image_dataset(dataset: Union[str, os.PathLike]) -> datasets.arrow_datas
 
      Example:
          >>> dataset_name = "mnist"
-         >>> loaded_dataset = load_image_dataset(dataset_name)
+         >>> loaded_dataset = load_image_dataset(args)
          >>> print(loaded_dataset)
          Dataset(features: {'image': Image(shape=(28, 28, 1), dtype=torch.uint8), 'label': ClassLabel(
                             shape=(), dtype=int64)}, num_rows: 70000)
@@ -331,12 +333,16 @@ def load_image_dataset(dataset: Union[str, os.PathLike]) -> datasets.arrow_datas
         >>> print(loaded_dataset)
         Dataset(features: {'image': Image(shape=(None, None, 3), dtype=uint8)}, num_rows: 5000)
     """
-    if isinstance(dataset, Path) and os.path.isdir(dataset):
-        image_dataset = load_dataset("imagefolder", data_dir=dataset)
+    if isinstance(args.dataset, Path) and os.path.isdir(args.dataset):
+        image_dataset = load_dataset("imagefolder", data_dir=args.dataset)
     # elif isinstance(dataset, str) and (dataset.startswith("https") or dataset.endswith(".zip")):
     #     image_dataset = load_dataset("imagefolder", data_files=dataset)
-    elif isinstance(dataset, str):
-        image_dataset = load_dataset(dataset, name=None)
+    elif isinstance(args.dataset, str):
+        kwargs_data = {}
+        if args.dataset_kwargs:
+            with open(args.dataset_kwargs, 'r') as json_file:
+                kwargs_data = json.load(json_file)
+        image_dataset = load_dataset(args.dataset, **kwargs_data)
     else:
         raise ValueError("Dataset should be a path to a local dataset on disk, a dataset name of an image dataset "
                          "from Hugging Face datasets, or an HTTPS URL for a remote dataset.")
