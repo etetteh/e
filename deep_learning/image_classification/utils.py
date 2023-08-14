@@ -367,51 +367,28 @@ def load_image_dataset(dataset: Union[str, os.PathLike]) -> datasets.arrow_datas
     return image_dataset
 
 
-def apply_fgsm_attack(model: nn.Module, loss: Tensor, images: Tensor, epsilon: float) -> Tensor:
+def apply_fgsm_attack(image: torch.Tensor, epsilon: float, data_grad: torch.Tensor) -> torch.Tensor:
     """
-    Applies the Fast Gradient Sign Method (FGSM) attack to the input image.
+    Generate an adversarial example using the Fast Gradient Sign Method (FGSM).
 
     Parameters:
-        model (nn.Module): The model used for generating gradients.
-        loss (Tensor): The loss value used for calculating gradients.
-        images (Tensor): The input image to be perturbed.
-        epsilon (float): The perturbation magnitude.
+        image (torch.Tensor): The input image.
+        epsilon (float): Perturbation magnitude for generating adversarial examples.
+        data_grad (torch.Tensor): Gradient of the loss with respect to the image.
 
     Returns:
-        Tensor: The perturbed image.
+        torch.Tensor: Adversarial example perturbed using FGSM.
 
     Example:
-        import torch
-
-        # Example model
-        class MyModel(nn.Module):
-            # Your model architecture definition here
-            pass
-
-        model = MyModel()
-        image = torch.randn(3, 224, 224)  # Example input image
-        epsilon = 0.03  # Perturbation magnitude
-
-        # Example loss calculation
-        output = model(image.unsqueeze(0))
-        target_label = torch.tensor([2])  # Example target label index
-        loss = nn.CrossEntropyLoss()(output, target_label)
-
-        perturbed_image = apply_fgsm_attack(model, loss, image, epsilon)
-        print(perturbed_image)  # Perturbed image after applying FGSM attack
+        >>> image = torch.rand(1, 3, 32, 32)  # A random image of size (1, 3, 32, 32)
+        >>> epsilon = 0.05  # Perturbation magnitude
+        >>> data_grad = torch.randn(1, 3, 32, 32)  # Gradient of loss w.r.t. image
+        >>> adversarial_image = fgsm_attack(image, epsilon, data_grad)
     """
-    model.eval()
-    images = images.clone().detach().requires_grad_(True)
-
-    model.zero_grad()
-    loss.backward()
-
-    with torch.no_grad():
-        gradients = images.grad.data
-        image_perturbed = images + epsilon * torch.sign(gradients)
-        image_perturbed = torch.clamp(image_perturbed, min=0, max=1)
-
-    return image_perturbed
+    sign_data_grad = data_grad.sign()
+    adversarial_image = image + epsilon * sign_data_grad
+    adversarial_image = torch.clamp(adversarial_image, min=0, max=1)
+    return adversarial_image
 
 
 def apply_normalization(args: Namespace, aug_list: List) -> List:
@@ -843,7 +820,7 @@ def get_matching_model_names(args: Namespace) -> List[str]:
 
 
     def is_matching_model(name: str) -> bool:
-        return str(args.crop_size) in name and model_size in name
+        return str(args.crop_size) in name and args.model_size in name
 
     if args.module:
         model_names = timm.list_models(pretrained=True, module=args.module)
