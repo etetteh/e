@@ -82,13 +82,16 @@ def train_one_epoch(
                     output = model(images.contiguous(memory_format=torch.channels_last))
                     loss = criterion(output, labels)
 
+                accelerator.backward(loss)
+
                 if args.fgsm:
-                    adversarial_images = utils.apply_fgsm_attack(model, loss, images, args.epsilon)
+                    images_grad = images.grad.data
+                    adversarial_images = utils.apply_fgsm_attack(images, args.epsilon, images_grad)
+
                     adversarial_output = model(adversarial_images)
                     adversarial_loss = criterion(adversarial_output, labels)
-                    loss = adversarial_loss
+                    accelerator.backward(adversarial_loss)
 
-                accelerator.backward(loss)
                 if accelerator.sync_gradients:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
@@ -225,6 +228,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
         data_transforms = utils.get_data_augmentation(args)
         image_dataset = utils.load_image_dataset(args.dataset)
+        image_dataset.set_format("torch")
 
         def preprocess_train(example_batch):
             example_batch["pixel_values"] = [
