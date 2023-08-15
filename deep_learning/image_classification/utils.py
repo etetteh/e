@@ -338,11 +338,11 @@ def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
     # elif isinstance(dataset, str) and (dataset.startswith("https") or dataset.endswith(".zip")):
     #     image_dataset = load_dataset("imagefolder", data_files=dataset)
     elif isinstance(args.dataset, str):
-        kwargs_data = {}
-        if args.dataset_kwargs:
+        data_kwargs = {"path": args.dataset}
+        if args.dataset_kwargs is not None:
             with open(args.dataset_kwargs, 'r') as json_file:
-                kwargs_data = json.load(json_file)
-        image_dataset = load_dataset(args.dataset, **kwargs_data)
+                data_kwargs = json.load(json_file)
+        image_dataset = load_dataset(**data_kwargs)
     else:
         raise ValueError("Dataset should be a path to a local dataset on disk, a dataset name of an image dataset "
                          "from Hugging Face datasets, or an HTTPS URL for a remote dataset.")
