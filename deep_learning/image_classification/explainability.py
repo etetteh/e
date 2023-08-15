@@ -248,7 +248,7 @@ def explain_model(args: argparse.Namespace) -> None:
     device = accelerator.device
     transform, inv_transform = utils.get_explanation_transforms()
 
-    image_dataset = utils.load_image_dataset(args.dataset)
+    image_dataset = utils.load_image_dataset(args)
     classes = utils.get_classes(image_dataset["train"])
 
     augmentation = torchvision.transforms.Compose([
