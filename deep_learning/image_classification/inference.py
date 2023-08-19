@@ -53,7 +53,8 @@ def run_inference(args: argparse.Namespace) -> dict:
         with open(args.dataset_dir_or_classes_file, "r") as file_in:
             classes = sorted(file_in.read().splitlines())
     else:
-        image_dataset = utils.load_image_dataset(args.dataset_dir_or_classes_file)
+        args.dataset = args.dataset_dir_or_classes_file
+        image_dataset = utils.load_image_dataset(args)
         classes = utils.get_classes(image_dataset["train"])
 
     data_aug = [
@@ -103,6 +104,8 @@ def get_args():
                                                                     "images to be classified")
     parser.add_argument("--dataset_dir_or_classes_file", type=str, required=True,
             help="Path to the directory containing the dataset classes or Path to a text file containing class names")
+    parser.add_argument("--dataset_kwargs", type=str, default=None,
+                        help="The path to a JSON file containing kwargs of a HuggingFace dataset.")
     parser.add_argument('--grayscale', action='store_true', help='Whether to use grayscale images or not')
     parser.add_argument("--crop_size", default=224, type=int, help="Size to crop the input images to.")
     parser.add_argument("--val_resize", default=256, type=int, help="Size to resize the validation images to.")
