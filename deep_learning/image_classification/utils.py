@@ -746,7 +746,7 @@ def get_classes(dataset: torch.utils.data.Dataset) -> List[str]:
         List[str]: A sorted list of the classes in the dataset.
 
     Example:
-        >>> dataset = load_image_dataset('dataset')
+        >>> dataset = load_image_dataset(args)
         >>> classes = get_classes(dataset)
         >>> print(classes)
         Output: ['class1', 'class2', 'class3', ...]
