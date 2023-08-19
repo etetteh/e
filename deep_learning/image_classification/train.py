@@ -549,7 +549,7 @@ def get_args():
                         help="Name of the MLflow experiment")
     parser.add_argument("--dataset", required=True, type=str, help="The path to a local dataset directory or a "
                                                                    "HuggingFace dataset name.")
-    parser.add_argument("--dataset_kwargs", type=str, help="The path to a JSON file containing kwargs of a HuggingFace dataset.")
+    parser.add_argument("--dataset_kwargs", type=str, default=None, help="The path to a JSON file containing kwargs of a HuggingFace dataset.")
     parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
 
     # Model Configuration
