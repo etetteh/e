@@ -98,17 +98,14 @@ def run_inference(args: argparse.Namespace) -> dict:
 def get_args():
     parser = argparse.ArgumentParser(description="Run a single inference on a ONNX model for image classification")
 
-    parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
-    parser.add_argument("--onnx_model_path", type=str, required=True, help="Path to the ONNX model")
-    parser.add_argument("--img_path", type=str, required=True, help="Path to a single image or a directory containing "
-                                                                    "images to be classified")
-    parser.add_argument("--dataset_dir_or_classes_file", type=str, required=True,
-            help="Path to the directory containing the dataset classes or Path to a text file containing class names")
-    parser.add_argument("--dataset_kwargs", type=str, default=None,
-                        help="The path to a JSON file containing kwargs of a HuggingFace dataset.")
-    parser.add_argument('--grayscale', action='store_true', help='Whether to use grayscale images or not')
-    parser.add_argument("--crop_size", default=224, type=int, help="Size to crop the input images to.")
-    parser.add_argument("--val_resize", default=256, type=int, help="Size to resize the validation images to.")
+    parser.add_argument("--output_dir", required=True, type=str, help="Specify the directory where the output files will be saved, such as classification results")
+    parser.add_argument("--onnx_model_path", type=str, required=True, help="Provide the path to the ONNX model file that you want to use for inference.")
+    parser.add_argument("--img_path", type=str, required=True, help="Specify the path to a single image or a directory containing images that you want to classify.")
+    parser.add_argument("--dataset_dir_or_classes_file", type=str, required=True, help="Provide the path to either the directory containing the dataset classes or the path to a text file containing class names. This helps map the model's output to human-readable class names.")
+    parser.add_argument("--dataset_kwargs", type=str, default="", help="If necessary, you can provide the path to a JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset.")
+    parser.add_argument('--grayscale', action='store_true', help='Use this flag if you want to use grayscale images during inference.')
+    parser.add_argument("--crop_size", default=224, type=int, help="Define the size to which input images will be cropped during inference.")
+    parser.add_argument("--val_resize", default=256, type=int, help="Specify the size to which validation images will be resized during inference.")
 
     return parser.parse_args()
 
