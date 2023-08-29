@@ -5,11 +5,18 @@ import numpy as np
 import pandas as pd
 import torch
 import torchvision
+import matplotlib.pyplot as plt
 from plotly import express as px
 from plotly import graph_objects as go
 from torch.utils.data import DataLoader
 from sklearn.metrics import auc
-from accelerate import Accelerator
+from accelerate import (
+    Accelerator,
+    DeepSpeedPlugin,
+    FullyShardedDataParallelPlugin,
+    find_executable_batch_size
+)
+from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConfig
 
 import shap
 import os
@@ -64,9 +71,11 @@ def plot_confusion_matrix(results_df: pd.DataFrame, model_name: str, classes: Li
                     labels={"x": "Predicted Condition", "y": "Actual Condition", "color": "Score"},
                     )
 
-    fig.update_xaxes(side="top")
+    # fig.update_xaxes(side="top")
+    fig.update_layout(width=750, height=750)
     if output_dir:
         fig.write_html(os.path.join(output_dir, model_name, "confusion_matrix.html"))
+        fig.write_image(os.path.join(output_dir, model_name, "confusion_matrix.png"))
 
 
 def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str, output_dir: str) -> None:
@@ -141,6 +150,7 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
 
     if output_dir:
         fig.write_html(os.path.join(output_dir, model_name, "roc_curve.html"))
+        fig.write_image(os.path.join(output_dir, model_name, "roc_curve.png"))
 
 
 def process_results(args: argparse.Namespace, model_name: str, classes: List[str], accelerator: Accelerator) -> None:
@@ -243,7 +253,16 @@ def explain_model(args: argparse.Namespace) -> None:
         output = model(img)
         return output
 
-    accelerator = Accelerator()
+    deepspeed_plugin = DeepSpeedPlugin(gradient_accumulation_steps=2, gradient_clipping=1.0)
+    fsdp_plugin = FullyShardedDataParallelPlugin(
+        state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
+    )
+    accelerator = Accelerator(even_batches=True,
+                              gradient_accumulation_steps=2,
+                              mixed_precision="fp16",
+                              deepspeed_plugin=deepspeed_plugin,
+                              fsdp_plugin=fsdp_plugin
+                              )
 
     device = accelerator.device
     transform, inv_transform = utils.get_explanation_transforms()
@@ -261,8 +280,7 @@ def explain_model(args: argparse.Namespace) -> None:
         ]
         return example_batch
 
-    val_dataset = image_dataset["validation"].with_transform(preprocess_val)
-
+    val_dataset = image_dataset["test"].with_transform(preprocess_val)
 
     data_loader = DataLoader(val_dataset,
                              batch_size=args.batch_size,
@@ -304,10 +322,20 @@ def explain_model(args: argparse.Namespace) -> None:
         shap_values.data = inv_transform(shap_values.data).cpu().numpy()
         shap_values.values = [val for val in np.moveaxis(shap_values.values, -1, 0)]
 
+    fig, ax = plt.subplots(figsize=(7.5, 7.5))
     shap.image_plot(shap_values=shap_values.values,
                     pixel_values=shap_values.data,
                     labels=shap_values.output_names,
                     true_labels=[classes[idx] for idx in labels[:len(labels)]],
                     aspect=0.15,
                     hspace=0.15,
+                    show=False,
                     )
+
+    filename = f"{args.output_dir}/shap_explanation.png"
+
+    # Save the SHAP explanation plot as a PNG image
+    plt.savefig(filename, bbox_inches='tight', format='png')
+    plt.close(fig)
+
+    accelerator.print(f"Saved SHAP explanation plot as {filename}")
