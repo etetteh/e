@@ -252,7 +252,7 @@ def keep_recent_files(directory: str, num_files_to_keep: int) -> None:
         >>> num_files_to_keep = 10
         >>> keep_recent_files(directory_path, num_files_to_keep)
     """
-    file_list = glob(os.path.join(directory, "best_model_", "*"))
+    file_list = glob(os.path.join(directory, "best_model_*"))
     sorted_files = sorted(file_list, key=os.path.getmtime, reverse=True)
     files_to_remove = sorted_files[num_files_to_keep:]
 
