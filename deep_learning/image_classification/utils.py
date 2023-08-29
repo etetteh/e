@@ -339,7 +339,7 @@ def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
     #     image_dataset = load_dataset("imagefolder", data_files=dataset)
     elif isinstance(args.dataset, str):
         data_kwargs = {"path": args.dataset}
-        if args.dataset_kwargs is not None:
+        if args.dataset_kwargs.endswith(".json"):
             with open(args.dataset_kwargs, 'r') as json_file:
                 data_kwargs = json.load(json_file)
         image_dataset = load_dataset(**data_kwargs)
