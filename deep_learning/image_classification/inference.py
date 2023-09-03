@@ -96,9 +96,9 @@ def run_inference(args: argparse.Namespace) -> dict:
 
 
 def get_args():
-    parser = argparse.ArgumentParser(description="Run a single inference on a ONNX model for image classification")
+    parser = argparse.ArgumentParser(description="Run inference with an ONNX model")
 
-    parser.add_argument("--output_dir", required=True, type=str, help="Specify the directory where the output files will be saved, such as classification results")
+    parser.add_argument("--output_dir", required=True, type=str, help="Specify the directory where the inference results will be saved")
     parser.add_argument("--onnx_model_path", type=str, required=True, help="Provide the path to the ONNX model file that you want to use for inference.")
     parser.add_argument("--img_path", type=str, required=True, help="Specify the path to a single image or a directory containing images that you want to classify.")
     parser.add_argument("--dataset_dir_or_classes_file", type=str, required=True, help="Provide the path to either the directory containing the dataset classes or the path to a text file containing class names. This helps map the model's output to human-readable class names.")
