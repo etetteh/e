@@ -22,7 +22,7 @@ import mlflow
 import mlflow.pytorch
 import pandas as pd
 
-import explainability
+import process
 import torch
 from torch import nn, optim
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConfig
@@ -31,7 +31,7 @@ from torchmetrics import MetricCollection
 import torchmetrics.classification as metrics
 
 import utils
-from explainability import explain_model
+from explain import explain_model
 from train import train_one_epoch, evaluate, main
 from inference import run_inference
 import streamlit as st
@@ -76,7 +76,7 @@ if __name__ == "__main__":
         cfgs.val_resize = st.number_input("Validation Resize", value=256, help="Specify the size to which validation images will be resized.")
                 
         # Model Configuration
-        cfgs.model_selection = st.radio("Select Model Configuration", ["Module", "Model Size", "Model Name"])
+        cfgs.model_selection = st.radio("Select Model Configuration", ["Model Name", "Model Size", "Module"])
         cfgs.module = None
         cfgs.model_name = None
         cfgs.model_size = None
@@ -174,11 +174,16 @@ if __name__ == "__main__":
 
                 status.update(label="Model training complete!", state="complete", expanded=False)
                 
-        st.divider()
+            st.divider()
 
-        st.subheader("Training Results")
-        if os.path.isfile(os.path.join(cfgs.output_dir, "performance_metrics.jsonl")):
-            jsonl_file = os.path.join(cfgs.output_dir, "performance_metrics.jsonl")
+            if cfgs.test_only:
+                st.subheader("Test Results")
+                if os.path.isfile(os.path.join(cfgs.output_dir, "test_performance_metrics.jsonl")):
+                    jsonl_file = os.path.join(cfgs.output_dir, "test_performance_metrics.jsonl")
+            else:
+                st.subheader("Training Results")
+                if os.path.isfile(os.path.join(cfgs.output_dir, "performance_metrics.jsonl")):
+                    jsonl_file = os.path.join(cfgs.output_dir, "performance_metrics.jsonl")
             df = pd.read_json(jsonl_file, lines=True)
             st.dataframe(df)
         
@@ -235,20 +240,19 @@ if __name__ == "__main__":
                 
                 status.update(label="Model inference complete!", state="complete", expanded=False)
             
-        st.divider()
+            st.divider()
 
-        st.subheader("Inference Results")
-        if os.path.isfile(os.path.join(infer_args.output_dir, "inference_results.json")):
-            st.json(utils.read_json_file(os.path.join(infer_args.output_dir, "inference_results.json")))
+            st.subheader("Inference Results")
+            if os.path.isfile(os.path.join(infer_args.output_dir, "inference_results.json")):
+                st.json(utils.read_json_file(os.path.join(infer_args.output_dir, "inference_results.json")))
    
 
     with tab4:
         st.header("Model Explanation")
         args = Namespace()
     
-        args.output_dir = st.text_input("Model Output Directory", help="Specifies the output directory where the model is contained")
-        args.model_name = st.text_input("Model Name", help="Specifies the name of the model being used")
-    
+        args.model_output_dir = st.text_input("Model Output Directory", help="Specifies the output directory where the model is contained")
+
         args.dataset = st.text_input("Dataset", help="Use this command to provide the path to the dataset directory or the name of a HuggingFace dataset. It defines the data source for the explanation")
         args.dataset_kwargs = st.text_input("Dataset kwargs", help="If necessary, you can provide the path to a JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset.")
         
@@ -266,9 +270,10 @@ if __name__ == "__main__":
             with st.status("Model explanation in progress", expanded=True) as status:
                 explain_model(args)
                 status.update(label="Model explanation complete!", state="complete", expanded=False)
-        st.divider()
 
-        st.subheader("Explanation Results")
-        if os.path.isfile(f"{args.output_dir}/shap_explanation.png"):
-            st.image(f"{args.output_dir}/shap_explanation.png")
+            st.divider()
+
+            st.subheader("Explanation Results")
+            if os.path.isfile(f"{args.model_output_dir}/explanation.png"):
+                st.image(f"{args.model_output_dir}/explanation.png")
             
