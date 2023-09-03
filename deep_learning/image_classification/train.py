@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, Optional, Tuple, List
 import mlflow
 import mlflow.pytorch
 
-import explainability
+import process
 import torch
 from torch import nn, optim
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConfig
@@ -334,6 +334,10 @@ def main(args: argparse.Namespace, accelerator) -> None:
             pass
 
         for i, model_name in enumerate(args.models):
+            if args.test_only:
+                results_list = utils.read_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
+                model_name = results_list[0]["model"]
+
             if not os.path.isdir(os.path.join(args.output_dir, model_name)):
                 os.makedirs(os.path.join(args.output_dir, model_name), exist_ok=True)
 
@@ -344,10 +348,11 @@ def main(args: argparse.Namespace, accelerator) -> None:
             optimizer = utils.get_optimizer(args, params)
             lr_scheduler = utils.get_lr_scheduler(args, optimizer, len(train_loader))
 
-            train_loader, val_loader = accelerator.prepare_data_loader(train_loader), \
-                accelerator.prepare_data_loader(val_loader)
-            optimizer, lr_scheduler = accelerator.prepare_optimizer(optimizer), \
-                accelerator.prepare_scheduler(lr_scheduler)
+            if args.test_only:
+                test_loader = accelerator.prepare_data_loader(test_loader)
+            else:
+                train_loader, val_loader = accelerator.prepare_data_loader(train_loader), accelerator.prepare_data_loader(val_loader)
+                optimizer, lr_scheduler = accelerator.prepare_optimizer(optimizer), accelerator.prepare_scheduler(lr_scheduler)
 
             model_ema = None
             if args.ema:
@@ -378,6 +383,39 @@ def main(args: argparse.Namespace, accelerator) -> None:
                     run_id_pair = {model_name: run.info.run_id}
                     utils.append_dictionary_to_json_file(file_path=run_ids_path, new_dict=run_id_pair)
 
+                if args.test_only:
+                    accelerator.print(f"Running evaluation on test data with the best model: {model_name}")
+                    with accelerator.main_process_first():
+                        if args.avg_ckpts:
+                            checkpoint_file = os.path.join(args.output_dir, model_name, "averaged", "best_model.pth")
+                            checkpoint = torch.load(checkpoint_file, map_location="cpu")
+                        else:
+                            checkpoint_file = os.path.join(args.output_dir, model_name, "best_model.pth")
+                            checkpoint = torch.load(checkpoint_file, map_location="cpu")
+                        model.load_state_dict(checkpoint["model"])
+                    if model_ema:
+                        total_test_metrics, total_roc_metric = evaluate(classes, test_loader, model_ema, val_metrics, roc_metric, accelerator, ema=True)
+                    else:
+                        total_test_metrics, total_roc_metric = evaluate(classes, test_loader, model, val_metrics, roc_metric, accelerator, ema=False)
+
+                    test_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for key, value in
+                                   total_test_metrics.items()}
+                    fpr, tpr, _ = total_roc_metric
+                    fpr, tpr = [ff.detach().tolist() for ff in fpr], [tt.detach().tolist() for tt in tpr]
+
+                    best_results = {**{"model": model_name, "fpr": fpr, "tpr": tpr}, **test_results}
+                    with open(os.path.join(args.output_dir, "test_results.jsonl"), "w") as file:
+                        json.dump(best_results, file)
+                        file.write("\n")
+
+                    results_df = process.display_results_dataframe(args)
+                    results_drop = results_df.drop(columns=["loss", "fpr", "tpr", "cm"])
+                    results_drop = results_drop.reset_index(drop=True)
+                    results_drop.to_json(path_or_buf=os.path.join(args.output_dir, "test_performance_metrics.jsonl"),
+                                         orient="records",
+                                         lines=True)
+                    return
+
                 if os.path.isfile(checkpoint_file):
                     with accelerator.main_process_first():
                         checkpoint = torch.load(checkpoint_file, map_location="cpu")
@@ -393,27 +431,9 @@ def main(args: argparse.Namespace, accelerator) -> None:
                         best_results = checkpoint["best_results"]
 
                         if start_epoch == args.epochs:
-                            if args.test_only:
-                                accelerator.print("Running evaluation on test data...")
-                            else:
-                                accelerator.print("Training completed")
+                            accelerator.print("Training completed")
                         else:
                             accelerator.print(f"Resuming training from epoch {start_epoch}\n")
-
-                if args.test_only:
-                    with accelerator.main_process_first():
-                        if args.avg_ckpts:
-                            checkpoint_file = os.path.join(args.output_dir, model_name, "averaged", "best_model.pth")
-                            checkpoint = torch.load(checkpoint_file, map_location="cpu")
-                        else:
-                            checkpoint_file = os.path.join(args.output_dir, model_name, "best_model.pth")
-                            checkpoint = torch.load(checkpoint_file, map_location="cpu")
-                        model.load_state_dict(checkpoint["model"])
-                    if model_ema:
-                        evaluate(classes, test_loader, model_ema, val_metrics, roc_metric, accelerator, ema=True)
-                    else:
-                        evaluate(classes, test_loader, model, val_metrics, roc_metric, accelerator, ema=False)
-                    return
 
                 start_time = time.time()
 
@@ -445,9 +465,9 @@ def main(args: argparse.Namespace, accelerator) -> None:
                         parameters_to_prune = utils.prune_model(model, args.pruning_rate)
                         utils.remove_pruning_reparam(parameters_to_prune)
 
-                    train_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
+                    train_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for key, value in
                                      total_train_metrics.items()}
-                    val_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
+                    val_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for key, value in
                                    total_val_metrics.items()}
 
                     accelerator.wait_for_everyone()
@@ -513,7 +533,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
                     json.dump(best_results, file)
                     file.write("\n")
 
-                explainability.process_results(args, model_name, classes, accelerator)
+                process.plot_results(args, model_name, classes, accelerator)
 
                 if args.to_onnx:
                     utils.convert_to_onnx(args, model_name, f"{best_model_file}.pth", num_classes)
@@ -554,9 +574,10 @@ def get_args():
     # Model Configuration
     parser.add_argument("--feat_extract", action="store_true", help="By including this flag, you can enable feature extraction during training, which is useful when using pretrained models.")
     parser.add_argument("--module", type=str, help="If you want to select a specific model submodule, such as 'resnet' or 'deit', you can use this command to make that choice. It's not compatible with the --model_size or --model_name commands",
-                                     choices=["beit", "convnext", "deit", "resnet", "vision_transformer", "efficientnet", "xcit", "regnet", "nfnet", "metaformer"])
+                        choices=["beit", "convnext", "deit", "resnet", "vision_transformer", "efficientnet", "xcit", "regnet", "nfnet", "metaformer"])
     parser.add_argument("--model_name", nargs="*", default=None, help="Use this to specify the name of the model(s) you want to use from the TIMM library. It's not compatible with the --model_size or --module commands.")
-    parser.add_argument("--model_size", type=str, default="small", help="If you prefer to specify the size of the model, you can use this command. It's not used when --model_name or --module are specified.", choices=["nano", "tiny", "small", "base", "large", "giant"])
+    parser.add_argument("--model_size", type=str, default="small", help="If you prefer to specify the size of the model, you can use this command. It's not used when --model_name or --module are specified.",
+                        choices=["nano", "tiny", "small", "base", "large", "giant"])
     parser.add_argument("--to_onnx", action="store_true", help="Include this flag if you want to convert the trained model(s) to ONNX format. If not used, only the best model will be converted.")
 
     # Training Configuration
