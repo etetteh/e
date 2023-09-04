@@ -1,10 +1,8 @@
 
 import argparse
-import json
 import os
-import shutil
-import time
 import warnings
+import subprocess
 
 import accelerate
 from accelerate import (
@@ -14,33 +12,31 @@ from accelerate import (
     find_executable_batch_size
 )
 from accelerate.utils import set_seed
-from argparse import Namespace
-from glob import glob
-from typing import Any, Callable, Dict, Optional, Tuple, List
 
 import mlflow
-import mlflow.pytorch
 import pandas as pd
 
 import process
 import torch
-from torch import nn, optim
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConfig
-from torch.utils import data
-from torchmetrics import MetricCollection
-import torchmetrics.classification as metrics
 
 import utils
 from explain import explain_model
-from train import train_one_epoch, evaluate, main
+from train import main
 from inference import run_inference
 import streamlit as st
 
 
 if __name__ == "__main__":
+
+    bash_command = "mlflow ui"
+    process = subprocess.Popen(bash_command.split(), stdout=subprocess.PIPE)
+
     with st.sidebar:
         st.title("Low Code Image Classification")
-        st.info("The best image classification project yet")
+        st.write("The best image classification project yet")
+
+        st.info("Author: Enoch Tetteh")
 
     tab1, tab2, tab3, tab4 = st.tabs(["Model Training", "Evaluation Results", "Inference", "Model Explanation"])
     
@@ -60,7 +56,6 @@ if __name__ == "__main__":
     
         cfgs = argparse.Namespace()
     
-        # Input Fields
         st.header("Image Classification Training")
         st.write("Enter the values for the arguments:")
 
@@ -69,13 +64,12 @@ if __name__ == "__main__":
         cfgs.dataset_kwargs = st.text_input("Dataset Kwargs JSON Path", help="If needed, you can use this command to point to a JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset.")
         cfgs.output_dir = st.text_input("Output Directory", key="train", help="Specify the directory where the output files, such as trained models and evaluation results, will be saved.")
         cfgs.seed = st.number_input("Random Seed", value=999333666, help="Set the random seed for reproducibility of training results.")
-        cfgs.aug_type = st.selectbox("Data Augmentation Type", ["augmix", "rand", "trivial"], help="Choose the type of data augmentation to use")
-        cfgs.interpolation = st.selectbox("Interpolation", ["nearest", "bicubic", "bilinear"], help="Choose the type of interpolation method to use")
+        cfgs.aug_type = st.selectbox("Data Augmentation Type", ["rand", "trivial", "augmix"], help="Choose the type of data augmentation to use")
+        cfgs.interpolation = st.selectbox("Interpolation", ["bilinear", "nearest", "bicubic"], help="Choose the type of interpolation method to use")
         cfgs.hflip = st.number_input("Horizontal Flip Probability", value=0.5, help="Define the probability of randomly horizontally flipping the input data.")
         cfgs.crop_size = st.number_input("Crop Size", value=224, help="Define the size to which input images will be cropped.")
         cfgs.val_resize = st.number_input("Validation Resize", value=256, help="Specify the size to which validation images will be resized.")
                 
-        # Model Configuration
         cfgs.model_selection = st.radio("Select Model Configuration", ["Model Name", "Model Size", "Module"])
         cfgs.module = None
         cfgs.model_name = None
@@ -89,10 +83,12 @@ if __name__ == "__main__":
             cfgs.model_name = st.text_input("Model Name(s)", help="Use this to specify the name of the model(s) you want to use from the TIMM library. It's not compatible with the Model Size or Module commands.")
         
         cfgs.feat_extract = st.toggle("Enable Feature Extraction", help="By including this flag, you can enable feature extraction during training, which is useful when using pretrained models.")
-        
-        cfgs.to_onnx = st.toggle("Convert All Models to ONNX Format", help="Include this flag if you want to convert the trained model(s) to ONNX format. If not used, only the best model will be converted.")
-        
-        # Training Configuration
+        cfgs.grayscale = st.toggle("Use Grayscale Images", help="If needed, use this flag to indicate that grayscale images should be used during training.")
+
+        cfgs.prune = st.toggle("Enable Pruning", help=" Include this flag to enable pruning during training, which helps reduce model complexity and size.")
+        if cfgs.prune:
+            cfgs.pruning_rate = st.number_input("Pruning Rate", value=0.25, help="Set the pruning rate to control the extent of pruning applied to the model.")
+
         cfgs.avg_ckpts = st.toggle("Enable Checkpoint Averaging",  help="When enabled, this flag triggers checkpoint averaging during training. It helps stabilize the training process.")
                     
         cfgs.fgsm = st.toggle("Enable FGSM Adversarial Training", help="This flag allows you to enable FGSM (Fast Gradient Sign Method) adversarial training to enhance model robustness.")
@@ -103,11 +99,7 @@ if __name__ == "__main__":
         if cfgs.ema:
             cfgs.ema_steps = st.number_input("EMA Steps", min_value=1, value=32, help="Specify the number of iterations for updating the EMA model.")
             cfgs.ema_decay = st.number_input("EMA Decay", value=0.99998, help="Set the EMA decay factor, which influences the contribution of past model weights.")
-        
-        cfgs.prune = st.toggle("Enable Pruning", help=" Include this flag to enable pruning during training, which helps reduce model complexity and size.")
-        if cfgs.prune:
-            cfgs.pruning_rate = st.number_input("Pruning Rate", value=0.25, help="Set the pruning rate to control the extent of pruning applied to the model.")
-        
+
         cfgs.mixup = st.toggle("Enable Mixup", help="Include this flag to enable mixup augmentation, which enhances training by mixing pairs of samples.")
         if cfgs.mixup:
             cfgs.mixup_alpha = st.number_input("Mixup Alpha", value=1.0, help="Set the mixup hyperparameter alpha to control the interpolation factor.")
@@ -115,13 +107,12 @@ if __name__ == "__main__":
         cfgs.cutmix = st.toggle("Enable Cutmix", help="Enable cutmix augmentation, which combines patches from different images to create new training samples.")
         if cfgs.cutmix:
             cfgs.cutmix_alpha = st.number_input("Cutmix Alpha", value=1.0, help="Set the cutmix hyperparameter alpha to control the interpolation factor.")
-        
-        cfgs.grayscale = st.toggle("Use Grayscale Images", help="If needed, use this flag to indicate that grayscale images should be used during training.")
-        
-        # Optimization and Learning Rate Scheduling
+
         cfgs.opt_name = st.selectbox("Optimizer Name", ["lion", "madgradw", "adamw", "radabelief", "adafactor", "novograd", "lars", "lamb", "rmsprop", "sgdp"], help="Choose the optimizer for the training process.")
         cfgs.sched_name = st.selectbox("Learning Rate Scheduler", ["step", "cosine", "cosine_wr", "one_cycle"], help="Choose the learning rate scheduler strategy")
-        
+
+        cfgs.to_onnx = st.toggle("Convert All Models to ONNX Format", help="Include this flag if you want to convert the trained model(s) to ONNX format. If not used, only the best model will be converted.")
+
         with st.expander("More configurations"):
             cfgs.num_ckpts = st.number_input("Number of Checkpoints", min_value=1, value=1, help="Set the number of best checkpoints to save when checkpoint averaging is active. It determines how many checkpoints are averaged.")
             cfgs.mag_bins = st.number_input("Magnitude bins", value=31, help="Set the number of magnitude bins for augmentation-related operations.")
@@ -133,7 +124,7 @@ if __name__ == "__main__":
         
             cfgs.wd = st.number_input("Weight Decay", value=1e-4, help="Set the weight decay (L2 regularization) for the optimizer.")
             
-            cfgs.max_lr = st.number_input("Maximum Learning Rate", value=0.3, help="Set the maximum learning rate when using cyclic learning rate scheduling.")
+            cfgs.max_lr = st.number_input("Maximum Learning Rate", value=0.1, help="Set the maximum learning rate when using cyclic learning rate scheduling.")
             cfgs.eta_min = st.number_input("Minimum Learning Rate", value=1e-4, help="Define the minimum learning rate that the scheduler can reach.")
             cfgs.lr = st.number_input("Initial Learning Rate", value=0.001, help=" Specify the initial learning rate for the optimizer.")
             cfgs.step_size = st.number_input("Step Size", value=30, help="Set the step size for learning rate adjustments in certain scheduler strategies.")
@@ -143,12 +134,10 @@ if __name__ == "__main__":
             
             cfgs.t0 = st.number_input("First Restart Iterations", value=5, help="Specify the number of iterations for the first restart in learning rate scheduling strategies.")
         
-            # Evaluation Metrics and Testing
             cfgs.sorting_metric = st.selectbox("Sorting Metric", ["f1", "auc", "accuracy", "precision", "recall"], help="Choose the metric by which the model results will be sorted.")
         
         cfgs.test_only = st.toggle("Enable Test Only", help="When enabled, this flag indicates that you want to perform testing on the test split only, skipping training.")
-           
-        # Display Selected Configuration
+
         if st.button("Start Training"):
             with st.status("Training in progress", expanded=True) as status:
                 
@@ -174,29 +163,33 @@ if __name__ == "__main__":
 
                 status.update(label="Model training complete!", state="complete", expanded=False)
                 
-            st.divider()
+        st.divider()
 
-            if cfgs.test_only:
-                st.subheader("Test Results")
-                if os.path.isfile(os.path.join(cfgs.output_dir, "test_performance_metrics.jsonl")):
-                    jsonl_file = os.path.join(cfgs.output_dir, "test_performance_metrics.jsonl")
+        jsonl_file = None
+        if cfgs.test_only:
+            st.subheader("Test Results")
+            if os.path.isfile(os.path.join(cfgs.output_dir, "test_performance_metrics.jsonl")):
+                jsonl_file = os.path.join(cfgs.output_dir, "test_performance_metrics.jsonl")
             else:
-                st.subheader("Training Results")
-                if os.path.isfile(os.path.join(cfgs.output_dir, "performance_metrics.jsonl")):
-                    jsonl_file = os.path.join(cfgs.output_dir, "performance_metrics.jsonl")
+                st.write("Click on **Start Training** button with **Enable Test Only** active, to obtain performance on test data")
+        else:
+            st.subheader("Training Results")
+            if os.path.isfile(os.path.join(cfgs.output_dir, "performance_metrics.jsonl")):
+                jsonl_file = os.path.join(cfgs.output_dir, "performance_metrics.jsonl")
+
+        if not jsonl_file is None:
             df = pd.read_json(jsonl_file, lines=True)
             st.dataframe(df)
-        
-    
+
+
     with tab2:
         st.header("Evaluation Results")
         
-        args = Namespace()
+        args = argparse.Namespace()
         args.output_dir = st.text_input("Enter Directory of Trained Model")
 
-        st.divider()
-
         if os.path.isdir(args.output_dir):
+            st.divider()
             results_list = utils.read_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
             best_compare_model_name = os.path.join(args.output_dir, results_list[0]["model"])
                 
@@ -227,7 +220,6 @@ if __name__ == "__main__":
         infer_args.val_resize = st.number_input("Inference Image Resize", value=256, help="Specify the size to which validation images will be resized during inference.")
         infer_args.grayscale = st.toggle("Use Grayscale Images", help="Use this flag if you want to use grayscale images during inference.")
         
-        # Run inference button
         if st.button("Run Inference"):
             with st.status("Model inference in progress", expanded=True) as status:
                 warnings.filterwarnings("ignore", category=UserWarning)
@@ -240,16 +232,19 @@ if __name__ == "__main__":
                 
                 status.update(label="Model inference complete!", state="complete", expanded=False)
             
-            st.divider()
+        st.divider()
 
-            st.subheader("Inference Results")
+        st.subheader("Inference Results")
+        st.button("Clear inference results", type="primary")
+        if st.button("Show inference results", type="primary"):
             if os.path.isfile(os.path.join(infer_args.output_dir, "inference_results.json")):
                 st.json(utils.read_json_file(os.path.join(infer_args.output_dir, "inference_results.json")))
-   
+        else:
+            pass
 
     with tab4:
         st.header("Model Explanation")
-        args = Namespace()
+        args = argparse.Namespace()
     
         args.model_output_dir = st.text_input("Model Output Directory", help="Specifies the output directory where the model is contained")
 
@@ -271,9 +266,13 @@ if __name__ == "__main__":
                 explain_model(args)
                 status.update(label="Model explanation complete!", state="complete", expanded=False)
 
-            st.divider()
+        st.divider()
 
-            st.subheader("Explanation Results")
+        st.subheader("Explanation Results")
+        st.button("Clear explanation results", type="primary")
+        if st.button("Show explanation results", type="primary"):
             if os.path.isfile(f"{args.model_output_dir}/explanation.png"):
                 st.image(f"{args.model_output_dir}/explanation.png")
+        else:
+            pass
             
