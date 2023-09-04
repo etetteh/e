@@ -583,7 +583,7 @@ def get_args():
     # Training Configuration
     # Checkpoint Averaging:
     parser.add_argument("--avg_ckpts", action="store_true", help=" When enabled, this flag triggers checkpoint averaging during training. It helps stabilize the training process.")
-    parser.add_argument("--num_ckpts", type=int, default=5, help="Set the number of best checkpoints to save when checkpoint averaging is active. It determines how many checkpoints are averaged.")
+    parser.add_argument("--num_ckpts", type=int, default=1, help="Set the number of best checkpoints to save when checkpoint averaging is active. It determines how many checkpoints are averaged.")
 
     # FGSM Adversarial Training
     parser.add_argument("--fgsm", action="store_true", help="This flag allows you to enable FGSM (Fast Gradient Sign Method) adversarial training to enhance model robustness.")
