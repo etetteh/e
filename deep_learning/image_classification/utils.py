@@ -236,13 +236,13 @@ def read_json_lines_file(file_path: str) -> List[Union[dict, Any]]:
 
 def keep_recent_files(directory: str, num_files_to_keep: int) -> None:
     """
-    Sorts files in the specified directory based on modification time and keeps
-    the most recent files. Older files beyond the specified number of files to keep
+    Sorts files in the specified directory and keeps
+    files with the best f1 scores. Files beyond the specified number of files to keep
     will be removed.
 
     Parameters:
         directory (str): The path to the directory containing the files.
-        num_files_to_keep (int): The number of most recent files to keep.
+        num_files_to_keep (int): The number of best f1 score files to keep.
 
     Returns:
         None
@@ -253,13 +253,12 @@ def keep_recent_files(directory: str, num_files_to_keep: int) -> None:
         >>> keep_recent_files(directory_path, num_files_to_keep)
     """
     file_list = glob(os.path.join(directory, "best_model_*"))
-    sorted_files = sorted(file_list, key=os.path.getmtime, reverse=True)
+    sorted_files = sorted(file_list, reverse=True)
     files_to_remove = sorted_files[num_files_to_keep:]
 
     for file_to_remove in files_to_remove:
         try:
             os.remove(file_to_remove)
-            print(f"Removed file: {file_to_remove}")
         except OSError as e:
             print(f"Error while removing {file_to_remove}: {e}")
 
