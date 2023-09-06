@@ -108,7 +108,7 @@ if __name__ == "__main__":
         if cfgs.cutmix:
             cfgs.cutmix_alpha = st.number_input("Cutmix Alpha", value=1.0, help="Set the cutmix hyperparameter alpha to control the interpolation factor.")
 
-        cfgs.opt_name = st.selectbox("Optimizer Name", ["lion", "madgradw", "adamw", "radabelief", "adafactor", "novograd", "lars", "lamb", "rmsprop", "sgdp"], help="Choose the optimizer for the training process.")
+        cfgs.opt_name = st.selectbox("Optimizer Name", ["lion", "madgrad", "madgradw", "adamw", "radabelief", "adafactor", "novograd", "lars", "lamb", "rmsprop", "sgdp"], help="Choose the optimizer for the training process.")
         cfgs.sched_name = st.selectbox("Learning Rate Scheduler", ["step", "cosine", "cosine_wr", "one_cycle"], help="Choose the learning rate scheduler strategy")
 
         cfgs.to_onnx = st.toggle("Convert All Models to ONNX Format", help="Include this flag if you want to convert the trained model(s) to ONNX format. If not used, only the best model will be converted.")
@@ -178,8 +178,10 @@ if __name__ == "__main__":
                 jsonl_file = os.path.join(cfgs.output_dir, "performance_metrics.jsonl")
 
         if not jsonl_file is None:
-            df = pd.read_json(jsonl_file, lines=True)
-            st.dataframe(df)
+            st.button("Clear results", type="primary")
+            if st.button("Show results", type="primary"):
+                df = pd.read_json(jsonl_file, lines=True)
+                st.dataframe(df)
 
 
     with tab2:
