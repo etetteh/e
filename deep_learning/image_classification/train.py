@@ -370,7 +370,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
             checkpoint_file = os.path.join(args.output_dir, model_name, "checkpoint.pth")
             best_model_file = os.path.join(args.output_dir, model_name, "best_model")
-
+            
             mlflow.set_experiment(args.experiment_name)
 
             with mlflow.start_run(run_id=run_id, run_name=model_name) as run:
@@ -470,21 +470,33 @@ def main(args: argparse.Namespace, accelerator) -> None:
                     val_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for key, value in
                                    total_val_metrics.items()}
 
-                    accelerator.wait_for_everyone()
+                    accelerator.wait_for_everyone()       
+                    best_model_list = sorted(glob(os.path.join(args.output_dir, model_name, "best_model_*")))
+                    if best_model_list:
+                        bottom_k = os.path.splitext(os.path.basename(best_model_list[0]))[0].split("_")[-1]
+                        bottom_k = float(bottom_k)
+
                     if val_results["f1"] >= best_f1:
                         fpr, tpr, _ = total_roc_metric
                         fpr, tpr = [ff.detach().tolist() for ff in fpr], [tt.detach().tolist() for tt in tpr]
-
+                    
                         best_f1 = val_results["f1"]
                         best_results = {**{"model": model_name, "fpr": fpr, "tpr": tpr}, **val_results}
-
+                    
                         if model_ema:
                             accelerator.save({"model": accelerator.get_state_dict(model_ema)}, f"{best_model_file}_{best_f1}.pth")
                         else:
                             accelerator.save({"model": accelerator.get_state_dict(model)}, f"{best_model_file}_{best_f1}.pth")
-
+                    
                         best_checkpoints.append(f"{best_model_file}_{best_f1}.pth")
-
+                    elif val_results["f1"] >= bottom_k:
+                        if model_ema:
+                            accelerator.save({"model": accelerator.get_state_dict(model_ema)}, f"{best_model_file}_{val_results['f1']}.pth")
+                        else:
+                            accelerator.save({"model": accelerator.get_state_dict(model)}, f"{best_model_file}_{val_results['f1']}.pth")
+                    
+                        best_checkpoints.append(f"{best_model_file}_{val_results['f1']}.pth")
+                    
                     if len(best_checkpoints) > args.num_ckpts:
                         utils.keep_recent_files(os.path.join(args.output_dir, model_name), args.num_ckpts)
 
@@ -629,8 +641,8 @@ def get_args():
 
     # Optimization and Learning Rate Scheduling
     parser.add_argument("--opt_name", default="madgradw", type=str, help="Choose the optimizer for the training process.",
-                        choices=["lion", "madgradw", "adamw", "radabelief", "adafactor", "novograd", "lars", "lamb", "rmsprop", "sgdp"])
-    parser.add_argument("--lr", default=0.001, type=float, help=" Specify the initial learning rate for the optimizer.")
+                        choices=["lion", "madgrad", "madgradw", "adamw", "radabelief", "adafactor", "novograd", "lars", "lamb", "rmsprop", "sgdp"])
+    parser.add_argument("--lr", default=0.01, type=float, help=" Specify the initial learning rate for the optimizer.")
     parser.add_argument("--wd", default=1e-4, type=float, help="Set the weight decay (L2 regularization) for the optimizer.")
     parser.add_argument("--sched_name", default="one_cycle", type=str, help="Choose the learning rate scheduler strategy", choices=["step", "cosine", "cosine_wr", "one_cycle"])
     parser.add_argument('--max_lr', type=float, default=0.1, help='Set the maximum learning rate when using cyclic learning rate scheduling.')
@@ -638,7 +650,7 @@ def get_args():
     parser.add_argument("--warmup_epochs", default=5, type=int, help="Specify the number of epochs for the warmup phase of learning rate scheduling.")
     parser.add_argument("--warmup_decay", default=0.1, type=float, help="Set the decay rate for the learning rate during the warmup phase.")
     parser.add_argument("--gamma", default=0.1, type=float, help="Set the gamma parameter used in certain learning rate scheduling strategies.")
-    parser.add_argument("--eta_min", default=1e-6, type=float, help="Define the minimum learning rate that the scheduler can reach.")
+    parser.add_argument("--eta_min", default=1e-5, type=float, help="Define the minimum learning rate that the scheduler can reach.")
     parser.add_argument("--t0", type=int, default=5, help="Specify the number of iterations for the first restart in learning rate scheduling strategies.")
 
     # Evaluation Metrics and Testing
