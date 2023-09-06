@@ -242,34 +242,20 @@ python tune.py \
 ```
 
 ### Jan 25, 2023
-Added <span style="color:green;font-weight:700;font-size:16px"> [explainability.py](https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/explainability.py) </span> for model explainability functionality using [SHAP](https://shap.readthedocs.io/en/latest/index.html#). You can now understand the decision or prediction made by the best performing model.\
+Added <span style="color:green;font-weight:700;font-size:16px"> [explain.py](https://github.com/etetteh/low-code-ml-dl/blob/main/deep_learning/image_classification/explainability.py) </span> for model explainability functionality using [SHAP](https://shap.readthedocs.io/en/latest/index.html#). You can now understand the decision or prediction made by the best performing model.\
 <span style="color:red;font-weight:700;font-size:15px">
     **Example**:
 </span> to explain the performance of a `swinv2_cr_tiny_ns_224` model on 4 samples of the validation data, run the following in a notebook
 
 ```
-from explainability import explain_model
-
-class Args:
-    def __init__(self):
-        self.output_dir = "nano/swinv2_cr_tiny_ns_224/"
-        self.dataset = "datasets/weather_data/"
-        self.model_name = "swinv2_cr_tiny_ns_224"
-        self.crop_size = 224
-        self.batch_size = 30
-        self.num_workers = 8
-        self.n_samples = 4
-        self.max_evals = 100
-        self.topk = 4
-        self.dropout = 0.2
-        self.grayscale = False
-        self.feat_extract = True
-    
-args = Args()
-
-explain_model(
-    args = args
-)
+accelerate launch explain.py \
+    --dataset weather_data/ \
+    --model_output_dir tiny/swinv2_cr_tiny_ns_224 \
+    --feat_extract \ 
+    --batch_size 128 \
+    --n_samples 2 \
+    --max_evals 999 \
+    --topk 2
 ```
 
 ### Jan 17, 2023
