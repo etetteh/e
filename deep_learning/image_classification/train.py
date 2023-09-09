@@ -585,8 +585,7 @@ def get_args():
 
     # Model Configuration
     parser.add_argument("--feat_extract", action="store_true", help="By including this flag, you can enable feature extraction during training, which is useful when using pretrained models.")
-    parser.add_argument("--module", type=str, help="If you want to select a specific model submodule, such as 'resnet' or 'deit', you can use this command to make that choice. It's not compatible with the --model_size or --model_name commands",
-                        choices=["beit", "convnext", "deit", "resnet", "vision_transformer", "efficientnet", "xcit", "regnet", "nfnet", "metaformer"])
+    parser.add_argument("--module", type=str, help="If you want to select a specific model submodule, such as 'resnet' or 'deit', you can use this command to make that choice. It's not compatible with the --model_size or --model_name commands. Choose from this inexhaustive list: ['beit', 'convnext', 'deit', 'resnet', 'vision_transformer', 'efficientnet', 'xcit', 'regnet', 'nfnet', 'metaformer', 'fastvit', 'efficientvit_msra']")
     parser.add_argument("--model_name", nargs="*", default=None, help="Use this to specify the name of the model(s) you want to use from the TIMM library. It's not compatible with the --model_size or --module commands.")
     parser.add_argument("--model_size", type=str, default="small", help="If you prefer to specify the size of the model, you can use this command. It's not used when --model_name or --module are specified.",
                         choices=["nano", "tiny", "small", "base", "large", "giant"])
@@ -640,8 +639,7 @@ def get_args():
     parser.add_argument("--label_smoothing", default=0.1, type=float, help="Set the amount of label smoothing to use during training.")
 
     # Optimization and Learning Rate Scheduling
-    parser.add_argument("--opt_name", default="madgradw", type=str, help="Choose the optimizer for the training process.",
-                        choices=["lion", "madgrad", "madgradw", "adamw", "radabelief", "adafactor", "novograd", "lars", "lamb", "rmsprop", "sgdp"])
+    parser.add_argument("--opt_name", default="madgradw", type=str, help="Choose the optimizer for the training process. An inexhaustive choices ['lion', 'madgrad', 'madgradw', 'adamw', 'radabelief', 'adafactor', 'novograd', 'lars', 'lamb', 'rmsprop', 'sgdp']")
     parser.add_argument("--lr", default=0.01, type=float, help=" Specify the initial learning rate for the optimizer.")
     parser.add_argument("--wd", default=1e-4, type=float, help="Set the weight decay (L2 regularization) for the optimizer.")
     parser.add_argument("--sched_name", default="one_cycle", type=str, help="Choose the learning rate scheduler strategy", choices=["step", "cosine", "cosine_wr", "one_cycle"])
