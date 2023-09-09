@@ -27,6 +27,13 @@ from inference import run_inference
 import streamlit as st
 
 
+def process_input(*inputs):
+    if len(inputs) == 1 and isinstance(inputs[0], str):
+        return inputs[0]
+    else:
+        return list(inputs)
+
+
 if __name__ == "__main__":
 
     bash_command = "mlflow ui"
@@ -70,17 +77,33 @@ if __name__ == "__main__":
         cfgs.crop_size = st.number_input("Crop Size", value=224, help="Define the size to which input images will be cropped.")
         cfgs.val_resize = st.number_input("Validation Resize", value=256, help="Specify the size to which validation images will be resized.")
                 
-        cfgs.model_selection = st.radio("Select Model Configuration", ["Model Name", "Model Size", "Module"])
+        model_selection = st.radio("Select Model Configuration", ["Model Name", "Model Size", "Module"])
         cfgs.module = None
         cfgs.model_name = None
         cfgs.model_size = None
     
-        if cfgs.model_selection == "Module":
-            cfgs.module = st.selectbox("Select Model Submodule", ["beit", "convnext", "deit", "resnet", "vision_transformer", "efficientnet", "xcit", "regnet", "nfnet", "metaformer"], help="If you want to select a specific model submodule, such as 'resnet' or 'deit', you can use this command to make that choice. It's not compatible with the --model_size or --model_name commands")
-        elif cfgs.model_selection == "Model Size":
+        if model_selection == "Module":
+            modules = ['beit', 'convnext', 'deit', 'resnet', 'vision_transformer', 'efficientnet', 'xcit', 'regnet', 'nfnet', 'metaformer', 'fastvit', 'efficientvit_msra', "Other"]
+            module = st.selectbox("Select Model Submodule", modules, help="If you want to select a specific model submodule, such as 'resnet' or 'deit', you can use this command to make that choice. It's not compatible with the --model_size or --model_name commands")
+            if module == "Other":
+                cfgs.module = st.text_input("Enter your preferred submodule")
+            else:
+                cfgs.module = module
+        elif model_selection == "Model Size":
             cfgs.model_size = st.selectbox("Select Model Size", ["nano", "tiny", "small", "base", "large", "giant"], help="If you prefer to specify the size of the model, you can use this command. It's not used when Model Name or Module are specified specified.")
-        elif cfgs.model_selection == "Model Name":
-            cfgs.model_name = st.text_input("Model Name(s)", help="Use this to specify the name of the model(s) you want to use from the TIMM library. It's not compatible with the Model Size or Module commands.")
+        elif model_selection == "Model Name":
+            model_name = st.text_input("Model Name(s)", help="Use this to specify the name of the model(s) you want to use from the TIMM library. It's not compatible with the Model Size or Module commands.")
+            # cfgs.model_name = model_name.split(",") if isinstance(model_name, tuple) else model_name
+            cfgs.model_name = model_name.split()
+                        
+        optimizers = ["lion", "madgradw", "adamw", "radabelief", "adafactor", "novograd", "lars", "lamb", "rmsprop", "sgdp", "Other"]
+        opt_name = st.selectbox("Optimizer Name", optimizers, help="Choose the optimizer for the training process.")
+        if opt_name == "Other":
+            cfgs.opt_name = st.text_input("Enter your preferred optimizer")
+        else:
+            cfgs.opt_name = opt_name
+            
+        cfgs.sched_name = st.selectbox("Learning Rate Scheduler", ["step", "cosine", "cosine_wr", "one_cycle"], help="Choose the learning rate scheduler strategy")
         
         cfgs.feat_extract = st.toggle("Enable Feature Extraction", help="By including this flag, you can enable feature extraction during training, which is useful when using pretrained models.")
         cfgs.grayscale = st.toggle("Use Grayscale Images", help="If needed, use this flag to indicate that grayscale images should be used during training.")
@@ -107,9 +130,6 @@ if __name__ == "__main__":
         cfgs.cutmix = st.toggle("Enable Cutmix", help="Enable cutmix augmentation, which combines patches from different images to create new training samples.")
         if cfgs.cutmix:
             cfgs.cutmix_alpha = st.number_input("Cutmix Alpha", value=1.0, help="Set the cutmix hyperparameter alpha to control the interpolation factor.")
-
-        cfgs.opt_name = st.selectbox("Optimizer Name", ["lion", "madgrad", "madgradw", "adamw", "radabelief", "adafactor", "novograd", "lars", "lamb", "rmsprop", "sgdp"], help="Choose the optimizer for the training process.")
-        cfgs.sched_name = st.selectbox("Learning Rate Scheduler", ["step", "cosine", "cosine_wr", "one_cycle"], help="Choose the learning rate scheduler strategy")
 
         cfgs.to_onnx = st.toggle("Convert All Models to ONNX Format", help="Include this flag if you want to convert the trained model(s) to ONNX format. If not used, only the best model will be converted.")
 
@@ -150,10 +170,7 @@ if __name__ == "__main__":
                     accelerator_var.print(f"Output directory already exists at: {os.path.abspath(cfgs.output_dir)}")
                            
                 if cfgs.model_name is not None:
-                    if type(cfgs.model_name) == list:
-                        cfgs.models = sorted(cfgs.model_name)
-                    else:
-                        cfgs.models = [cfgs.model_name]
+                    cfgs.models = sorted(cfgs.model_name)
                 else:
                     cfgs.models = sorted(utils.get_matching_model_names(cfgs))
             
