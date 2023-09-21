@@ -27,17 +27,10 @@ from inference import run_inference
 import streamlit as st
 
 
-def process_input(*inputs):
-    if len(inputs) == 1 and isinstance(inputs[0], str):
-        return inputs[0]
-    else:
-        return list(inputs)
-
-
 if __name__ == "__main__":
 
     bash_command = "mlflow ui"
-    process = subprocess.Popen(bash_command.split(), stdout=subprocess.PIPE)
+    sub_process = subprocess.Popen(bash_command.split(), stdout=subprocess.PIPE)
 
     with st.sidebar:
         st.title("Low Code Image Classification")
@@ -158,8 +151,12 @@ if __name__ == "__main__":
         
         cfgs.test_only = st.toggle("Enable Test Only", help="When enabled, this flag indicates that you want to perform testing on the test split only, skipping training.")
 
-        if st.button("Start Training"):
-            with st.status("Training in progress", expanded=True) as status:
+        method = "Run Evaluation" if cfgs.test_only else "Start Training"
+        status = "Evaluation in progress" if cfgs.test_only else "Training in progress"
+        update_label ="Model evaluation complete!" if cfgs.test_only else "Model training complete!"
+        
+        if st.button(method):
+            with st.status(status, expanded=True) as status:
                 
                 set_seed(cfgs.seed)
                 
@@ -178,7 +175,7 @@ if __name__ == "__main__":
                 
                 main(cfgs, accelerator_var)
 
-                status.update(label="Model training complete!", state="complete", expanded=False)
+                status.update(label=update_label, state="complete", expanded=False)
                 
         st.divider()
 
