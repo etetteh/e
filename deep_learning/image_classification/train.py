@@ -6,7 +6,12 @@ import time
 import warnings
 
 import accelerate
-from accelerate import Accelerator, DeepSpeedPlugin, FullyShardedDataParallelPlugin, find_executable_batch_size
+from accelerate import (
+    Accelerator,
+    DeepSpeedPlugin,
+    FullyShardedDataParallelPlugin,
+    find_executable_batch_size
+)
 from accelerate.utils import set_seed
 from argparse import Namespace
 from glob import glob
@@ -15,12 +20,11 @@ from typing import Any, Callable, Dict, Optional, Tuple, List
 import mlflow
 import mlflow.pytorch
 
-import explainability
+import process
 import torch
 from torch import nn, optim
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConfig
 from torch.utils import data
-from torchvision import datasets
 from torchmetrics import MetricCollection
 import torchmetrics.classification as metrics
 
@@ -30,60 +34,64 @@ import utils
 def train_one_epoch(
         args: Namespace,
         epoch: int,
-        classes: List,
+        classes: List[str],
         train_loader: data.DataLoader,
         model: nn.Module,
         model_ema: Optional[utils.ExponentialMovingAverage],
         optimizer: optim.Optimizer,
         criterion: Callable,
         train_metrics: Any,
-        accelerator: accelerate.Accelerator
+        accelerator: accelerate.Accelerator,
 ) -> Dict[str, Any]:
     """
-    This function trains the model for one epoch and returns the metrics for the epoch.
+    Trains the model for one epoch and returns the computed metrics.
 
     Parameters:
         args (Namespace): A namespace object containing training attributes.
         epoch (int): The current epoch number.
+        classes (List[str]): The list of class labels.
         train_loader (DataLoader): The training data loader.
         model (nn.Module): The model to be trained.
         model_ema (ExponentialMovingAverage, optional): The exponential moving average model.
-        optimizer (optim.Optimizer): The optimizer for training.
+        optimizer (optim.Optimizer): The optimizer used for training.
         criterion (Callable): The loss function.
-        train_metrics (Any): Object for storing and computing training metrics.
-        accelerator (Any): The accelerator object for distributed training.
+        train_metrics (Any): An object for storing and computing training metrics.
+        accelerator (accelerate.Accelerator): The accelerator object for distributed training.
 
     Returns:
-        Dict: A dictionary containing the metrics computed during training.
+        Dict[str, Any]: A dictionary containing the computed metrics for the epoch.
     """
     model.train()
     with accelerator.join_uneven_inputs([model], even_batches=False):
         for idx, batch in enumerate(train_loader):
-            images, targets = batch["pixel_values"], batch["label"]
+            images, labels = batch["pixel_values"], batch["labels"]
             images.requires_grad = True
 
             with accelerator.accumulate(model):
                 optimizer.zero_grad()
                 if args.mixup:
-                    mixed_images, targets_a, targets_b, lam = utils.apply_mixup(images, targets, alpha=args.mixup_alpha)
+                    mixed_images, labels_a, labels_b, lam = utils.apply_mixup(images, labels, alpha=args.mixup_alpha)
                     output = model(mixed_images.contiguous(memory_format=torch.channels_last))
-                    loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
+                    loss = lam * criterion(output, labels_a) + (1 - lam) * criterion(output, labels_b)
                 elif args.cutmix:
-                    mixed_images, targets_a, targets_b, lam = utils.apply_cutmix(images, targets,
+                    mixed_images, labels_a, labels_b, lam = utils.apply_cutmix(images, labels,
                                                                                  alpha=args.cutmix_alpha)
                     output = model(mixed_images.contiguous(memory_format=torch.channels_last))
-                    loss = lam * criterion(output, targets_a) + (1 - lam) * criterion(output, targets_b)
+                    loss = lam * criterion(output, labels_a) + (1 - lam) * criterion(output, labels_b)
                 else:
                     output = model(images.contiguous(memory_format=torch.channels_last))
-                    loss = criterion(output, targets)
-
-                if args.fgsm:
-                    adversarial_images = utils.apply_fgsm_attack(model, loss, images, args.epsilon)
-                    adversarial_output = model(adversarial_images)
-                    adversarial_loss = criterion(adversarial_output, targets)
-                    loss = adversarial_loss
+                    loss = criterion(output, labels)
 
                 accelerator.backward(loss)
+
+                if args.fgsm:
+                    images_grad = images.grad.data
+                    adversarial_images = utils.apply_fgsm_attack(images, args.epsilon, images_grad)
+
+                    adversarial_output = model(adversarial_images)
+                    adversarial_loss = criterion(adversarial_output, labels)
+                    accelerator.backward(adversarial_loss)
+
                 if accelerator.sync_gradients:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
@@ -99,7 +107,7 @@ def train_one_epoch(
                 pred = output
             train_metrics.update(
                 accelerator.gather_for_metrics(pred),
-                accelerator.gather_for_metrics(targets)
+                accelerator.gather_for_metrics(labels)
             )
 
     total_train_metrics = train_metrics.compute()
@@ -137,35 +145,37 @@ def evaluate(
         ema: bool,
 ) -> Tuple[Dict, torch.Tensor]:
     """
-    This function evaluates the model on the validation dataset and returns the metrics.
+    Evaluates the model on the validation dataset and returns the metrics.
 
     Parameters:
-        - val_loader: A DataLoader object for the validation dataset.
-        - model: The model to be evaluated.
-        - val_metrics: An object for storing and computing validation metrics.
-        - roc_metric: An object for computing the ROC curve.
-        - ema: Whether evaluation is being performed on model_ema or not
-        - accelerator: The accelerator object for distributed training.
+        classes (List[str]): The list of class labels.
+        val_loader (DataLoader): A DataLoader object for the validation dataset.
+        model (nn.Module): The model to be evaluated.
+        val_metrics (Any): An object for storing and computing validation metrics.
+        roc_metric (Any): An object for computing the ROC curve.
+        accelerator (accelerate.Accelerator): The accelerator object for distributed training.
+        ema (bool): Whether evaluation is being performed on model_ema or not.
 
     Returns:
-       - Tuple: A tuple containing a dictionary of computed metrics and the predicted probabilities.
+        Tuple[Dict[str, Any], torch.Tensor]: A tuple containing a dictionary of computed metrics
+                                             and the predicted probabilities.
     """
     model.eval()
     with torch.no_grad():
         for batch in val_loader:
-            images, targets = batch["pixel_values"], batch["label"]
+            images, labels = batch["pixel_values"], batch["labels"]
             output = model(images.contiguous(memory_format=torch.channels_last))
 
             if len(classes) == 2:
                 _, pred = torch.max(output, 1)
                 val_metrics.update(accelerator.gather_for_metrics(pred),
-                                   accelerator.gather_for_metrics(targets))
+                                   accelerator.gather_for_metrics(labels))
                 roc_metric.update(accelerator.gather_for_metrics(output[:, 1]),
-                                  accelerator.gather_for_metrics(targets))
+                                  accelerator.gather_for_metrics(labels))
             else:
-                output, targets = accelerator.gather_for_metrics(output), accelerator.gather_for_metrics(targets)
-                val_metrics.update(output, targets)
-                roc_metric.update(output, targets)
+                output, labels = accelerator.gather_for_metrics(output), accelerator.gather_for_metrics(labels)
+                val_metrics.update(output, labels)
+                roc_metric.update(output, labels)
 
         total_val_metrics = val_metrics.compute()
         loss, acc, auc, f1, recall, prec, cm = (
@@ -198,12 +208,14 @@ def main(args: argparse.Namespace, accelerator) -> None:
     Runs the training and evaluation of the model.
 
     Parameters:
-        - args (argparse.Namespace): The command-line and default arguments.
+        args (argparse.Namespace): The command-line and default arguments.
+        accelerator: The accelerator object for distributed training.
 
     Returns:
-        - None
+        None
     """
 
+    # noinspection PyTypeChecker
     @find_executable_batch_size(starting_batch_size=args.batch_size)
     def inner_main_loop(batch_size):
         nonlocal accelerator
@@ -215,7 +227,8 @@ def main(args: argparse.Namespace, accelerator) -> None:
         set_seed(args.seed)
 
         data_transforms = utils.get_data_augmentation(args)
-        image_dataset = utils.load_image_dataset(args.dataset)
+        image_dataset = utils.load_image_dataset(args)
+        image_dataset.set_format("torch")
 
         def preprocess_train(example_batch):
             example_batch["pixel_values"] = [
@@ -228,17 +241,6 @@ def main(args: argparse.Namespace, accelerator) -> None:
                 data_transforms["val"](image.convert("RGB")) for image in example_batch["image"]
             ]
             return example_batch
-
-        def collate_fn(examples):
-            images = []
-            labels = []
-            for example in examples:
-                images.append((example["pixel_values"]))
-                labels.append(example["label"])
-
-            pixel_values = torch.stack(images)
-            labels = torch.tensor(labels)
-            return {"pixel_values": pixel_values, "label": labels}
 
         train_dataset = image_dataset["train"].with_transform(preprocess_train)
         val_dataset = image_dataset["validation"].with_transform(preprocess_val)
@@ -256,7 +258,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
         dataloaders = {
             x: data.DataLoader(
                 image_datasets[x],
-                collate_fn=collate_fn,
+                collate_fn=utils.collate_fn,
                 batch_size=batch_size,
                 sampler=samplers[x],
                 num_workers=args.num_workers,
@@ -271,13 +273,13 @@ def main(args: argparse.Namespace, accelerator) -> None:
         train_weights = utils.calculate_class_weights(train_loader)
 
         test_loader = None
-        if os.path.isdir(os.path.join(args.dataset, "test")) and args.test_only:
+        if args.test_only:
             test_dataset = image_dataset["test"].with_transform(preprocess_val)
             test_sampler = data.SequentialSampler(test_dataset)
 
             test_loader = data.DataLoader(
                 test_dataset,
-                collate_fn=collate_fn,
+                collate_fn=utils.collate_fn,
                 batch_size=args.batch_size,
                 sampler=test_sampler,
                 num_workers=args.num_workers,
@@ -288,7 +290,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
         criterion = torch.nn.CrossEntropyLoss(weight=train_weights, label_smoothing=args.label_smoothing).to(device)
 
-        classes = utils.get_classes(train_loader)
+        classes = utils.get_classes(train_dataset)
         num_classes = len(classes)
         task = "binary" if num_classes == 2 else "multiclass"
         top_k = 1 if task == "multiclass" else None
@@ -332,6 +334,10 @@ def main(args: argparse.Namespace, accelerator) -> None:
             pass
 
         for i, model_name in enumerate(args.models):
+            if args.test_only:
+                results_list = utils.read_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
+                model_name = results_list[0]["model"]
+
             if not os.path.isdir(os.path.join(args.output_dir, model_name)):
                 os.makedirs(os.path.join(args.output_dir, model_name), exist_ok=True)
 
@@ -342,10 +348,11 @@ def main(args: argparse.Namespace, accelerator) -> None:
             optimizer = utils.get_optimizer(args, params)
             lr_scheduler = utils.get_lr_scheduler(args, optimizer, len(train_loader))
 
-            train_loader, val_loader = accelerator.prepare_data_loader(train_loader), \
-                accelerator.prepare_data_loader(val_loader)
-            optimizer, lr_scheduler = accelerator.prepare_optimizer(optimizer), \
-                accelerator.prepare_scheduler(lr_scheduler)
+            if args.test_only:
+                test_loader = accelerator.prepare_data_loader(test_loader)
+            else:
+                train_loader, val_loader = accelerator.prepare_data_loader(train_loader), accelerator.prepare_data_loader(val_loader)
+                optimizer, lr_scheduler = accelerator.prepare_optimizer(optimizer), accelerator.prepare_scheduler(lr_scheduler)
 
             model_ema = None
             if args.ema:
@@ -363,7 +370,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
             checkpoint_file = os.path.join(args.output_dir, model_name, "checkpoint.pth")
             best_model_file = os.path.join(args.output_dir, model_name, "best_model")
-
+            
             mlflow.set_experiment(args.experiment_name)
 
             with mlflow.start_run(run_id=run_id, run_name=model_name) as run:
@@ -375,6 +382,39 @@ def main(args: argparse.Namespace, accelerator) -> None:
                 if run_id is None:
                     run_id_pair = {model_name: run.info.run_id}
                     utils.append_dictionary_to_json_file(file_path=run_ids_path, new_dict=run_id_pair)
+
+                if args.test_only:
+                    accelerator.print(f"Running evaluation on test data with the best model: {model_name}")
+                    with accelerator.main_process_first():
+                        if args.avg_ckpts:
+                            checkpoint_file = os.path.join(args.output_dir, model_name, "averaged", "best_model.pth")
+                            checkpoint = torch.load(checkpoint_file, map_location="cpu")
+                        else:
+                            checkpoint_file = os.path.join(args.output_dir, model_name, "best_model.pth")
+                            checkpoint = torch.load(checkpoint_file, map_location="cpu")
+                        model.load_state_dict(checkpoint["model"])
+                    if model_ema:
+                        total_test_metrics, total_roc_metric = evaluate(classes, test_loader, model_ema, val_metrics, roc_metric, accelerator, ema=True)
+                    else:
+                        total_test_metrics, total_roc_metric = evaluate(classes, test_loader, model, val_metrics, roc_metric, accelerator, ema=False)
+
+                    test_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for key, value in
+                                   total_test_metrics.items()}
+                    fpr, tpr, _ = total_roc_metric
+                    fpr, tpr = [ff.detach().tolist() for ff in fpr], [tt.detach().tolist() for tt in tpr]
+
+                    best_results = {**{"model": model_name, "fpr": fpr, "tpr": tpr}, **test_results}
+                    with open(os.path.join(args.output_dir, "test_results.jsonl"), "w") as file:
+                        json.dump(best_results, file)
+                        file.write("\n")
+
+                    results_df = process.display_results_dataframe(args)
+                    results_drop = results_df.drop(columns=["loss", "fpr", "tpr", "cm"])
+                    results_drop = results_drop.reset_index(drop=True)
+                    results_drop.to_json(path_or_buf=os.path.join(args.output_dir, "test_performance_metrics.jsonl"),
+                                         orient="records",
+                                         lines=True)
+                    return
 
                 if os.path.isfile(checkpoint_file):
                     with accelerator.main_process_first():
@@ -395,21 +435,6 @@ def main(args: argparse.Namespace, accelerator) -> None:
                         else:
                             accelerator.print(f"Resuming training from epoch {start_epoch}\n")
 
-                if args.test_only:
-                    with accelerator.main_process_first():
-                        if args.avg_ckpts:
-                            checkpoint_file = os.path.join(args.output_dir, model_name, "averaged", "best_model.pth")
-                            checkpoint = torch.load(checkpoint_file, map_location="cpu")
-                        else:
-                            checkpoint_file = os.path.join(args.output_dir, model_name, "best_model.pth")
-                            checkpoint = torch.load(checkpoint_file, map_location="cpu")
-                        model.load_state_dict(checkpoint["model"])
-                    if model_ema:
-                        evaluate(test_loader, model_ema, val_metrics, roc_metric, accelerator, ema=True)
-                    else:
-                        evaluate(test_loader, model, val_metrics, roc_metric, accelerator, ema=False)
-                    return
-
                 start_time = time.time()
 
                 if accelerator.is_main_process:
@@ -419,8 +444,8 @@ def main(args: argparse.Namespace, accelerator) -> None:
                     train_metrics.reset()
 
                     with accelerator.autocast():
-                        total_train_metrics = train_one_epoch(args, epoch, classes, train_loader, model, model_ema, optimizer,
-                                                              criterion, train_metrics, accelerator)
+                        total_train_metrics = train_one_epoch(args, epoch, classes, train_loader, model, model_ema,
+                                                              optimizer, criterion, train_metrics, accelerator)
 
                     if not accelerator.optimizer_step_was_skipped:
                         lr_scheduler.step()
@@ -440,26 +465,40 @@ def main(args: argparse.Namespace, accelerator) -> None:
                         parameters_to_prune = utils.prune_model(model, args.pruning_rate)
                         utils.remove_pruning_reparam(parameters_to_prune)
 
-                    train_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
+                    train_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for key, value in
                                      total_train_metrics.items()}
-                    val_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
+                    val_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for key, value in
                                    total_val_metrics.items()}
 
-                    accelerator.wait_for_everyone()
+                    accelerator.wait_for_everyone()       
+                    best_model_list = sorted(glob(os.path.join(args.output_dir, model_name, "best_model_*")))
+                    if best_model_list:
+                        bottom_k = os.path.splitext(os.path.basename(best_model_list[0]))[0].split("_")[-1]
+                        bottom_k = float(bottom_k)
+
                     if val_results["f1"] >= best_f1:
                         fpr, tpr, _ = total_roc_metric
                         fpr, tpr = [ff.detach().tolist() for ff in fpr], [tt.detach().tolist() for tt in tpr]
-
+                    
                         best_f1 = val_results["f1"]
                         best_results = {**{"model": model_name, "fpr": fpr, "tpr": tpr}, **val_results}
-
+                    
                         if model_ema:
-                            best_model_state = accelerator.get_state_dict(model_ema)
+                            accelerator.save({"model": accelerator.get_state_dict(model_ema)}, f"{best_model_file}_{best_f1}.pth")
                         else:
-                            best_model_state = accelerator.get_state_dict(model)
-                        accelerator.save({"model": best_model_state}, f"{best_model_file}_{best_f1}.pth")
-
+                            accelerator.save({"model": accelerator.get_state_dict(model)}, f"{best_model_file}_{best_f1}.pth")
+                    
                         best_checkpoints.append(f"{best_model_file}_{best_f1}.pth")
+                    elif val_results["f1"] >= bottom_k:
+                        if model_ema:
+                            accelerator.save({"model": accelerator.get_state_dict(model_ema)}, f"{best_model_file}_{val_results['f1']}.pth")
+                        else:
+                            accelerator.save({"model": accelerator.get_state_dict(model)}, f"{best_model_file}_{val_results['f1']}.pth")
+                    
+                        best_checkpoints.append(f"{best_model_file}_{val_results['f1']}.pth")
+                    
+                    if len(best_checkpoints) > args.num_ckpts:
+                        utils.keep_recent_files(os.path.join(args.output_dir, model_name), args.num_ckpts)
 
                     checkpoint = {
                         "args": args,
@@ -474,11 +513,6 @@ def main(args: argparse.Namespace, accelerator) -> None:
                         checkpoint["model_ema"] = model_ema.state_dict()
 
                     accelerator.save(checkpoint, os.path.join(args.output_dir, model_name, "checkpoint.pth"))
-
-                    if len(best_checkpoints) > args.num_ckpts:
-                        checkpoint_path_to_del = best_checkpoints.pop(0)
-                        if os.path.exists(checkpoint_path_to_del):
-                            os.remove(checkpoint_path_to_del)
 
                     if accelerator.is_main_process:
                         mlflow.log_metrics(
@@ -511,7 +545,10 @@ def main(args: argparse.Namespace, accelerator) -> None:
                     json.dump(best_results, file)
                     file.write("\n")
 
-                explainability.process_results(args, model_name, classes, accelerator)
+                process.plot_results(args, model_name, classes, accelerator)
+
+                if args.to_onnx:
+                    utils.convert_to_onnx(args, model_name, f"{best_model_file}.pth", num_classes)
 
                 accelerator.free_memory()
                 del model, optimizer, lr_scheduler
@@ -519,14 +556,14 @@ def main(args: argparse.Namespace, accelerator) -> None:
         results_list = utils.read_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
         best_compare_model_name = results_list[0]["model"]
         best_compare_model_file = os.path.join(args.output_dir,
-                                               os.path.join(best_compare_model_name, "averaged") if args.avg_ckpts
-                                               else best_compare_model_name,
-                                               "best_model.pth")
+                                                os.path.join(best_compare_model_name, "averaged") if args.avg_ckpts
+                                                else best_compare_model_name,
+                                                "best_model.pth")
 
         utils.convert_to_onnx(args, best_compare_model_name, best_compare_model_file, num_classes)
         accelerator.print(f"Exported best performing model, {best_compare_model_name},"
-                          f" to ONNX format. File is located in "
-                          f"{os.path.join(args.output_dir, best_compare_model_name)}")
+                            f" to ONNX format. File is located in "
+                            f"{os.path.join(args.output_dir, best_compare_model_name)}")
 
         accelerator.print(f"All results have been saved at {os.path.abspath(args.output_dir)}")
 
@@ -541,86 +578,83 @@ def get_args():
 
     # General Configuration
     parser.add_argument("--experiment_name", required=True, type=str, default="Experiment_1",
-                        help="Name of the MLflow experiment")
-    parser.add_argument("--dataset", required=True, type=str, help="The path to a local dataset directory or a "
-                                                                   "HuggingFace dataset name.")
-    parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
+                        help="This command allows you to specify the name of the MLflow experiment. It helps organize and categorize the experimental runs.")
+    parser.add_argument("--dataset", required=True, type=str, help="Use this command to provide the path to the dataset directory or the name of a HuggingFace dataset. It defines the data source for model training and evaluation.")
+    parser.add_argument("--dataset_kwargs", type=str, default="", help="If needed, you can use this command to point to a JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset.")
+    parser.add_argument("--output_dir", required=True, type=str, help="Specify the directory where the output files, such as trained models and evaluation results, will be saved.")
 
     # Model Configuration
-    parser.add_argument("--feat_extract", action="store_true", help="Whether to enable feature extraction or not")
-    parser.add_argument("--model_name", nargs="*", default=None, help="The name of the model to use. NOte that the "
-                                                                      "models are from the TIMM library")
-    parser.add_argument("--model_size", type=str, default="small", help="Size of the model to use",
+    parser.add_argument("--feat_extract", action="store_true", help="By including this flag, you can enable feature extraction during training, which is useful when using pretrained models.")
+    parser.add_argument("--module", type=str, help="If you want to select a specific model submodule, such as 'resnet' or 'deit', you can use this command to make that choice. It's not compatible with the --model_size or --model_name commands. Choose from this inexhaustive list: ['beit', 'convnext', 'deit', 'resnet', 'vision_transformer', 'efficientnet', 'xcit', 'regnet', 'nfnet', 'metaformer', 'fastvit', 'efficientvit_msra']")
+    parser.add_argument("--model_name", nargs="*", default=None, help="Use this to specify the name of the model(s) you want to use from the TIMM library. It's not compatible with the --model_size or --module commands.")
+    parser.add_argument("--model_size", type=str, default="small", help="If you prefer to specify the size of the model, you can use this command. It's not used when --model_name or --module are specified.",
                         choices=["nano", "tiny", "small", "base", "large", "giant"])
+    parser.add_argument("--to_onnx", action="store_true", help="Include this flag if you want to convert the trained model(s) to ONNX format. If not used, only the best model will be converted.")
 
     # Training Configuration
     # Checkpoint Averaging:
-    parser.add_argument("--avg_ckpts", action="store_true", help="Whether to enable checkpoint averaging or not.")
-    parser.add_argument("--num_ckpts", type=int, default=5, help="Number of best checkpoints to save")
+    parser.add_argument("--avg_ckpts", action="store_true", help=" When enabled, this flag triggers checkpoint averaging during training. It helps stabilize the training process.")
+    parser.add_argument("--num_ckpts", type=int, default=1, help="Set the number of best checkpoints to save when checkpoint averaging is active. It determines how many checkpoints are averaged.")
 
     # FGSM Adversarial Training
-    parser.add_argument("--fgsm", action="store_true", help="Whether to enable FGSM adversarial training")
-    parser.add_argument("--epsilon", type=float, default=0.03, help="Epsilon value for FGSM attack")
+    parser.add_argument("--fgsm", action="store_true", help="This flag allows you to enable FGSM (Fast Gradient Sign Method) adversarial training to enhance model robustness.")
+    parser.add_argument("--epsilon", type=float, default=0.03, help="If FGSM adversarial training is enabled, you can set the epsilon value for the FGSM attack using this command.")
 
     # Exponential Moving Average (EMA)
-    parser.add_argument("--ema", action="store_true", help="Whether to perform Exponential Moving Average or not")
-    parser.add_argument("--ema_steps", type=int, default=32, help="number of iterations to update the EMA model ")
-    parser.add_argument("--ema_decay", type=float, default=0.99998, help="EMA decay factor")
+    parser.add_argument("--ema", action="store_true", help="Enabling this flag performs Exponential Moving Average (EMA) during training, which can improve model performance and stability.")
+    parser.add_argument("--ema_steps", type=int, default=32, help="Specify the number of iterations for updating the EMA model.")
+    parser.add_argument("--ema_decay", type=float, default=0.99998, help="Set the EMA decay factor, which influences the contribution of past model weights.")
 
     # Pruning
-    parser.add_argument("--prune", action="store_true", help="Whether to perform pruning or not")
-    parser.add_argument("--pruning_rate", type=float, default=0.25, help="Pruning rate")
+    parser.add_argument("--prune", action="store_true", help=" Include this flag to enable pruning during training, which helps reduce model complexity and size.")
+    parser.add_argument("--pruning_rate", type=float, default=0.25, help="Set the pruning rate to control the extent of pruning applied to the model.")
 
     # Random Seed
-    parser.add_argument("--seed", default=999333666, type=int, help="Random seed.")
+    parser.add_argument("--seed", default=999333666, type=int, help="Set the random seed for reproducibility of training results.")
 
     # Data Augmentation
-    parser.add_argument('--gray', action='store_true', help='Convert images to grayscale')
-    parser.add_argument("--crop_size", default=224, type=int, help="Size to crop the input images to.")
-    parser.add_argument("--val_resize", default=256, type=int, help="Size to resize the validation images to.")
-    parser.add_argument("--mag_bins", default=31, type=int, help="Number of magnitude bins.")
-    parser.add_argument("--aug_type", default="rand", type=str, help="Type of data augmentation to use.",
+    parser.add_argument('--grayscale', action='store_true', help="If needed, use this flag to indicate that grayscale images should be used during training.")
+    parser.add_argument("--crop_size", default=224, type=int, help="Define the size to which input images will be cropped.")
+    parser.add_argument("--val_resize", default=256, type=int, help="Specify the size to which validation images will be resized.")
+    parser.add_argument("--mag_bins", default=31, type=int, help="Set the number of magnitude bins for augmentation-related operations.")
+    parser.add_argument("--aug_type", default="rand", type=str, help="Choose the type of data augmentation to use.",
                         choices=["augmix", "rand", "trivial"])
-    parser.add_argument("--interpolation", default="bilinear", type=str, help="Type of interpolation to use.",
+    parser.add_argument("--interpolation", default="bilinear", type=str, help="Choose the type of interpolation method to use.",
                         choices=["nearest", "bicubic", "bilinear"])
-    parser.add_argument("--hflip", default=0.5, type=float,
-                        help="Probability of randomly horizontally flipping the input data.")
+    parser.add_argument("--hflip", default=0.5, type=float, help="Define the probability of randomly horizontally flipping the input data.")
 
     # Mixup Augmentation
-    parser.add_argument("--mixup", action="store_true", help="Whether to enable mixup or not")
-    parser.add_argument("--mixup_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
+    parser.add_argument("--mixup", action="store_true", help="Include this flag to enable mixup augmentation, which enhances training by mixing pairs of samples.")
+    parser.add_argument("--mixup_alpha", type=float, default=1.0, help="Set the mixup hyperparameter alpha to control the interpolation factor.")
 
     # Cutmix Augmentation
-    parser.add_argument("--cutmix", action="store_true", help="Whether to enable cutmix or not")
-    parser.add_argument("--cutmix_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
+    parser.add_argument("--cutmix", action="store_true", help="Enable cutmix augmentation, which combines patches from different images to create new training samples.")
+    parser.add_argument("--cutmix_alpha", type=float, default=1.0, help="Set the cutmix hyperparameter alpha to control the interpolation factor.")
 
     # Training Parameters
-    parser.add_argument("--batch_size", default=16, type=int, help="Batch size for training and evaluation.")
-    parser.add_argument("--num_workers", default=4, type=int, help="Number of workers for data loading.")
-    parser.add_argument("--epochs", default=100, type=int, help="Number of epochs to train.")
-    parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate for classifier head")
-    parser.add_argument("--label_smoothing", default=0.1, type=float, help="Amount of label smoothing to use.")
+    parser.add_argument("--batch_size", default=16, type=int, help="Define the batch size for both training and evaluation stages.")
+    parser.add_argument("--num_workers", default=4, type=int, help="Specify the number of workers for training and evaluation.")
+    parser.add_argument("--epochs", default=100, type=int, help="Set the number of training epochs, determining how many times the entire dataset will be iterated.")
+    parser.add_argument("--dropout", type=float, default=0.2, help="Define the dropout rate for the classifier head of the model.")
+    parser.add_argument("--label_smoothing", default=0.1, type=float, help="Set the amount of label smoothing to use during training.")
 
     # Optimization and Learning Rate Scheduling
-    parser.add_argument("--opt_name", default="madgrad", type=str, help="Name of the optimizer to use.", )
-    parser.add_argument("--lr", default=0.001, type=float, help="Initial learning rate.")
-    parser.add_argument("--wd", default=1e-4, type=float, help="Weight decay.")
-    parser.add_argument("--sched_name", default="one_cycle", type=str, help="Name of the learning rate scheduler "
-                                                                            "to use.",
-                        choices=["step", "cosine", "cosine_wr", "one_cycle"])
-    parser.add_argument('--max_lr', type=float, default=0.1, help='Maximum learning rate')
-    parser.add_argument("--step_size", default=30, type=int, help="Step size for the learning rate scheduler.")
-    parser.add_argument("--warmup_epochs", default=5, type=int, help="Number of epochs for the warmup period.")
-    parser.add_argument("--warmup_decay", default=0.1, type=float, help="Decay rate for the warmup learning rate.")
-    parser.add_argument("--gamma", default=0.1, type=float, help="Gamma for the learning rate scheduler.")
-    parser.add_argument("--eta_min", default=1e-6, type=float,
-                        help="Minimum learning rate for the learning rate scheduler.")
-    parser.add_argument("--t0", type=int, default=5, help="Number of iterations for the first restart")
+    parser.add_argument("--opt_name", default="madgradw", type=str, help="Choose the optimizer for the training process. An inexhaustive choices ['lion', 'madgrad', 'madgradw', 'adamw', 'radabelief', 'adafactor', 'novograd', 'lars', 'lamb', 'rmsprop', 'sgdp']")
+    parser.add_argument("--lr", default=0.01, type=float, help=" Specify the initial learning rate for the optimizer.")
+    parser.add_argument("--wd", default=1e-4, type=float, help="Set the weight decay (L2 regularization) for the optimizer.")
+    parser.add_argument("--sched_name", default="one_cycle", type=str, help="Choose the learning rate scheduler strategy", choices=["step", "cosine", "cosine_wr", "one_cycle"])
+    parser.add_argument('--max_lr', type=float, default=0.1, help='Set the maximum learning rate when using cyclic learning rate scheduling.')
+    parser.add_argument("--step_size", default=30, type=int, help="Set the step size for learning rate adjustments in certain scheduler strategies.")
+    parser.add_argument("--warmup_epochs", default=5, type=int, help="Specify the number of epochs for the warmup phase of learning rate scheduling.")
+    parser.add_argument("--warmup_decay", default=0.1, type=float, help="Set the decay rate for the learning rate during the warmup phase.")
+    parser.add_argument("--gamma", default=0.1, type=float, help="Set the gamma parameter used in certain learning rate scheduling strategies.")
+    parser.add_argument("--eta_min", default=1e-5, type=float, help="Define the minimum learning rate that the scheduler can reach.")
+    parser.add_argument("--t0", type=int, default=5, help="Specify the number of iterations for the first restart in learning rate scheduling strategies.")
 
     # Evaluation Metrics and Testing
-    parser.add_argument("--sorting_metric", default="f1", type=str, help="Metric to sort the results by.",
+    parser.add_argument("--sorting_metric", default="f1", type=str, help="Choose the metric by which the model results will be sorted.",
                         choices=["f1", "auc", "accuracy", "precision", "recall"])
-    parser.add_argument("--test_only", action="store_true", help="Whether to enable testing the trained model or not.")
+    parser.add_argument("--test_only", action="store_true", help="When enabled, this flag indicates that you want to perform testing on the test split only, skipping training.")
 
     return parser.parse_args()
 
@@ -628,6 +662,8 @@ def get_args():
 if __name__ == "__main__":
     warnings.filterwarnings("ignore")
     cfgs = get_args()
+
+    set_seed(cfgs.seed)
 
     deepspeed_plugin = DeepSpeedPlugin(gradient_accumulation_steps=2, gradient_clipping=1.0)
     fsdp_plugin = FullyShardedDataParallelPlugin(
@@ -652,7 +688,7 @@ if __name__ == "__main__":
         else:
             cfgs.models = [cfgs.model_name]
     else:
-        cfgs.models = sorted(utils.get_matching_model_names(cfgs.crop_size, cfgs.model_size))
+        cfgs.models = sorted(utils.get_matching_model_names(cfgs))
 
     cfgs.lr *= accelerator_var.num_processes
     main(cfgs, accelerator_var)

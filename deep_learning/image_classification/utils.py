@@ -6,6 +6,7 @@ import shutil
 
 from glob import glob
 from os import PathLike
+from pathlib import Path
 from argparse import Namespace
 from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -21,6 +22,7 @@ import torch.optim.lr_scheduler as lr_scheduler
 from datasets import load_dataset
 from torch.optim import swa_utils
 from torch import nn, optim, Tensor
+from torch.distributions import Beta
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.transforms import functional as f
@@ -142,33 +144,33 @@ def write_dictionary_to_json(dictionary: Dict, file_path: str) -> None:
 def append_dictionary_to_json_file(new_dict: Dict, file_path: str) -> None:
     # noinspection PyShadowingNames
     """
-        Append a dictionary to a JSON file at the given file path.
-        If the file does not exist, it will be created.
+    Append a dictionary to a JSON file at the given file path.
+    If the file does not exist, it will be created.
 
-        Parameters:
-            new_dict (Dict): The dictionary to be appended to the JSON file.
-            file_path (str): The path to the JSON file.
+    Parameters:
+        new_dict (Dict): The dictionary to be appended to the JSON file.
+        file_path (str): The path to the JSON file.
 
-        Returns:
-            None
+    Returns:
+        None
 
-        Example:
-            >>> new_dict = {"key": "value"}  # Example dictionary to be appended
-            >>> file_path = "data.json"  # Example file path
-            >>> append_dictionary_to_json_file(new_dict, file_path)
+    Example:
+        >>> new_dict = {"key": "value"}  # Example dictionary to be appended
+        >>> file_path = "data.json"  # Example file path
+        >>> append_dictionary_to_json_file(new_dict, file_path)
 
-            # If data.json file does not exist previously, it will be created and contain the following content:
-            # {
-            #     "key": "value"
-            # }
+        # If data.json file does not exist previously, it will be created and contain the following content:
+        # {
+        #     "key": "value"
+        # }
 
-            # If data.json file already exists with content {"existing_key": "existing_value"},
-            # after appending new_dict, the content will be updated to:
-            # {
-            #     "existing_key": "existing_value",
-            #     "key": "value"
-            # }
-        """
+        # If data.json file already exists with content {"existing_key": "existing_value"},
+        # after appending new_dict, the content will be updated to:
+        # {
+        #     "existing_key": "existing_value",
+        #     "key": "value"
+        # }
+    """
     if os.path.isfile(file_path):
         data = read_json_file(file_path)
     else:
@@ -232,6 +234,35 @@ def read_json_lines_file(file_path: str) -> List[Union[dict, Any]]:
         return data
 
 
+def keep_recent_files(directory: str, num_files_to_keep: int) -> None:
+    """
+    Sorts files in the specified directory and keeps
+    files with the best f1 scores. Files beyond the specified number of files to keep
+    will be removed.
+
+    Parameters:
+        directory (str): The path to the directory containing the files.
+        num_files_to_keep (int): The number of best f1 score files to keep.
+
+    Returns:
+        None
+
+    Example:
+        >>> directory_path = "/path/to/directory"
+        >>> num_files_to_keep = 10
+        >>> keep_recent_files(directory_path, num_files_to_keep)
+    """
+    file_list = glob(os.path.join(directory, "best_model_*"))
+    sorted_files = sorted(file_list, reverse=True)
+    files_to_remove = sorted_files[num_files_to_keep:]
+
+    for file_to_remove in files_to_remove:
+        try:
+            os.remove(file_to_remove)
+        except OSError as e:
+            print(f"Error while removing {file_to_remove}: {e}")
+
+
 def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
     """
     Sets the seed for NumPy and Python's random module for the given worker.
@@ -266,13 +297,15 @@ def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
 
 
 # noinspection PyTypeChecker
-def load_image_dataset(dataset: str) -> datasets.arrow_dataset.Dataset:
+def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
     """
     Load an image dataset using Hugging Face's 'datasets' library.
 
     Parameters:
-        dataset (str or os.PathLike): The path to a local dataset directory or a Hugging Face dataset name
+        args:
+            dataset (str or os.PathLike): The path to a local dataset directory or a Hugging Face dataset name
                                     (or an HTTPS URL for a remote dataset).
+            dataset_kwargs (json): The path to a JSON file containing kwargs of a HuggingFace dataset.
 
     Returns:
         datasets.arrow_dataset.Dataset: The loaded image dataset.
@@ -283,7 +316,7 @@ def load_image_dataset(dataset: str) -> datasets.arrow_dataset.Dataset:
 
      Example:
          >>> dataset_name = "mnist"
-         >>> loaded_dataset = load_image_dataset(dataset_name)
+         >>> loaded_dataset = load_image_dataset(args)
          >>> print(loaded_dataset)
          Dataset(features: {'image': Image(shape=(28, 28, 1), dtype=torch.uint8), 'label': ClassLabel(
                             shape=(), dtype=int64)}, num_rows: 70000)
@@ -299,60 +332,68 @@ def load_image_dataset(dataset: str) -> datasets.arrow_dataset.Dataset:
         >>> print(loaded_dataset)
         Dataset(features: {'image': Image(shape=(None, None, 3), dtype=uint8)}, num_rows: 5000)
     """
-    if isinstance(dataset, PathLike) and os.path.isdir(dataset):
-        return load_dataset("imagefolder", data_dir=dataset)
-    elif dataset.startswith("https"):
-        return load_dataset("imagefolder", data_files=dataset)
-    elif isinstance(dataset, str):
-        return load_dataset(dataset)
+    if isinstance(args.dataset, Path) and os.path.isdir(args.dataset):
+        image_dataset = load_dataset("imagefolder", data_dir=args.dataset)
+    # elif isinstance(dataset, str) and (dataset.startswith("https") or dataset.endswith(".zip")):
+    #     image_dataset = load_dataset("imagefolder", data_files=dataset)
+    elif isinstance(args.dataset, str):
+        data_kwargs = {"path": args.dataset}
+        if args.dataset_kwargs.endswith(".json"):
+            with open(args.dataset_kwargs, 'r') as json_file:
+                data_kwargs = json.load(json_file)
+        image_dataset = load_dataset(**data_kwargs)
     else:
         raise ValueError("Dataset should be a path to a local dataset on disk, a dataset name of an image dataset "
                          "from Hugging Face datasets, or an HTTPS URL for a remote dataset.")
 
+    image_column_names = image_dataset.column_names["train"]
+    if "img" in image_column_names:
+        image_dataset = image_dataset.rename_columns({"img": "image"})
+    if "label" in image_column_names:
+        image_dataset = image_dataset.rename_columns({"label": "labels"})
+    if "fine_label" in image_column_names:
+        image_dataset = image_dataset.rename_columns({"fine_label": "labels"})
 
-def apply_fgsm_attack(model: nn.Module, loss: Tensor, images: Tensor, epsilon: float) -> Tensor:
+    if "validation" not in image_dataset.keys() and "test" in image_dataset.keys():
+        new = image_dataset["train"].train_test_split(test_size=0.2, stratify_by_column="labels")
+        new["validation"] = new["test"]
+        new["test"] = image_dataset["test"]
+        image_dataset = new
+    elif "validation" not in image_dataset.keys():
+        new = image_dataset["train"].train_test_split(test_size=0.2, stratify_by_column="labels")
+        new["validation"] = new["test"]
+        new.pop("test")
+        image_dataset = new
+    elif "test" not in image_dataset.keys() and "validation" in image_dataset.keys():
+        new = image_dataset["train"].train_test_split(test_size=0.2, stratify_by_column="labels")
+        new["validation"] = image_dataset["validation"]
+        image_dataset = new
+
+    return image_dataset
+
+
+def apply_fgsm_attack(image: torch.Tensor, epsilon: float, data_grad: torch.Tensor) -> torch.Tensor:
     """
-    Applies the Fast Gradient Sign Method (FGSM) attack to the input image.
+    Generate an adversarial example using the Fast Gradient Sign Method (FGSM).
 
     Parameters:
-        model (nn.Module): The model used for generating gradients.
-        loss (Tensor): The loss value used for calculating gradients.
-        images (Tensor): The input image to be perturbed.
-        epsilon (float): The perturbation magnitude.
+        image (torch.Tensor): The input image.
+        epsilon (float): Perturbation magnitude for generating adversarial examples.
+        data_grad (torch.Tensor): Gradient of the loss with respect to the image.
 
     Returns:
-        Tensor: The perturbed image.
+        torch.Tensor: Adversarial example perturbed using FGSM.
 
     Example:
-        import torch
-
-        # Example model
-        class MyModel(nn.Module):
-            # Your model architecture definition here
-            pass
-
-        model = MyModel()
-        image = torch.randn(3, 224, 224)  # Example input image
-        epsilon = 0.03  # Perturbation magnitude
-
-        # Example loss calculation
-        output = model(image.unsqueeze(0))
-        target_label = torch.tensor([2])  # Example target label index
-        loss = nn.CrossEntropyLoss()(output, target_label)
-
-        perturbed_image = apply_fgsm_attack(model, loss, image, epsilon)
-        print(perturbed_image)  # Perturbed image after applying FGSM attack
+        >>> image = torch.rand(1, 3, 32, 32)  # A random image of size (1, 3, 32, 32)
+        >>> epsilon = 0.05  # Perturbation magnitude
+        >>> data_grad = torch.randn(1, 3, 32, 32)  # Gradient of loss w.r.t. image
+        >>> adversarial_image = fgsm_attack(image, epsilon, data_grad)
     """
-    model.eval()
-    images.requires_grad_(True)
-
-    model.zero_grad()
-    loss.backward()
-
-    gradients = images.grad.data
-    image_perturbed = images + epsilon * torch.sign(gradients)
-    image_perturbed = torch.clamp(image_perturbed, min=0, max=1)
-    return image_perturbed
+    sign_data_grad = data_grad.sign()
+    adversarial_image = image + epsilon * sign_data_grad
+    adversarial_image = torch.clamp(adversarial_image, min=0, max=1)
+    return adversarial_image
 
 
 def apply_normalization(args: Namespace, aug_list: List) -> List:
@@ -360,17 +401,16 @@ def apply_normalization(args: Namespace, aug_list: List) -> List:
     Apply normalization to the augmentation list based on grayscale conversion.
 
     Parameters:
-        args (Namespace) : Namespace object containing arguments
-             grayscale (bool): Whether to convert the images to grayscale.
-        aug_list (List[transforms.Transform]): The list of transformation functions for data augmentation.
-
+        args (Namespace): Namespace object containing arguments.
+            grayscale (bool): Whether to convert the images to grayscale.
+        aug_list (List): The list of transformation functions for data augmentation.
 
     Returns:
         List: The updated list of transformation functions with normalization applied.
 
     Example:
-        >>> import argparse
-        >>> args = argparse.Namespace(grayscale=True)
+        >>> from argparse import Namespace
+        >>> args = Namespace(grayscale=True)
         >>> aug_list = [transforms.RandomResizedCrop(224), transforms.ToTensor()]
         >>> updated_aug_list = apply_normalization(args, aug_list)
 
@@ -382,13 +422,19 @@ def apply_normalization(args: Namespace, aug_list: List) -> List:
         [transforms.RandomResizedCrop(224), transforms.ToTensor(),
          transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]
     """
-
     if args.grayscale:
         aug_list.append(transforms.Grayscale())
 
+    if args.grayscale:
+        normalization_mean = [0.5]
+        normalization_std = [0.5]
+    else:
+        normalization_mean = [0.485, 0.456, 0.406]
+        normalization_std = [0.229, 0.224, 0.225]
+
     aug_list.extend([
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5], std=[0.5]) if args.grayscale else transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD)
+        transforms.Normalize(mean=normalization_mean, std=normalization_std)
     ])
 
     return aug_list
@@ -398,43 +444,45 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
     """
     Returns data augmentation transforms for training and validation sets.
 
-
     Parameters:
-        args: A namespace object containing the following attributes:
+        args (Namespace): A namespace object containing the following attributes:
             crop_size (int): The size of the crop for the training and validation sets.
             val_resize (int): The target size for resizing the validation images.
-                                 The validation images will be resized to this size while maintaining their aspect ratio.
+                              The validation images will be resized to this size while maintaining their aspect ratio.
             interpolation (int): The interpolation method for resizing and cropping.
             hflip (bool): Whether to apply random horizontal flip to the training set.
             aug_type (str): The type of augmentation to apply to the training set.
-                              Must be one of "trivial", "augmix", or "rand".
+                             Must be one of "trivial", "augmix", or "rand".
 
     Returns:
         Dict[str, Callable]: A dictionary of data augmentation transforms for the training and validation sets.
 
     Example:
-         >>> import torchvision.transforms as transforms
-         >>> args = Namespace(crop_size=224, interpolation=3, hflip=True, aug_type='augmix')
-         >>> transforms_dict = get_data_augmentation(args)
-         >>> train_transforms = transforms_dict['train']
-         >>> val_transforms = transforms_dict['val']
-         >>> print(train_transforms)
-         Output: Composed transform with random resized crop, random horizontal flip, and AugMix augmentation
-         >>> print(val_transforms)
-         Output: Composed transform with resize, center crop, and normalization
+        >>> import torchvision.transforms as transforms
+        >>> args = Namespace(crop_size=224, interpolation=3, hflip=True, aug_type='augmix')
+        >>> transforms_dict = get_data_augmentation(args)
+        >>> train_transforms = transforms_dict['train']
+        >>> val_transforms = transforms_dict['val']
+        >>> print(train_transforms)
+        Output: Composed transform with random resized crop, random horizontal flip, and AugMix augmentation
+        >>> print(val_transforms)
+        Output: Composed transform with resize, center crop, and normalization
     """
-    train_aug = [
-        transforms.RandomResizedCrop(args.crop_size, interpolation=f.InterpolationMode(args.interpolation)),
-        transforms.RandomHorizontalFlip(args.hflip)
-    ]
-    if args.aug_type == "trivial":
-        train_aug.append(transforms.TrivialAugmentWide(num_magnitude_bins=args.mag_bins,
-                                                       interpolation=f.InterpolationMode(args.interpolation)))
-    elif args.aug_type == "augmix":
-        train_aug.append(transforms.AugMix(interpolation=f.InterpolationMode(args.interpolation)))
-    elif args.aug_type == "rand":
-        train_aug.append(transforms.RandAugment(num_magnitude_bins=args.mag_bins,
-                                                interpolation=f.InterpolationMode(args.interpolation)))
+    def get_augmentation_by_type(aug_type: str) -> Callable:
+        if aug_type == "trivial":
+            return transforms.TrivialAugmentWide(num_magnitude_bins=args.mag_bins,
+                                                 interpolation=f.InterpolationMode(args.interpolation))
+        elif aug_type == "augmix":
+            return transforms.AugMix(interpolation=f.InterpolationMode(args.interpolation))
+        elif aug_type == "rand":
+            return transforms.RandAugment(num_magnitude_bins=args.mag_bins,
+                                          interpolation=f.InterpolationMode(args.interpolation))
+        else:
+            raise ValueError(f"Invalid augmentation type: '{aug_type}'")
+
+    train_aug = [transforms.RandomResizedCrop(args.crop_size, interpolation=f.InterpolationMode(args.interpolation)),
+                 transforms.RandomHorizontalFlip(args.hflip), get_augmentation_by_type(args.aug_type)]
+
     train_transform = transforms.Compose(apply_normalization(args, train_aug))
 
     val_aug = [
@@ -446,18 +494,17 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
     return {"train": train_transform, "val": val_transform}
 
 
-def apply_mixup(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) -> Tuple[torch.Tensor, torch.Tensor,
-torch.Tensor, float]:
+def apply_mixup(images: Tensor, targets: Tensor, alpha: float = 1.0) -> Tuple[Tensor, Tensor, Tensor, float]:
     """
     Applies Mixup augmentation to input data.
 
     Parameters:
-        images (torch.Tensor): Input images.
-        targets (torch.Tensor): Corresponding targets.
+        images (Tensor): Input images.
+        targets (Tensor): Corresponding targets.
         alpha (float, optional): Mixup parameter. Defaults to 1.0.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]: Mixed images, mixed labels (labels_a),
+        Tuple[Tensor, Tensor, Tensor, float]: Mixed images, mixed labels (labels_a),
         original labels (labels_b), and mixup factor (lambda).
     Example:
          >>> import torch
@@ -474,11 +521,15 @@ torch.Tensor, float]:
          >>> print(lam)
          Output: 0.5
     """
-    lam = torch.distributions.beta.Beta(alpha, alpha).sample().item()
+    beta_dist = Beta(alpha, alpha)
+    lam = beta_dist.sample().item()
+
     batch_size = images.size(0)
     index = torch.randperm(batch_size)
+
     mixed_images = lam * images + (1 - lam) * images[index, :]
     targets_a, targets_b = targets, targets[index]
+
     return mixed_images, targets_a, targets_b, lam
 
 
@@ -608,7 +659,7 @@ def convert_to_onnx(
     model.eval()
 
     batch_size = 1
-    dummy_input = torch.randn(batch_size, 1 if args.scale else 3, args.crop_size, args.crop_size, requires_grad=True)
+    dummy_input = torch.randn(batch_size, 1 if args.grayscale else 3, args.crop_size, args.crop_size, requires_grad=True)
     filename = os.path.join(os.path.dirname(checkpoint_path), "best_model.onnx")
 
     torch.onnx.export(
@@ -694,7 +745,7 @@ def get_classes(dataset: torch.utils.data.Dataset) -> List[str]:
         List[str]: A sorted list of the classes in the dataset.
 
     Example:
-        >>> dataset = load_image_dataset('dataset')
+        >>> dataset = load_image_dataset(args)
         >>> classes = get_classes(dataset)
         >>> print(classes)
         Output: ['class1', 'class2', 'class3', ...]
@@ -704,39 +755,91 @@ def get_classes(dataset: torch.utils.data.Dataset) -> List[str]:
     return sorted(classes)
 
 
-def get_matching_model_names(image_size: int, model_size: str) -> List[str]:
+def get_matching_model_names(args: Namespace) -> List[str]:
     """
-    Get a list of model names that match the given image size and model size.
+    Get a list of model names matching the given image crop size and model size or submodule name.
 
     Parameters:
-        image_size (int): Image size the models should be trained on.
-        model_size (str): Size of the model (e.g., "tiny", "small", etc.).
+        args:
+            crop_size (int): Image size the models should be trained on.
+            model_size (str): Size of the model (e.g., "tiny", "small", etc.).
+            module (str): A submodule for selecting models
 
     Returns:
         List[str]: A list of model names that can be used for training.
 
     Example:
-        >>> get_matching_model_names(224, "small")
+        >>> import argparse
+
+        ### Loading models based on model size
+        >>> args = argparse.Namespace(image_size=224, model_size="small")
+        >>> get_matching_model_names(args)
         ['tf_efficientnet_b0_ns_small_224', 'tf_efficientnet_b1_ns_small_224', 'tf_efficientnet_b2_ns_small_224', ...]
+
+        # Loading models based on specific submodule
+        >>> args = argparse.Namespace(image_size=224, module="resnet")
+        >>> get_matching_model_names(args)
+        ['ecaresnet50d.miil_in1k', 'ecaresnet50t.a1_in1k', 'ecaresnet50t.a3_in1k', 'ecaresnet101d.miil_in1k', ...]
     """
-    model_names = timm.list_models(pretrained=True)
 
-    matching_models = [name for name in model_names if str(image_size) in name and model_size in name]
+    def filter_models(models: List[str], crop_size: int) -> List[str]:
+        """
+        Filter a list of model names based on crop size.
 
-    if model_size == "tiny":
-        matching_models.remove("deit_tiny_distilled_patch16_224.fb_in1k")
+        This function iterates through the list of model names and removes
+        those models that do not contain the given crop size in their name
+        and have numeric values greater than the crop size in their suffixes.
 
-    if model_size == "small":
-        matching_models.remove("deit_small_distilled_patch16_224.fb_in1k")
-        matching_models.remove("swin_s3_small_224.ms_in1k")
+        Args:
+            models (List[str]): A list of model names.
+            crop_size (int): The crop size to be checked against the models.
 
-    if model_size == "base":
-        matching_models.remove("deit_base_distilled_patch16_224.fb_in1k")
-        matching_models.remove("maxxvitv2_rmlp_base_rw_224.sw_in12k_ft_in1k")
-        matching_models.remove("swin_base_patch4_window7_224.ms_in22k")
-        matching_models.remove("vit_base_patch16_224.orig_in21k_ft_in1k")
-        matching_models.remove("vit_base_patch8_224.augreg_in21k_ft_in1k")
-        matching_models.remove("vit_base_patch8_224.dino")
+        Returns:
+            List[str]: A filtered list of model names after the recurring filtering process.
+
+        Example:
+            >>> models = ['flexivit_base.300ep_in1k', 'vit_small_patch16_224.augreg_in1k', 'vit_tiny_patch16_384.augreg_in21k_ft_in1k']
+            >>> crop_size = 224
+            >>> filtered_models = filter_models(models, crop_size)
+            >>> print(filtered_models)
+            ['flexivit_base.300ep_in1k', 'vit_small_patch16_224.augreg_in1k']
+        """
+        changed = True
+        while changed:
+            changed = False
+            for model in models.copy():
+                lhs = model.split(".")[0].split("_")[-1]
+                rhs = model.split(".")[-1].split("_")[-1]
+                if str(crop_size) not in model:
+                    if model.isalpha():
+                        continue
+                    if lhs.isnumeric():
+                        if int(lhs) > crop_size:
+                            models.remove(model)
+                            changed = True
+                    if rhs.isnumeric():
+                        if int(rhs) > crop_size:
+                            models.remove(model)
+                            changed = True
+        return models
+
+
+    def is_matching_model(name: str) -> bool:
+        return str(args.crop_size) in name and args.model_size in name
+
+    if args.module:
+        model_names = timm.list_models(pretrained=True, module=args.module)
+        matching_models = filter_models(model_names, args.crop_size)
+    else:
+        model_names = timm.list_models(pretrained=True)
+
+        models_to_remove = {
+            "tiny": {"deit_tiny_distilled_patch16_224.fb_in1k", "swin_s3_tiny_224.ms_in1k"},
+            "small": {"deit_small_distilled_patch16_224.fb_in1k"},
+            "base": {"deit_base_distilled_patch16_224.fb_in1k", "vit_base_patch8_224.augreg2_in21k_ft_in1k"}
+        }
+        matching_models = [name for name in model_names if is_matching_model(name)]
+        matching_models = [name for name in matching_models if name not in models_to_remove.get(args.model_size, set())]
 
     return matching_models
 
@@ -879,7 +982,7 @@ def average_checkpoints(checkpoint_paths: List[str]) -> OrderedDict:
         KeyError: If the checkpoints have different sets of parameters.
 
     Example:
-         >>> checkpoint_paths = ["checkpoint1.pth", "checkpoint2.pth", "checkpoint3.pth"]
+        >>> checkpoint_paths = ["checkpoint1.pth", "checkpoint2.pth", "checkpoint3.pth"]
         >>> averaged_params = average_checkpoints(checkpoint_paths)
         >>> print(averaged_params)  # Display the averaged parameters
     """

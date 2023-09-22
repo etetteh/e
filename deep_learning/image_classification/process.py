@@ -1,3 +1,4 @@
+import os
 import argparse
 from typing import List
 
@@ -5,25 +6,23 @@ import numpy as np
 import pandas as pd
 import torch
 import torchvision
+
 from plotly import express as px
 from plotly import graph_objects as go
-from torch.utils.data import DataLoader
 from sklearn.metrics import auc
 from accelerate import Accelerator
-
-import shap
-import os
 
 import utils
 
 
-def display_results_dataframe(output_dir: str, sorting_metric: str) -> pd.DataFrame:
+def display_results_dataframe(args: argparse.Namespace) -> pd.DataFrame:
     """
     Load the results from the results file, convert them to a DataFrame, and sort the DataFrame by a given metric.
 
     Parameters:
-        - output_dir: Directory where the results file is stored.
-        - sorting_metric: Metric to sort the DataFrame by.
+        args:
+            - output_dir: Directory where the results file is stored.
+            - sorting_metric: Metric to sort the DataFrame by.
 
     Returns:
         - A sorted DataFrame of the results.
@@ -35,11 +34,14 @@ def display_results_dataframe(output_dir: str, sorting_metric: str) -> pd.DataFr
         # convert them into a DataFrame, and sort the DataFrame based on the "accuracy" metric in descending order.
         # The sorted DataFrame will be stored in the variable "results_df".
     """
-    results_list = utils.read_json_lines_file(os.path.join(output_dir, "results.jsonl"))
+    if args.test_only:
+        results_list = utils.read_json_lines_file(os.path.join(args.output_dir, "test_results.jsonl"))
+    else:
+        results_list = utils.read_json_lines_file(os.path.join(args.output_dir, "results.jsonl"))
 
     results_df = pd.DataFrame(results_list)
 
-    sorted_results_df = results_df.sort_values(by=[sorting_metric], ascending=False)
+    sorted_results_df = results_df.sort_values(by=[args.sorting_metric], ascending=False)
 
     return sorted_results_df
 
@@ -64,9 +66,11 @@ def plot_confusion_matrix(results_df: pd.DataFrame, model_name: str, classes: Li
                     labels={"x": "Predicted Condition", "y": "Actual Condition", "color": "Score"},
                     )
 
-    fig.update_xaxes(side="top")
+    # fig.update_xaxes(side="top")
+    fig.update_layout(width=750, height=750)
     if output_dir:
         fig.write_html(os.path.join(output_dir, model_name, "confusion_matrix.html"))
+        fig.write_image(os.path.join(output_dir, model_name, "confusion_matrix.png"))
 
 
 def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str, output_dir: str) -> None:
@@ -141,9 +145,10 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
 
     if output_dir:
         fig.write_html(os.path.join(output_dir, model_name, "roc_curve.html"))
+        fig.write_image(os.path.join(output_dir, model_name, "roc_curve.png"))
 
 
-def process_results(args: argparse.Namespace, model_name: str, classes: List[str], accelerator: Accelerator) -> None:
+def plot_results(args: argparse.Namespace, model_name: str, classes: List[str], accelerator: Accelerator) -> None:
     """
     Processes and saves the performance metrics and plots confusion matrix and ROC curve.
 
@@ -173,7 +178,7 @@ def process_results(args: argparse.Namespace, model_name: str, classes: List[str
         # and print the model's performance or its performance compared to other models. It will also plot the confusion
         # matrix and ROC curve and save them in the 'results' directory.
     """
-    results_df = display_results_dataframe(output_dir=args.output_dir, sorting_metric=args.sorting_metric)
+    results_df = display_results_dataframe(args)
     results_drop = results_df.drop(columns=["loss", "fpr", "tpr", "cm"])
 
     results_drop = results_drop.reset_index(drop=True)
@@ -189,127 +194,3 @@ def process_results(args: argparse.Namespace, model_name: str, classes: List[str
     plot_confusion_matrix(results_df, model_name, classes, args.output_dir)
 
     plot_roc_curve(classes, results_df, model_name, args.output_dir)
-
-
-def explain_model(args: argparse.Namespace) -> None:
-    """
-    Explain the predictions of a given model on a dataset using SHAP values.
-
-    Parameters:
-        - args (argparse.Namespace): Arguments passed to the script.
-            - dataset_dir (str): Directory of the dataset to use.
-            - model_name (str): Name of the model to use.
-            - crop_size (int): Size of the random crop applied to the images.
-            - batch_size (int): Batch size for data loading.
-            - num_workers (int): Number of workers for data loading.
-            - n_samples (int): Number of samples to explain.
-            - max_evals (int): Maximum number of evaluations for SHAP.
-            - topk (int): Number of top-k predictions to plot.
-    Returns:
-        None
-
-    Side Effects:
-        - Plots the SHAP value interpretation for the model predictions on a subset of images from the dataset.
-
-    Example:
-        >>> args = argparse.Namespace(
-        ...     dataset_dir="data",
-        ...     model_name="MyModel",
-        ...     crop_size=224,
-        ...     batch_size=32,
-        ...     num_workers=4,
-        ...     n_samples=5,
-        ...     max_evals=100,
-        ...     topk=5
-        ... )
-        >>> explain_model(args)
-        # The function will use the provided arguments to load the model, dataset, and then explain the model
-        # predictions using SHAP values. It will plot the SHAP value interpretation for the top-k predictions on
-        # a subset of n_samples images from the dataset. The results will be displayed in the console or as a
-        # visualization, depending on the implementation.
-    """
-    def predict(img: np.ndarray) -> torch.Tensor:
-        """
-        Predict the class probabilities for an image.
-
-        Parameters:
-            - img (np.ndarray): Input image.
-
-        Returns:
-            - torch.Tensor: Class probabilities.
-        """
-        img = utils.to_channels_first(torch.Tensor(img))
-        img = img.to(device)
-        output = model(img)
-        return output
-
-    accelerator = Accelerator()
-
-    device = accelerator.device
-    transform, inv_transform = utils.get_explanation_transforms()
-
-    image_dataset = utils.load_image_dataset(args.dataset)
-    if "label" in image_dataset.column_names["train"]:
-        image_dataset = image_dataset.rename_columns({"label": "labels"})
-    classes = utils.get_classes(image_dataset["train"])
-
-    augmentation = torchvision.transforms.Compose([
-        torchvision.transforms.RandomResizedCrop(args.crop_size),
-        torchvision.transforms.PILToTensor(),
-    ])
-    def preprocess_val(example_batch):
-        example_batch["pixel_values"] = [
-            augmentation(image.convert("RGB")) for image in example_batch["image"]
-        ]
-        return example_batch
-
-    val_dataset = image_dataset["validation"].with_transform(preprocess_val)
-
-
-    data_loader = DataLoader(val_dataset,
-                             batch_size=args.batch_size,
-                             shuffle=True,
-                             num_workers=args.num_workers,
-                             collate_fn=utils.collate_fn
-                             )
-
-    batch = next(iter(data_loader))
-    images, labels = batch["pixel_values"], batch["labels"]
-    images = images.permute(0, 2, 3, 1)
-    images = transform(images)
-
-    model = utils.get_pretrained_model(args, model_name=args.model_name, num_classes=len(classes))
-
-    checkpoint_file = os.path.join(os.path.join(args.output_dir, "best_model.pth"))
-    checkpoint = torch.load(checkpoint_file, map_location="cpu")
-    if "n_averaged" in checkpoint["model"]:
-        del checkpoint["model"]["n_averaged"]
-        torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(checkpoint["model"], "module.")
-    model.load_state_dict(checkpoint["model"])
-
-    model.eval()
-    model.to(device)
-
-    masker_blur = shap.maskers.Image(f"blur{args.crop_size // 2, args.crop_size // 2}", images[0].shape)
-    explainer = shap.Explainer(predict, masker_blur, output_names=classes)
-
-    shap_values = explainer(images[:args.n_samples],
-                            max_evals=args.max_evals,
-                            batch_size=args.batch_size,
-                            outputs=shap.Explanation.argsort.flip[:args.topk]
-                            )
-
-    if args.n_samples == 1:
-        shap_values.data = inv_transform(shap_values.data).cpu().numpy()[0]
-        shap_values.values = [val for val in np.moveaxis(shap_values.values[0], -1, 0)]
-    else:
-        shap_values.data = inv_transform(shap_values.data).cpu().numpy()
-        shap_values.values = [val for val in np.moveaxis(shap_values.values, -1, 0)]
-
-    shap.image_plot(shap_values=shap_values.values,
-                    pixel_values=shap_values.data,
-                    labels=shap_values.output_names,
-                    true_labels=[classes[idx] for idx in labels[:len(labels)]],
-                    aspect=0.15,
-                    hspace=0.15,
-                    )
