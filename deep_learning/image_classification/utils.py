@@ -34,10 +34,10 @@ def print_header(*args: Union[str, int, float]) -> None:
     """
     Print one or more arguments as a single line of text to the standard output.
 
-    Parameters:
-        *args: The arguments to be printed.
+    Args:
+        *args (Union[str, int, float]): The arguments to be printed.
 
-    Example:
+    Examples:
         >>> print_header("Hello", "World", 2023)
         Output: Hello World 2023
 
@@ -55,10 +55,10 @@ def print_heading(message: str) -> None:
     """
     Print a formatted heading with the given message.
 
-    Parameters:
+    Args:
         message (str): The message to be included in the heading.
 
-    Example:
+    Examples:
         >>> print_heading("Welcome to the Chatbot")
         Output:
         =========================
@@ -88,17 +88,17 @@ def get_model_run_id(run_ids: Dict[str, str], model_name: str) -> Optional[str]:
     """
     Get the run ID of a specific model from a dictionary of run IDs.
 
-    Parameters:
+    Args:
         run_ids (Dict[str, str]): A dictionary mapping model names to run IDs.
         model_name (str): The name of the model for which to retrieve the run ID.
 
     Returns:
         Optional[str]: The run ID of the specified model, or None if the model is not in the dictionary.
 
-    Example:
-        >>> run_ids = {"model1": "1234", "model2": "5678", "model3": "9012"}  # Example dictionary of run IDs
+    Examples:
+        >>> run_ids = {"model1": "1234", "model2": "5678", "model3": "9012"}
 
-        >>> model_name = "model2"  # Example model name to retrieve the run ID
+        >>> model_name = "model2"
         >>> run_id = get_model_run_id(run_ids, model_name)
         >>> print(run_id)
         Output: 5678
@@ -120,16 +120,16 @@ def write_dictionary_to_json(dictionary: Dict, file_path: str) -> None:
     Write a dictionary object to a JSON file at the given file path.
     If the file already exists, its content will be overwritten.
 
-    Parameters:
+    Args:
         dictionary (Dict): The dictionary object to be written to the JSON file.
         file_path (str): The path to the JSON file.
 
     Returns:
         None
 
-    Example:
-        >>> dictionary = {"key": "value"}  # Example dictionary object to be written
-        >>> file_path = "data.json"  # Example file path
+    Examples:
+        >>> dictionary = {"key": "value"}
+        >>> file_path = "data.json"
         >>> write_dictionary_to_json(dictionary, file_path)
 
         # The data.json file will contain the following content:
@@ -142,21 +142,20 @@ def write_dictionary_to_json(dictionary: Dict, file_path: str) -> None:
 
 
 def append_dictionary_to_json_file(new_dict: Dict, file_path: str) -> None:
-    # noinspection PyShadowingNames
     """
     Append a dictionary to a JSON file at the given file path.
     If the file does not exist, it will be created.
 
-    Parameters:
+    Args:
         new_dict (Dict): The dictionary to be appended to the JSON file.
         file_path (str): The path to the JSON file.
 
     Returns:
         None
 
-    Example:
-        >>> new_dict = {"key": "value"}  # Example dictionary to be appended
-        >>> file_path = "data.json"  # Example file path
+    Examples:
+        >>> new_dict = {"key": "value"}
+        >>> file_path = "data.json"
         >>> append_dictionary_to_json_file(new_dict, file_path)
 
         # If data.json file does not exist previously, it will be created and contain the following content:
@@ -185,14 +184,14 @@ def read_json_file(file_path: str) -> Dict[str, Any]:
     """
     Read and parse a JSON file from the given file path and return the data as a dictionary.
 
-    Parameters:
+    Args:
         file_path (str): The path to the JSON file.
 
     Returns:
         Dict[str, Any]: The data contained in the JSON file as a dictionary.
 
-    Example:
-        >>> file_path = "data.json"  # Example file path
+    Examples:
+        >>> file_path = "data.json"
         >>> data = read_json_file(file_path)
         >>> print(data)
         Output: {'key': 'value'}
@@ -211,14 +210,14 @@ def read_json_lines_file(file_path: str) -> List[Union[dict, Any]]:
     """
     Read and parse a JSON Lines file from the given file path and return the data as a list.
 
-    Parameters:
+    Args:
         file_path (str): The path to the JSON Lines file.
 
     Returns:
         List[Union[dict, Any]]: The data contained in the JSON Lines file as a list.
 
-    Example:
-        >>> file_path = "data.jsonl"  # Example file path
+    Examples:
+        >>> file_path = "data.jsonl"
         >>> data = read_json_lines_file(file_path)
         >>> print(data)
         Output: [{'key': 'value'}, {'key2': 42}, 'text line', 3.14]
@@ -234,23 +233,23 @@ def read_json_lines_file(file_path: str) -> List[Union[dict, Any]]:
         return data
 
 
-def keep_recent_files(directory: str, num_files_to_keep: int) -> None:
+def keep_best_f1_score_files(directory: str, num_files_to_keep: int) -> None:
     """
-    Sorts files in the specified directory and keeps
-    files with the best f1 scores. Files beyond the specified number of files to keep
+    Sorts files in the specified directory and keeps files
+    with the best F1 scores. Files beyond the specified number of best F1 score files
     will be removed.
 
-    Parameters:
+    Args:
         directory (str): The path to the directory containing the files.
-        num_files_to_keep (int): The number of best f1 score files to keep.
+        num_files_to_keep (int): The number of best F1 score files to keep.
 
     Returns:
         None
 
-    Example:
+    Examples:
         >>> directory_path = "/path/to/directory"
         >>> num_files_to_keep = 10
-        >>> keep_recent_files(directory_path, num_files_to_keep)
+        >>> keep_best_f1_score_files(directory_path, num_files_to_keep)
     """
     file_list = glob(os.path.join(directory, "best_model_*"))
     sorted_files = sorted(file_list, reverse=True)
@@ -268,14 +267,14 @@ def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
     Sets the seed for NumPy and Python's random module for the given worker.
     If no worker ID is provided, uses the initial seed for PyTorch and returns None.
 
-    Parameters:
+    Args:
         worker_id (Optional[int]): The ID of the worker.
 
     Returns:
         Optional[int]: The seed used for the worker, or None if no worker ID was provided.
 
-    Example:
-        >>> worker_id = 1  # Example worker ID
+    Examples:
+        >>> worker_id = 1
         >>> seed = set_seed_for_worker(worker_id)
         >>> print(seed)  # Seed used for the worker
         Output: 1
@@ -301,10 +300,10 @@ def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
     """
     Load an image dataset using Hugging Face's 'datasets' library.
 
-    Parameters:
-        args:
+    Args:
+        args (Namespace): A namespace containing the following attributes:
             dataset (str or os.PathLike): The path to a local dataset directory or a Hugging Face dataset name
-                                    (or an HTTPS URL for a remote dataset).
+                (or an HTTPS URL for a remote dataset).
             dataset_kwargs (json): The path to a JSON file containing kwargs of a HuggingFace dataset.
 
     Returns:
@@ -312,13 +311,13 @@ def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
 
     Raises:
         ValueError: If the provided dataset is not a valid path to a directory, a string (Hugging Face dataset name),
-                    or an HTTPS URL for a remote dataset.
+            or an HTTPS URL for a remote dataset.
 
-     Example:
-         >>> dataset_name = "mnist"
-         >>> loaded_dataset = load_image_dataset(args)
-         >>> print(loaded_dataset)
-         Dataset(features: {'image': Image(shape=(28, 28, 1), dtype=torch.uint8), 'label': ClassLabel(
+    Examples:
+        >>> dataset_name = "mnist"
+        >>> loaded_dataset = load_image_dataset(args)
+        >>> print(loaded_dataset)
+        Dataset(features: {'image': Image(shape=(28, 28, 1), dtype=torch.uint8), 'label': ClassLabel(
                             shape=(), dtype=int64)}, num_rows: 70000)
 
         >>> local_path = "/path/to/local/image_dataset"
@@ -376,7 +375,7 @@ def apply_fgsm_attack(image: torch.Tensor, epsilon: float, data_grad: torch.Tens
     """
     Generate an adversarial example using the Fast Gradient Sign Method (FGSM).
 
-    Parameters:
+    Args:
         image (torch.Tensor): The input image.
         epsilon (float): Perturbation magnitude for generating adversarial examples.
         data_grad (torch.Tensor): Gradient of the loss with respect to the image.
@@ -384,11 +383,11 @@ def apply_fgsm_attack(image: torch.Tensor, epsilon: float, data_grad: torch.Tens
     Returns:
         torch.Tensor: Adversarial example perturbed using FGSM.
 
-    Example:
+    Examples:
         >>> image = torch.rand(1, 3, 32, 32)  # A random image of size (1, 3, 32, 32)
         >>> epsilon = 0.05  # Perturbation magnitude
         >>> data_grad = torch.randn(1, 3, 32, 32)  # Gradient of loss w.r.t. image
-        >>> adversarial_image = fgsm_attack(image, epsilon, data_grad)
+        >>> adversarial_image = apply_fgsm_attack(image, epsilon, data_grad)
     """
     sign_data_grad = data_grad.sign()
     adversarial_image = image + epsilon * sign_data_grad
@@ -400,7 +399,7 @@ def apply_normalization(args: Namespace, aug_list: List) -> List:
     """
     Apply normalization to the augmentation list based on grayscale conversion.
 
-    Parameters:
+    Args:
         args (Namespace): Namespace object containing arguments.
             grayscale (bool): Whether to convert the images to grayscale.
         aug_list (List): The list of transformation functions for data augmentation.
@@ -408,7 +407,7 @@ def apply_normalization(args: Namespace, aug_list: List) -> List:
     Returns:
         List: The updated list of transformation functions with normalization applied.
 
-    Example:
+    Examples:
         >>> from argparse import Namespace
         >>> args = Namespace(grayscale=True)
         >>> aug_list = [transforms.RandomResizedCrop(224), transforms.ToTensor()]
@@ -444,7 +443,7 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
     """
     Returns data augmentation transforms for training and validation sets.
 
-    Parameters:
+    Args:
         args (Namespace): A namespace object containing the following attributes:
             crop_size (int): The size of the crop for the training and validation sets.
             val_resize (int): The target size for resizing the validation images.
@@ -457,7 +456,7 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
     Returns:
         Dict[str, Callable]: A dictionary of data augmentation transforms for the training and validation sets.
 
-    Example:
+    Examples:
         >>> import torchvision.transforms as transforms
         >>> args = Namespace(crop_size=224, interpolation=3, hflip=True, aug_type='augmix')
         >>> transforms_dict = get_data_augmentation(args)
@@ -498,7 +497,7 @@ def apply_mixup(images: Tensor, targets: Tensor, alpha: float = 1.0) -> Tuple[Te
     """
     Applies Mixup augmentation to input data.
 
-    Parameters:
+    Args:
         images (Tensor): Input images.
         targets (Tensor): Corresponding targets.
         alpha (float, optional): Mixup parameter. Defaults to 1.0.
@@ -506,7 +505,8 @@ def apply_mixup(images: Tensor, targets: Tensor, alpha: float = 1.0) -> Tuple[Te
     Returns:
         Tuple[Tensor, Tensor, Tensor, float]: Mixed images, mixed labels (labels_a),
         original labels (labels_b), and mixup factor (lambda).
-    Example:
+
+    Examples:
          >>> import torch
          >>> images = torch.tensor([[1, 2, 3], [4, 5, 6]])
          >>> targets = torch.tensor([0, 1])
@@ -533,12 +533,11 @@ def apply_mixup(images: Tensor, targets: Tensor, alpha: float = 1.0) -> Tuple[Te
     return mixed_images, targets_a, targets_b, lam
 
 
-def apply_cutmix(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) -> Tuple[torch.Tensor, torch.Tensor,
-torch.Tensor, float]:
+def apply_cutmix(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]:
     """
     Applies CutMix augmentation to input data.
 
-    Parameters:
+    Args:
         images (torch.Tensor): Input images.
         targets (torch.Tensor): Corresponding labels.
         alpha (float, optional): CutMix parameter. Defaults to 1.0.
@@ -546,7 +545,8 @@ torch.Tensor, float]:
     Returns:
         Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]: Mixed images, mixed labels (targets_a),
         original labels (targets_b), and mix factor (lambda).
-    Example:
+
+    Examples:
          >>> import torch
          >>> images = torch.tensor([[1, 2, 3], [4, 5, 6]])
          >>> targets = torch.tensor([0, 1])
@@ -589,15 +589,15 @@ def to_channels_first(image: torch.Tensor) -> torch.Tensor:
     """
     Converts an image tensor from channels-last format to channels-first format.
 
-    Parameters:
+    Args:
         image (torch.Tensor): A 4-D or 3-D image tensor.
 
     Returns:
         torch.Tensor: The image tensor in channels-first format.
 
-    Example:
+    Examples:
          >>> import torch
-         >>> image = torch.randn(32, 64, 64, 3)  # Example 4-D image tensor with channels last
+         >>> image = torch.randn(32, 64, 64, 3)
          >>> converted_image = to_channels_first(image)
          >>> print(converted_image.shape)
          Output: torch.Size([32, 3, 64, 64])
@@ -609,13 +609,13 @@ def to_channels_last(image: torch.Tensor) -> torch.Tensor:
     """
     Converts an image tensor from the channels-first format to the channels-last format.
 
-    Parameters:
+    Args:
         image (torch.Tensor): A 4-D or 3-D image tensor in channels-first format.
 
     Returns:
         torch.Tensor: The image tensor in channels-last format.
 
-    Example:
+    Examples:
         >>> import torch
         >>> image = torch.randn(1, 3, 32, 32)  # Channels-first format
         >>> image_channels_last = to_channels_last(image)
@@ -634,21 +634,23 @@ def convert_to_onnx(
     """
     Convert a PyTorch model to ONNX format.
 
-    Parameters:
-        args: A namespace object containing the following attributes:
+    Args:
+        args (Namespace): A namespace object containing the following attributes:
             crop_size (int, optional): The size of the crop for the inference dataset/image. Default: None.
         model_name (str): The name of the model.
         checkpoint_path (str): The path to the PyTorch checkpoint.
         num_classes (int): The number of classes in the dataset.
 
-    Example:
+    Returns:
+        None
+
+    Examples:
         >>> args = Namespace(crop_size=224)
         >>> model_name = "resnet18"
         >>> checkpoint_path = "./best_model.pt"
         >>> num_classes = 10
         >>> convert_to_onnx(args, model_name, checkpoint_path, num_classes)
     """
-
     model = get_pretrained_model(args, model_name, num_classes)
 
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
@@ -682,7 +684,7 @@ def get_explanation_transforms() -> Tuple[transforms.Compose, transforms.Compose
         Tuple[transforms.Compose, transforms.Compose]: A tuple of two transforms representing the data augmentation
         transforms used for explanation and the inverse of those transforms.
 
-    Example:
+    Examples:
         >>> transform, inv_transform = get_explanation_transforms()
         >>> original_image = ...  # Load or create the original image
         >>> transformed_image = transform(original_image)
@@ -709,20 +711,21 @@ def get_explanation_transforms() -> Tuple[transforms.Compose, transforms.Compose
     return transform, inv_transform
 
 
-def collate_fn(examples):
+def collate_fn(examples: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
     """
     Collates a list of examples into batches by stacking pixel values of images and creating a tensor for labels.
 
-    Parameters:
-        examples (list): A list of examples, each containing a dictionary with "pixel_values" and "labels" keys.
+    Args:
+        examples (List[Dict[str, torch.Tensor]]): A list of examples, each containing a dictionary with
+            "pixel_values" and "labels" keys.
 
     Returns:
-        dict: A dictionary containing the batched pixel values and labels.
+        Dict[str, torch.Tensor]: A dictionary containing the batched pixel values and labels.
 
-    Example:
+    Examples:
         >>> examples = [{"pixel_values": torch.tensor([1, 2, 3]), "labels": 0},
-                       {"pixel_values": torch.tensor([4, 5, 6]), "labels": 1},
-                       {"pixel_values": torch.tensor([7, 8, 9]), "labels": 2}]
+        ...            {"pixel_values": torch.tensor([4, 5, 6]), "labels": 1},
+        ...            {"pixel_values": torch.tensor([7, 8, 9]), "labels": 2}]
         >>> batch = collate_fn(examples)
         >>> print(batch)
         Output: {'pixel_values': tensor([[1, 2, 3],
@@ -738,20 +741,19 @@ def get_classes(dataset: torch.utils.data.Dataset) -> List[str]:
     """
     Get a list of the classes in a dataset.
 
-    Parameters:
-        dataset: dataset to get classes from.
+    Args:
+        dataset (torch.utils.data.Dataset): The dataset to get classes from.
 
     Returns:
-        List[str]: A sorted list of the classes in the dataset.
+        List[str]: A sorted list of class names in the dataset.
 
-    Example:
+    Examples:
         >>> dataset = load_image_dataset(args)
         >>> classes = get_classes(dataset)
         >>> print(classes)
         Output: ['class1', 'class2', 'class3', ...]
     """
     classes = dataset.features["labels"].names
-
     return sorted(classes)
 
 
@@ -759,19 +761,19 @@ def get_matching_model_names(args: Namespace) -> List[str]:
     """
     Get a list of model names matching the given image crop size and model size or submodule name.
 
-    Parameters:
-        args:
+    Args:
+        args (Namespace): A namespace object containing the following attributes:
             crop_size (int): Image size the models should be trained on.
             model_size (str): Size of the model (e.g., "tiny", "small", etc.).
-            module (str): A submodule for selecting models
+            module (str): A submodule for selecting models.
 
     Returns:
         List[str]: A list of model names that can be used for training.
 
-    Example:
+    Examples:
         >>> import argparse
 
-        ### Loading models based on model size
+        # Loading models based on model size
         >>> args = argparse.Namespace(image_size=224, model_size="small")
         >>> get_matching_model_names(args)
         ['tf_efficientnet_b0_ns_small_224', 'tf_efficientnet_b1_ns_small_224', 'tf_efficientnet_b2_ns_small_224', ...]
@@ -797,7 +799,7 @@ def get_matching_model_names(args: Namespace) -> List[str]:
         Returns:
             List[str]: A filtered list of model names after the recurring filtering process.
 
-        Example:
+        Examples:
             >>> models = ['flexivit_base.300ep_in1k', 'vit_small_patch16_224.augreg_in1k', 'vit_tiny_patch16_384.augreg_in21k_ft_in1k']
             >>> crop_size = 224
             >>> filtered_models = filter_models(models, crop_size)
@@ -823,7 +825,6 @@ def get_matching_model_names(args: Namespace) -> List[str]:
                             changed = True
         return models
 
-
     def is_matching_model(name: str) -> bool:
         return str(args.crop_size) in name and args.model_size in name
 
@@ -848,14 +849,14 @@ def prune_model(model: nn.Module, pruning_rate: float) -> List[Tuple[nn.Module, 
     """
     Applies global unstructured pruning to the model.
 
-    Parameters:
+    Args:
         model (nn.Module): The model to be pruned.
         pruning_rate (float): The fraction of weights to be pruned.
 
     Returns:
         List[Tuple[nn.Module, str]]: A list of tuples containing the pruned modules and parameter names.
 
-    Example:
+    Examples:
         >>> model = MyModel()
         >>> pruning_rate = 0.5
         >>> pruned_params = prune_model(model, pruning_rate)
@@ -881,11 +882,11 @@ def remove_pruning_reparam(parameters_to_prune: List[Tuple[nn.Module, str]]) -> 
     """
     Removes pruning re-parametrization for each module and parameter in the provided list.
 
-    Parameters:
+    Args:
         parameters_to_prune (List[Tuple[nn.Module, str]]): List of module and parameter names to remove pruning
         re-parametrization.
 
-    Example:
+    Examples:
          >>> model = MyModel()
          >>> parameters_to_prune = prune_model(model, pruning_rate=0.2)
          >>> remove_pruning_reparam(parameters_to_prune)
@@ -901,17 +902,18 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
     The head of the model is replaced with a new linear layer with the given
     number of classes.
 
-    Parameters:
+    Args:
         args (Namespace): A namespace object containing the following attributes:
-            - feat_extract (bool): Whether to freeze the parameters of the model.
-            - dropout (float): The dropout rate.
+            feat_extract (bool): Whether to freeze the parameters of the model.
+            dropout (float): The dropout rate.
+            grayscale (bool): Whether the model should expect grayscale images.
         model_name (str): The name of the model to be created using the `timm` library.
         num_classes (int): The number of classes for the new head of the model.
 
     Returns:
         nn.Module: The modified model with the new head.
 
-    Example:
+    Examples:
         >>> args = Namespace(feat_extract=True, dropout=0.5, grayscale=False)
         >>> model = get_pretrained_model(args, "tf_efficientnet_b0_ns", num_classes=10)
     """
@@ -937,17 +939,17 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
 # noinspection PyTypeChecker
 def calculate_class_weights(data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
     """
-    Returns the class weights for the given data loader.
+    Calculate class weights for the given data loader.
 
     The class weights are calculated as the inverse frequency of each class in the dataset.
 
-    Parameters:
+    Args:
         data_loader (torch.utils.data.DataLoader): A PyTorch data loader.
 
     Returns:
         torch.Tensor: A tensor of class weights.
 
-    Example:
+    Examples:
         # Assuming you have already loaded the image dataset and set up the data loader:
         >>> train_dataset = load_image_dataset(args.dataset)["train"]
         >>> data_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
@@ -970,9 +972,9 @@ def calculate_class_weights(data_loader: torch.utils.data.DataLoader) -> torch.T
 # /classification/utils.py#L272
 def average_checkpoints(checkpoint_paths: List[str]) -> OrderedDict:
     """
-    Averages the parameters of multiple checkpoints.
+    Average the parameters of multiple checkpoints.
 
-    Parameters:
+    Args:
         checkpoint_paths (List[str]): List of file paths to the input checkpoint files.
 
     Returns:
@@ -981,10 +983,15 @@ def average_checkpoints(checkpoint_paths: List[str]) -> OrderedDict:
     Raises:
         KeyError: If the checkpoints have different sets of parameters.
 
-    Example:
+    Examples:
+        # Provide a list of checkpoint file paths
         >>> checkpoint_paths = ["checkpoint1.pth", "checkpoint2.pth", "checkpoint3.pth"]
+
+        # Calculate the average of the checkpoint parameters
         >>> averaged_params = average_checkpoints(checkpoint_paths)
-        >>> print(averaged_params)  # Display the averaged parameters
+
+        # Display the averaged parameters
+        >>> print(averaged_params)
     """
     averaged_params = OrderedDict()
     num_checkpoints = len(checkpoint_paths)
@@ -1025,17 +1032,22 @@ def average_checkpoints(checkpoint_paths: List[str]) -> OrderedDict:
 
 def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
     """
-    Returns a list of trainable parameters in the given model.
+    Get a list of trainable parameters in the given PyTorch neural network model.
 
-    Parameters:
+    Args:
         model (nn.Module): A PyTorch neural network model.
 
     Returns:
         List[nn.Parameter]: A list of trainable parameters in the model.
 
-    Example:
+    Examples:
+        # Create a simple linear model
         >>> model = nn.Linear(10, 5)
+
+        # Get the trainable parameters
         >>> trainable_params = get_trainable_params(model)
+
+        # Check the number of trainable parameters
         >>> len(trainable_params)
         2
     """
@@ -1044,9 +1056,9 @@ def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
 
 def get_optimizer(args: Namespace, params: List[nn.Parameter]) -> optim.Optimizer:
     """
-    Returns an optimizer object based on the provided optimization algorithm name.
+    Create and return an optimizer object based on the provided optimization algorithm name.
 
-    Parameters:
+    Args:
         args (Namespace): A namespace object containing the following attributes:
             - opt_name (str): The name of the optimization algorithm.
             - lr (float): The learning rate for the optimizer.
@@ -1056,10 +1068,17 @@ def get_optimizer(args: Namespace, params: List[nn.Parameter]) -> optim.Optimize
     Returns:
         optim.Optimizer: An optimizer object of the specified type.
 
-    Example:
+    Examples:
+        # Create an argument namespace for SGD optimizer with learning rate and weight decay
         >>> args = Namespace(opt_name="sgd", lr=0.01, wd=0.0001)
+
+        # Create a sample PyTorch model
         >>> model = torch.nn.Linear(10, 10)
-        >>> params = get_trainable_parameters(model)
+
+        # Get the list of trainable parameters
+        >>> params = get_trainable_params(model)
+
+        # Create the optimizer using the provided arguments
         >>> optimizer = get_optimizer(args, params)
     """
     optimizer = create_optimizer_v2(model_or_params=params, opt=args.opt_name, lr=args.lr, weight_decay=args.wd)
@@ -1070,9 +1089,9 @@ def get_lr_scheduler(args: Namespace, optimizer: optim.Optimizer, num_iters: int
                                                                                          lr_scheduler.LRScheduler,
                                                                                          None]:
     """
-    Returns a learning rate scheduler object based on the provided scheduling algorithm name.
+    Create and return a learning rate scheduler object based on the provided scheduling algorithm name.
 
-    Parameters:
+    Args:
         args (Namespace): A namespace object containing the following attributes:
             - sched_name (str): The name of the scheduling algorithm.
             - warmup_decay (float): The decay rate for the warmup scheduler.
@@ -1088,7 +1107,7 @@ def get_lr_scheduler(args: Namespace, optimizer: optim.Optimizer, num_iters: int
         Union[lr_scheduler.SequentialLR, lr_scheduler.LRScheduler, None]: A learning rate scheduler object of the
         specified type, or None if the sched_name is not recognized.
 
-    Example:
+    Examples:
         # Obtain a learning rate scheduler based on the provided args and optimizer, and use it during training:
 
         >>> scheduler = get_lr_scheduler(args, optimizer, num_iters)
@@ -1123,16 +1142,16 @@ def get_lr_scheduler(args: Namespace, optimizer: optim.Optimizer, num_iters: int
 # /classification/utils.py#L159
 class ExponentialMovingAverage(swa_utils.AveragedModel):
     """
-    Exponential Moving Average (EMA) implementation for model parameters.
+    Implementation of Exponential Moving Average (EMA) for model parameters.
 
-    Parameters:
+    Args:
         model (torch.nn.Module): The model to apply EMA to.
         decay (float): The decay factor for EMA.
         device (str, optional): The device to use for EMA. Defaults to "cpu".
 
-    Example:
-         # Create an Exponential Moving Average object for a model with a decay factor of 0.9, and update the
-         # parameters:
+    Examples:
+        # Create an Exponential Moving Average object for a model with a decay factor of 0.9, and update the
+        # parameters:
 
         >>> model = MyModel()
         >>> ema = ExponentialMovingAverage(model, decay=0.9)
@@ -1140,6 +1159,14 @@ class ExponentialMovingAverage(swa_utils.AveragedModel):
     """
 
     def __init__(self, model: nn.Module, decay: float, device: str = "cpu"):
+        """
+        Initialize the ExponentialMovingAverage object.
+
+        Args:
+            model (torch.nn.Module): The model to apply EMA to.
+            decay (float): The decay factor for EMA.
+            device (str, optional): The device to use for EMA. Defaults to "cpu".
+        """
         def ema_avg(avg_model_param, model_param, num_averaged):
             return decay * avg_model_param + (1 - decay) * model_param
 
@@ -1147,11 +1174,36 @@ class ExponentialMovingAverage(swa_utils.AveragedModel):
 
 
 class CreateImgSubclasses:
+    """
+    A utility class for organizing image files into class directories.
+
+    This class helps organize image files in a source directory into separate class directories
+    in a destination directory based on the class names extracted from the file names.
+
+    Args:
+        img_src (str): The path to the source directory containing image files.
+        img_dest (str): The path to the destination directory where class directories will be created.
+
+    Examples:
+        # Create an instance of CreateImgSubclasses to organize images in 'source_images' into class directories
+        # in 'destination_images':
+        >>> organizer = CreateImgSubclasses('source_images', 'destination_images')
+
+        # Get the list of class names from the source directory:
+        >>> class_names = organizer.get_image_classes()
+
+        # Create class directories in the destination directory:
+        >>> organizer.create_class_dirs(class_names)
+
+        # Copy images to corresponding class directories in the destination directory:
+        >>> organizer.copy_images_to_dirs()
+    """
+
     def __init__(self, img_src: str, img_dest: str) -> None:
         """
         Initialize the object with the path to the source and destination directories.
 
-        Parameters:
+        Args:
             img_src (str): Path to the source directory.
             img_dest (str): Path to the destination directory.
         """
@@ -1178,7 +1230,7 @@ class CreateImgSubclasses:
         """
         Create directories for each class in `class_names` under `self.img_dest` directory.
 
-        Parameters:
+        Args:
             class_names (List[str]): A list of strings containing the names of the image classes.
         """
         for dir_name in class_names:
@@ -1204,12 +1256,12 @@ def create_train_val_test_splits(img_src: str, img_dest: str, ratio: tuple) -> N
     Split images from `img_src` directory into train, validation, and test sets and save them in `img_dest`
     directory. This will save the images in the appropriate directories based on the train-val-test split ratio.
 
-    Parameters:
+    Args:
         img_src (str): The source directory containing the images to be split.
         img_dest (str): The destination directory where the split images will be saved.
-        ratio (tuple): The train, val, test splits. E.g (0.8, 0.1, 0.1)
+        ratio (tuple): The train, val, test splits as a tuple, e.g., (0.8, 0.1, 0.1).
 
-    Example:
+    Examples:
         # Split images from "data/images" into train, validation, and test sets with a split ratio of (0.8, 0.1, 0.1)
         # and save them in the "data/splits" directory:
 
