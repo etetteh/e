@@ -408,7 +408,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
                         json.dump(best_results, file)
                         file.write("\n")
 
-                    results_df = process.display_results_dataframe(args)
+                    results_df = process.display_results_dataframe(args.output_dir, args.sorting_metric, args.test_only)
                     results_drop = results_df.drop(columns=["loss", "fpr", "tpr", "cm"])
                     results_drop = results_drop.reset_index(drop=True)
                     results_drop.to_json(path_or_buf=os.path.join(args.output_dir, "test_performance_metrics.jsonl"),
@@ -498,7 +498,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
                         best_checkpoints.append(f"{best_model_file}_{val_results['f1']}.pth")
                     
                     if len(best_checkpoints) > args.num_ckpts:
-                        utils.keep_recent_files(os.path.join(args.output_dir, model_name), args.num_ckpts)
+                        utils.keep_best_f1_score_files(os.path.join(args.output_dir, model_name), args.num_ckpts)
 
                     checkpoint = {
                         "args": args,
@@ -573,88 +573,322 @@ def main(args: argparse.Namespace, accelerator) -> None:
 def get_args():
     """
     Parse and return the command line arguments.
+
+    Returns:
+        argparse.Namespace: A namespace containing parsed command line arguments.
     """
     parser = argparse.ArgumentParser(description="Image Classification")
 
     # General Configuration
-    parser.add_argument("--experiment_name", required=True, type=str, default="Experiment_1",
-                        help="This command allows you to specify the name of the MLflow experiment. It helps organize and categorize the experimental runs.")
-    parser.add_argument("--dataset", required=True, type=str, help="Use this command to provide the path to the dataset directory or the name of a HuggingFace dataset. It defines the data source for model training and evaluation.")
-    parser.add_argument("--dataset_kwargs", type=str, default="", help="If needed, you can use this command to point to a JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset.")
-    parser.add_argument("--output_dir", required=True, type=str, help="Specify the directory where the output files, such as trained models and evaluation results, will be saved.")
+    parser.add_argument(
+        "--experiment_name",
+        required=True,
+        type=str,
+        default="Experiment_1",
+        help="The name of the MLflow experiment to organize and categorize experimental runs."
+    )
+    parser.add_argument(
+        "--dataset",
+        required=True,
+        type=str,
+        help="The path to the dataset directory or the name of a HuggingFace dataset for training and evaluation."
+    )
+    parser.add_argument(
+        "--dataset_kwargs",
+        type=str,
+        default="",
+        help="Path to a JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset."
+    )
+    parser.add_argument(
+        "--output_dir",
+        required=True,
+        type=str,
+        help="The directory where output files, such as trained models and evaluation results, will be saved."
+    )
 
     # Model Configuration
-    parser.add_argument("--feat_extract", action="store_true", help="By including this flag, you can enable feature extraction during training, which is useful when using pretrained models.")
-    parser.add_argument("--module", type=str, help="If you want to select a specific model submodule, such as 'resnet' or 'deit', you can use this command to make that choice. It's not compatible with the --model_size or --model_name commands. Choose from this inexhaustive list: ['beit', 'convnext', 'deit', 'resnet', 'vision_transformer', 'efficientnet', 'xcit', 'regnet', 'nfnet', 'metaformer', 'fastvit', 'efficientvit_msra']")
-    parser.add_argument("--model_name", nargs="*", default=None, help="Use this to specify the name of the model(s) you want to use from the TIMM library. It's not compatible with the --model_size or --module commands.")
-    parser.add_argument("--model_size", type=str, default="small", help="If you prefer to specify the size of the model, you can use this command. It's not used when --model_name or --module are specified.",
-                        choices=["nano", "tiny", "small", "base", "large", "giant"])
-    parser.add_argument("--to_onnx", action="store_true", help="Include this flag if you want to convert the trained model(s) to ONNX format. If not used, only the best model will be converted.")
+    parser.add_argument(
+        "--feat_extract",
+        action="store_true",
+        help="Enable feature extraction during training when using pretrained models."
+    )
+    parser.add_argument(
+        "--module",
+        type=str,
+        help="Select a specific model submodule (e.g., 'resnet' or 'deit'). Not compatible with --model_size or --model_name."
+    )
+    parser.add_argument(
+        "--model_name",
+        nargs="*",
+        default=None,
+        help="Specify the name(s) of the model(s) from the TIMM library. Not compatible with --model_size or --module."
+    )
+    parser.add_argument(
+        "--model_size",
+        type=str,
+        default="small",
+        help="Specify the model size. Not used when --model_name or --module is specified.",
+        choices=["nano", "tiny", "small", "base", "large", "giant"]
+    )
+    parser.add_argument(
+        "--to_onnx",
+        action="store_true",
+        help="Convert the trained model(s) to ONNX format. If not used, only the best model will be converted."
+    )
 
     # Training Configuration
     # Checkpoint Averaging:
-    parser.add_argument("--avg_ckpts", action="store_true", help=" When enabled, this flag triggers checkpoint averaging during training. It helps stabilize the training process.")
-    parser.add_argument("--num_ckpts", type=int, default=1, help="Set the number of best checkpoints to save when checkpoint averaging is active. It determines how many checkpoints are averaged.")
+    parser.add_argument(
+        "--avg_ckpts",
+        action="store_true",
+        help="Enable checkpoint averaging during training to stabilize the process."
+    )
+    parser.add_argument(
+        "--num_ckpts",
+        type=int,
+        default=1,
+        help="The number of best checkpoints to save when checkpoint averaging is active."
+    )
 
     # FGSM Adversarial Training
-    parser.add_argument("--fgsm", action="store_true", help="This flag allows you to enable FGSM (Fast Gradient Sign Method) adversarial training to enhance model robustness.")
-    parser.add_argument("--epsilon", type=float, default=0.03, help="If FGSM adversarial training is enabled, you can set the epsilon value for the FGSM attack using this command.")
+    parser.add_argument(
+        "--fgsm",
+        action="store_true",
+        help="Enable FGSM (Fast Gradient Sign Method) adversarial training to enhance model robustness."
+    )
+    parser.add_argument(
+        "--epsilon",
+        type=float,
+        default=0.03,
+        help="Set the epsilon value for the FGSM attack if FGSM adversarial training is enabled."
+    )
 
     # Exponential Moving Average (EMA)
-    parser.add_argument("--ema", action="store_true", help="Enabling this flag performs Exponential Moving Average (EMA) during training, which can improve model performance and stability.")
-    parser.add_argument("--ema_steps", type=int, default=32, help="Specify the number of iterations for updating the EMA model.")
-    parser.add_argument("--ema_decay", type=float, default=0.99998, help="Set the EMA decay factor, which influences the contribution of past model weights.")
+    parser.add_argument(
+        "--ema",
+        action="store_true",
+        help="Perform Exponential Moving Average (EMA) during training to improve model performance and stability."
+    )
+    parser.add_argument(
+        "--ema_steps",
+        type=int,
+        default=32,
+        help="The number of iterations for updating the EMA model."
+    )
+    parser.add_argument(
+        "--ema_decay",
+        type=float,
+        default=0.99998,
+        help="Set the EMA decay factor, which influences the contribution of past model weights."
+    )
 
     # Pruning
-    parser.add_argument("--prune", action="store_true", help=" Include this flag to enable pruning during training, which helps reduce model complexity and size.")
-    parser.add_argument("--pruning_rate", type=float, default=0.25, help="Set the pruning rate to control the extent of pruning applied to the model.")
+    parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="Enable pruning during training to reduce model complexity and size."
+    )
+    parser.add_argument(
+        "--pruning_rate",
+        type=float,
+        default=0.25,
+        help="Set the pruning rate to control the extent of pruning applied to the model."
+    )
 
     # Random Seed
-    parser.add_argument("--seed", default=999333666, type=int, help="Set the random seed for reproducibility of training results.")
+    parser.add_argument(
+        "--seed",
+        default=999333666,
+        type=int,
+        help="Set the random seed for reproducibility of training results."
+    )
 
     # Data Augmentation
-    parser.add_argument('--grayscale', action='store_true', help="If needed, use this flag to indicate that grayscale images should be used during training.")
-    parser.add_argument("--crop_size", default=224, type=int, help="Define the size to which input images will be cropped.")
-    parser.add_argument("--val_resize", default=256, type=int, help="Specify the size to which validation images will be resized.")
-    parser.add_argument("--mag_bins", default=31, type=int, help="Set the number of magnitude bins for augmentation-related operations.")
-    parser.add_argument("--aug_type", default="rand", type=str, help="Choose the type of data augmentation to use.",
-                        choices=["augmix", "rand", "trivial"])
-    parser.add_argument("--interpolation", default="bilinear", type=str, help="Choose the type of interpolation method to use.",
-                        choices=["nearest", "bicubic", "bilinear"])
-    parser.add_argument("--hflip", default=0.5, type=float, help="Define the probability of randomly horizontally flipping the input data.")
+    parser.add_argument(
+        '--grayscale',
+        action='store_true',
+        help="Use grayscale images during training."
+    )
+    parser.add_argument(
+        "--crop_size",
+        default=224,
+        type=int,
+        help="The size to which input images will be cropped."
+    )
+    parser.add_argument(
+        "--val_resize",
+        default=256,
+        type=int,
+        help="The size to which validation images will be resized."
+    )
+    parser.add_argument(
+        "--mag_bins",
+        default=31,
+        type=int,
+        help="The number of magnitude bins for augmentation-related operations."
+    )
+    parser.add_argument(
+        "--aug_type",
+        default="rand",
+        type=str,
+        help="The type of data augmentation to use.",
+        choices=["augmix", "rand", "trivial"]
+    )
+    parser.add_argument(
+        "--interpolation",
+        default="bilinear",
+        type=str,
+        help="The type of interpolation method to use.",
+        choices=["nearest", "bicubic", "bilinear"]
+    )
+    parser.add_argument(
+        "--hflip",
+        default=0.5,
+        type=float,
+        help="The probability of randomly horizontally flipping the input data."
+    )
 
     # Mixup Augmentation
-    parser.add_argument("--mixup", action="store_true", help="Include this flag to enable mixup augmentation, which enhances training by mixing pairs of samples.")
-    parser.add_argument("--mixup_alpha", type=float, default=1.0, help="Set the mixup hyperparameter alpha to control the interpolation factor.")
+    parser.add_argument(
+        "--mixup",
+        action="store_true",
+        help="Enable mixup augmentation, which enhances training by mixing pairs of samples."
+    )
+    parser.add_argument(
+        "--mixup_alpha",
+        type=float,
+        default=1.0,
+        help="Set the mixup hyperparameter alpha to control the interpolation factor."
+    )
 
     # Cutmix Augmentation
-    parser.add_argument("--cutmix", action="store_true", help="Enable cutmix augmentation, which combines patches from different images to create new training samples.")
-    parser.add_argument("--cutmix_alpha", type=float, default=1.0, help="Set the cutmix hyperparameter alpha to control the interpolation factor.")
+    parser.add_argument(
+        "--cutmix",
+        action="store_true",
+        help="Enable cutmix augmentation, which combines patches from different images to create new training samples."
+    )
+    parser.add_argument(
+        "--cutmix_alpha",
+        type=float,
+        default=1.0,
+        help="Set the cutmix hyperparameter alpha to control the interpolation factor."
+    )
 
     # Training Parameters
-    parser.add_argument("--batch_size", default=16, type=int, help="Define the batch size for both training and evaluation stages.")
-    parser.add_argument("--num_workers", default=4, type=int, help="Specify the number of workers for training and evaluation.")
-    parser.add_argument("--epochs", default=100, type=int, help="Set the number of training epochs, determining how many times the entire dataset will be iterated.")
-    parser.add_argument("--dropout", type=float, default=0.2, help="Define the dropout rate for the classifier head of the model.")
-    parser.add_argument("--label_smoothing", default=0.1, type=float, help="Set the amount of label smoothing to use during training.")
+    parser.add_argument(
+        "--batch_size",
+        default=16,
+        type=int,
+        help="The batch size for both training and evaluation."
+    )
+    parser.add_argument(
+        "--num_workers",
+        default=4,
+        type=int,
+        help="The number of workers for training and evaluation."
+    )
+    parser.add_argument(
+        "--epochs",
+        default=100,
+        type=int,
+        help="The number of training epochs, determining how many times the entire dataset will be iterated."
+    )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.2,
+        help="The dropout rate for the classifier head of the model."
+    )
+    parser.add_argument(
+        "--label_smoothing",
+        default=0.1,
+        type=float,
+        help="The amount of label smoothing to use during training."
+    )
 
     # Optimization and Learning Rate Scheduling
-    parser.add_argument("--opt_name", default="madgradw", type=str, help="Choose the optimizer for the training process. An inexhaustive choices ['lion', 'madgrad', 'madgradw', 'adamw', 'radabelief', 'adafactor', 'novograd', 'lars', 'lamb', 'rmsprop', 'sgdp']")
-    parser.add_argument("--lr", default=0.01, type=float, help=" Specify the initial learning rate for the optimizer.")
-    parser.add_argument("--wd", default=1e-4, type=float, help="Set the weight decay (L2 regularization) for the optimizer.")
-    parser.add_argument("--sched_name", default="one_cycle", type=str, help="Choose the learning rate scheduler strategy", choices=["step", "cosine", "cosine_wr", "one_cycle"])
-    parser.add_argument('--max_lr', type=float, default=0.1, help='Set the maximum learning rate when using cyclic learning rate scheduling.')
-    parser.add_argument("--step_size", default=30, type=int, help="Set the step size for learning rate adjustments in certain scheduler strategies.")
-    parser.add_argument("--warmup_epochs", default=5, type=int, help="Specify the number of epochs for the warmup phase of learning rate scheduling.")
-    parser.add_argument("--warmup_decay", default=0.1, type=float, help="Set the decay rate for the learning rate during the warmup phase.")
-    parser.add_argument("--gamma", default=0.1, type=float, help="Set the gamma parameter used in certain learning rate scheduling strategies.")
-    parser.add_argument("--eta_min", default=1e-5, type=float, help="Define the minimum learning rate that the scheduler can reach.")
-    parser.add_argument("--t0", type=int, default=5, help="Specify the number of iterations for the first restart in learning rate scheduling strategies.")
+    parser.add_argument(
+        "--opt_name",
+        default="madgradw",
+        type=str,
+        help="The optimizer for the training process.",
+        choices=["lion", "madgrad", "madgradw", "adamw", "radabelief", "adafactor", "novograd", "lars", "lamb", "rmsprop", "sgdp"]
+    )
+    parser.add_argument(
+        "--lr",
+        default=0.01,
+        type=float,
+        help="The initial learning rate for the optimizer."
+    )
+    parser.add_argument(
+        "--wd",
+        default=1e-4,
+        type=float,
+        help="The weight decay (L2 regularization) for the optimizer."
+    )
+    parser.add_argument(
+        "--sched_name",
+        default="one_cycle",
+        type=str,
+        help="The learning rate scheduler strategy",
+        choices=["step", "cosine", "cosine_wr", "one_cycle"]
+    )
+    parser.add_argument(
+        '--max_lr',
+        type=float,
+        default=0.1,
+        help='The maximum learning rate when using cyclic learning rate scheduling.'
+    )
+    parser.add_argument(
+        "--step_size",
+        default=30,
+        type=int,
+        help="The step size for learning rate adjustments in certain scheduler strategies."
+    )
+    parser.add_argument(
+        "--warmup_epochs",
+        default=5,
+        type=int,
+        help="The number of epochs for the warmup phase of learning rate scheduling."
+    )
+    parser.add_argument(
+        "--warmup_decay",
+        default=0.1,
+        type=float,
+        help="The decay rate for the learning rate during the warmup phase."
+    )
+    parser.add_argument(
+        "--gamma",
+        default=0.1,
+        type=float,
+        help="The gamma parameter used in certain learning rate scheduling strategies."
+    )
+    parser.add_argument(
+        "--eta_min",
+        default=1e-5,
+        type=float,
+        help="The minimum learning rate that the scheduler can reach."
+    )
+    parser.add_argument(
+        "--t0",
+        type=int,
+        default=5,
+        help="The number of iterations for the first restart in learning rate scheduling strategies."
+    )
 
     # Evaluation Metrics and Testing
-    parser.add_argument("--sorting_metric", default="f1", type=str, help="Choose the metric by which the model results will be sorted.",
-                        choices=["f1", "auc", "accuracy", "precision", "recall"])
-    parser.add_argument("--test_only", action="store_true", help="When enabled, this flag indicates that you want to perform testing on the test split only, skipping training.")
+    parser.add_argument(
+        "--sorting_metric",
+        default="f1",
+        type=str,
+        help="The metric by which the model results will be sorted.",
+        choices=["f1", "auc", "accuracy", "precision", "recall"]
+    )
+    parser.add_argument(
+        "--test_only",
+        action="store_true",
+        help="Perform testing on the test split only, skipping training when enabled."
+    )
 
     return parser.parse_args()
 
