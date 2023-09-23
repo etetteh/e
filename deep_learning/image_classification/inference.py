@@ -9,8 +9,6 @@ import torchvision.transforms as transforms
 
 from glob import glob
 from PIL import Image
-from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
-
 
 import utils
 
@@ -19,16 +17,17 @@ def run_inference(args: argparse.Namespace) -> dict:
     """
     Run inference on a given ONNX model for image classification.
 
-    Parameters:
+    Args:
         args (argparse.Namespace):
             onnx_model_path (str): Path to the ONNX model.
             img_path (str): Path to a single image or a directory containing images to be classified.
             dataset_dir_or_classes_file (str): Path to the directory containing the dataset classes or Path to a text file
                                                containing class names (each class name on a separate line).
-            grayscale (bool): Whether to use grayscale images or not
+            grayscale (bool): Whether to use grayscale images or not.
             crop_size (int): The size of the crop for the training and validation sets.
             val_resize (int): The target size for resizing the validation images.
-                                 The validation images will be resized to this size while maintaining their aspect ratio.
+                             The validation images will be resized to this size while maintaining their aspect ratio.
+
     Returns:
         dict: A dictionary containing image names as keys and a list of dictionaries with top predicted labels and their
               associated probabilities as values. The list contains at most three dictionaries, showing the top 3
@@ -96,16 +95,68 @@ def run_inference(args: argparse.Namespace) -> dict:
 
 
 def get_args():
+    """
+    Parse command-line arguments for running inference with an ONNX model.
+
+    Returns:
+        argparse.Namespace: An object containing the parsed arguments.
+
+    Example:
+        >>> args = get_args()
+        >>> print(args.img_path)
+    """
     parser = argparse.ArgumentParser(description="Run inference with an ONNX model")
 
-    parser.add_argument("--output_dir", required=True, type=str, help="Specify the directory where the inference results will be saved")
-    parser.add_argument("--onnx_model_path", type=str, required=True, help="Provide the path to the ONNX model file that you want to use for inference.")
-    parser.add_argument("--img_path", type=str, required=True, help="Specify the path to a single image or a directory containing images that you want to classify.")
-    parser.add_argument("--dataset_dir_or_classes_file", type=str, required=True, help="Provide the path to either the directory containing the dataset classes or the path to a text file containing class names. This helps map the model's output to human-readable class names.")
-    parser.add_argument("--dataset_kwargs", type=str, default="", help="If necessary, you can provide the path to a JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset.")
-    parser.add_argument('--grayscale', action='store_true', help='Use this flag if you want to use grayscale images during inference.')
-    parser.add_argument("--crop_size", default=224, type=int, help="Define the size to which input images will be cropped during inference.")
-    parser.add_argument("--val_resize", default=256, type=int, help="Specify the size to which validation images will be resized during inference.")
+    # Required arguments
+    parser.add_argument(
+        "--output_dir",
+        required=True,
+        type=str,
+        help="Directory to save the inference results."
+    )
+    parser.add_argument(
+        "--onnx_model_path",
+        required=True,
+        type=str,
+        help="Path to the ONNX model file for inference."
+    )
+    parser.add_argument(
+        "--img_path",
+        required=True,
+        type=str,
+        help="Path to input image(s) or a directory containing images to classify."
+    )
+    parser.add_argument(
+        "--dataset_dir_or_classes_file",
+        required=True,
+        type=str,
+        help="Path to the directory containing dataset classes or a text file with class names."
+    )
+
+    # Optional arguments
+    parser.add_argument(
+        "--dataset_kwargs",
+        type=str,
+        default="",
+        help="Path to a JSON file with dataset-specific keyword arguments."
+    )
+    parser.add_argument(
+        '--grayscale',
+        action='store_true',
+        help='Use grayscale images during inference.'
+    )
+    parser.add_argument(
+        "--crop_size",
+        default=224,
+        type=int,
+        help="Size to crop input images during inference."
+    )
+    parser.add_argument(
+        "--val_resize",
+        default=256,
+        type=int,
+        help="Size to which validation images will be resized during inference."
+    )
 
     return parser.parse_args()
 
