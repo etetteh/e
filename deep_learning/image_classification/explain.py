@@ -25,15 +25,21 @@ def explain_model(args: argparse.Namespace) -> None:
     """
     Explain the predictions of a given model on a dataset using SHAP values.
 
-    Parameters:
-        - args (argparse.Namespace): Arguments passed to the script.
-            - dataset_dir (str): Directory of the dataset to use.
-            - crop_size (int): Size of the random crop applied to the images.
-            - batch_size (int): Batch size for data loading.
-            - num_workers (int): Number of workers for data loading.
-            - n_samples (int): Number of samples to explain.
-            - max_evals (int): Maximum number of evaluations for SHAP.
-            - topk (int): Number of top-k predictions to plot.
+    Args:
+        args (argparse.Namespace): Arguments passed to the script. Argument definitions are as follows:
+            - dataset (str): Path to the dataset directory or the name of a HuggingFace dataset, defining the data source for model training and evaluation.
+            - dataset_kwargs (str): Optional. JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset.
+            - model_output_dir (str): Output directory where the model is contained.
+            - feat_extract (bool): Include this flag to enable feature extraction during training, useful when using pretrained models.
+            - grayscale (bool): Optional. Use this flag to indicate that grayscale images should be used during training.
+            - crop_size (int): Size to which input images will be cropped.
+            - batch_size (int): Batch size for both training and evaluation stages.
+            - num_workers (int): Number of workers for training and evaluation.
+            - dropout (float): Dropout rate for the classifier head of the model.
+            - n_samples (int): Number of samples used for model explanation.
+            - max_evals (int): Maximum number of evaluations, commonly used for model explanation.
+            - topk (int): Number of top predictions to consider during model explanation.
+
     Returns:
         None
 
@@ -41,16 +47,7 @@ def explain_model(args: argparse.Namespace) -> None:
         - Plots the SHAP value interpretation for the model predictions on a subset of images from the dataset.
 
     Example:
-        >>> args = argparse.Namespace(
-        ...     model_output_dir = "sample/resnet50",
-        ...     dataset_dir = "data",
-        ...     crop_size = 224,
-        ...     batch_size = 32,
-        ...     num_workers = 4,
-        ...     n_samples = 1,
-        ...     max_evals = 100,
-        ...     topk = 5
-        ... )
+        >>> args = get_args()
         >>> explain_model(args)
         # The function will use the provided arguments to load the model, dataset, and then explain the model
         # predictions using SHAP values. It will plot the SHAP value interpretation for the top-k predictions on
@@ -113,7 +110,11 @@ def explain_model(args: argparse.Namespace) -> None:
     images = images.permute(0, 2, 3, 1)
     images = transform(images)
 
-    model_name = os.path.basename(args.model_output_dir)
+    if args.model_output_dir.endswith("/"):
+        model_name = args.model_output_dir.split("/")[-2]
+    else:
+        model_name = args.model_output_dir.split("/")[-1]
+
     model = utils.get_pretrained_model(args, model_name=model_name, num_classes=len(classes))
 
     checkpoint_file = os.path.join(os.path.join(args.model_output_dir, "best_model.pth"))
@@ -126,7 +127,7 @@ def explain_model(args: argparse.Namespace) -> None:
     model.eval()
     model.to(device)
 
-    masker_blur = shap.maskers.Image(f"blur{args.crop_size // 2, args.crop_size // 2}", images[0].shape)
+    masker_blur = shap.maskers.Image("blur(128,128)", images[0].shape)
     explainer = shap.Explainer(predict, masker_blur, output_names=classes)
 
     shap_values = explainer(images[:args.n_samples],
@@ -160,22 +161,95 @@ def explain_model(args: argparse.Namespace) -> None:
 
 
 def get_args():
+    """
+    Parse command-line arguments for running model explanation.
+
+    Returns:
+        argparse.Namespace: Parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser(description="Run Model Explanation")
 
-    parser.add_argument("--dataset", required=True, type=str, help="Use this command to provide the path to the dataset directory or the name of a HuggingFace dataset. It defines the data source for model training and evaluation.")
-    parser.add_argument("--dataset_kwargs", type=str, default="", help="If needed, you can use this command to point to a JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset.")
-    parser.add_argument("--model_output_dir", required=True, type=str, help="Specifies the output directory where the model is contained.")
+    parser.add_argument(
+        "--dataset",
+        required=True,
+        type=str,
+        help="Specify the path to the dataset directory or the name of a HuggingFace dataset, defining the data source for model training and evaluation."
+    )
 
-    parser.add_argument("--feat_extract", action="store_true", help="By including this flag, you can enable feature extraction during training, which is useful when using pretrained models.")
-    parser.add_argument('--grayscale', action='store_true', help="If needed, use this flag to indicate that grayscale images should be used during training.")
-    parser.add_argument("--crop_size", default=224, type=int, help="Define the size to which input images will be cropped.")
-    parser.add_argument("--batch_size", default=16, type=int, help="Define the batch size for both training and evaluation stages.")
-    parser.add_argument("--num_workers", default=4, type=int, help="Specify the number of workers for training and evaluation.")
-    parser.add_argument("--dropout", type=float, default=0.2, help="Define the dropout rate for the classifier head of the model.")
+    parser.add_argument(
+        "--dataset_kwargs",
+        type=str,
+        default="",
+        help="Optional: Provide a JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset."
+    )
 
-    parser.add_argument("--n_samples", required=True, type=int, help="Specifies the number of samples used for model explanation.")
-    parser.add_argument("--max_evals", required=True, type=int, help="Sets the maximum number of evaluations, commonly used for model explanation")
-    parser.add_argument("--topk", required=True, type=int, help=" Indicates the number of top predictions to consider during model explanation")
+    parser.add_argument(
+        "--model_output_dir",
+        required=True,
+        type=str,
+        help="Specify the output directory where the model is contained."
+    )
+
+    parser.add_argument(
+        "--feat_extract",
+        action="store_true",
+        help="Include this flag to enable feature extraction during training, useful when using pretrained models."
+    )
+
+    parser.add_argument(
+        "--grayscale",
+        action="store_true",
+        help="Optional: Use this flag to indicate that grayscale images should be used during training."
+    )
+
+    parser.add_argument(
+        "--crop_size",
+        default=224,
+        type=int,
+        help="Define the size to which input images will be cropped."
+    )
+
+    parser.add_argument(
+        "--batch_size",
+        default=16,
+        type=int,
+        help="Define the batch size for both training and evaluation stages."
+    )
+
+    parser.add_argument(
+        "--num_workers",
+        default=4,
+        type=int,
+        help="Specify the number of workers for training and evaluation."
+    )
+
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.2,
+        help="Define the dropout rate for the classifier head of the model."
+    )
+
+    parser.add_argument(
+        "--n_samples",
+        required=True,
+        type=int,
+        help="Specify the number of samples used for model explanation."
+    )
+
+    parser.add_argument(
+        "--max_evals",
+        required=True,
+        type=int,
+        help="Set the maximum number of evaluations, commonly used for model explanation."
+    )
+
+    parser.add_argument(
+        "--topk",
+        required=True,
+        type=int,
+        help="Specify the number of top predictions to consider during model explanation."
+    )
 
     return parser.parse_args()
 
