@@ -30,24 +30,25 @@ from timm.optim import create_optimizer_v2
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 
-def print_header(*args: Union[str, int, float]) -> None:
+def print_header(*args: Union[str, int], sep: Optional[str] = ' ') -> None:
     """
-    Print one or more arguments as a single line of text to the standard output.
+    Prints one or more arguments as a single line of text to the standard output.
 
-    Parameters:
-        *args: The arguments to be printed.
+    Args:
+        *args (Union[str, int]): One or more strings or integer values to be printed.
+        sep (Optional[str]): Separator to be used between arguments (default is a single space).
 
-    Example:
+    Examples:
         >>> print_header("Hello", "World", 2023)
-        Output: Hello World 2023
+        Hello World 2023
 
-        >>> print_header("The answer is", 42, "and the value of pi is", 3.14159)
-        Output: The answer is 42 and the value of pi is 3.14159
+        >>> print_header("The answer is", 42, "and the value of pi is", 3.14159, sep=' | ')
+        The answer is | 42 | and the value of pi is | 3.14159
 
         >>> print_header("A single value:", 10)
-        Output: A single value: 10
+        A single value: 10
     """
-    message = " ".join(map(str, args))
+    message = sep.join(map(str, args))
     print(message)
 
 
@@ -55,27 +56,24 @@ def print_heading(message: str) -> None:
     """
     Print a formatted heading with the given message.
 
-    Parameters:
+    Args:
         message (str): The message to be included in the heading.
 
-    Example:
+    Examples:
         >>> print_heading("Welcome to the Chatbot")
-        Output:
-        =========================
+        ========================
         Welcome to the Chatbot
-        =========================
+        ========================
 
         >>> print_heading("Instructions")
-        Output:
-        =============
+        ==============
         Instructions
-        =============
+        ==============
 
         >>> print_heading("Important Notice")
-        Output:
-        =================
+        ==================
         Important Notice
-        =================
+        ==================
     """
     line = "=" * len(message) + "=="
     print_header(line)
@@ -88,25 +86,23 @@ def get_model_run_id(run_ids: Dict[str, str], model_name: str) -> Optional[str]:
     """
     Get the run ID of a specific model from a dictionary of run IDs.
 
-    Parameters:
+    Args:
         run_ids (Dict[str, str]): A dictionary mapping model names to run IDs.
         model_name (str): The name of the model for which to retrieve the run ID.
 
     Returns:
         Optional[str]: The run ID of the specified model, or None if the model is not in the dictionary.
 
-    Example:
+    Examples:
         >>> run_ids = {"model1": "1234", "model2": "5678", "model3": "9012"}  # Example dictionary of run IDs
 
         >>> model_name = "model2"  # Example model name to retrieve the run ID
-        >>> run_id = get_model_run_id(run_ids, model_name)
-        >>> print(run_id)
-        Output: 5678
+        >>> get_model_run_id(run_ids, model_name)
+        '5678'
 
         >>> model_name = "model4"  # Non-existing model name
-        >>> run_id = get_model_run_id(run_ids, model_name)
-        >>> print(run_id)
-        Output: None
+        >>> get_model_run_id(run_ids, model_name) is None
+        True
     """
     try:
         run_id = run_ids[model_name]
@@ -120,41 +116,43 @@ def write_dictionary_to_json(dictionary: Dict, file_path: str) -> None:
     Write a dictionary object to a JSON file at the given file path.
     If the file already exists, its content will be overwritten.
 
-    Parameters:
+    Args:
         dictionary (Dict): The dictionary object to be written to the JSON file.
         file_path (str): The path to the JSON file.
 
     Returns:
         None
 
-    Example:
+    Examples:
         >>> dictionary = {"key": "value"}  # Example dictionary object to be written
         >>> file_path = "data.json"  # Example file path
         >>> write_dictionary_to_json(dictionary, file_path)
 
-        # The data.json file will contain the following content:
-        # {
-        #     "key": "value"
-        # }
+        # To check the content of the data.json file, you can read it and print it:
+        >>> with open(file_path, 'r') as file_in:
+        ...     file_content = file_in.read()
+        >>> print(file_content)
+        {
+            "key": "value"
+        }
     """
     with open(file_path, "w") as file_out:
         json.dump(dictionary, file_out, indent=4)
 
 
 def append_dictionary_to_json_file(new_dict: Dict, file_path: str) -> None:
-    # noinspection PyShadowingNames
     """
     Append a dictionary to a JSON file at the given file path.
     If the file does not exist, it will be created.
 
-    Parameters:
+    Args:
         new_dict (Dict): The dictionary to be appended to the JSON file.
         file_path (str): The path to the JSON file.
 
     Returns:
         None
 
-    Example:
+    Examples:
         >>> new_dict = {"key": "value"}  # Example dictionary to be appended
         >>> file_path = "data.json"  # Example file path
         >>> append_dictionary_to_json_file(new_dict, file_path)
@@ -181,57 +179,79 @@ def append_dictionary_to_json_file(new_dict: Dict, file_path: str) -> None:
         json.dump(data, json_file, indent=4)
 
 
-def read_json_file(file_path: str) -> Dict[str, Any]:
+def read_json_file(file_path: str) -> Dict:
     """
-    Read and parse a JSON file from the given file path and return the data as a dictionary.
+    Reads a JSON file and returns its content as a dictionary.
 
-    Parameters:
+    Args:
         file_path (str): The path to the JSON file.
 
     Returns:
-        Dict[str, Any]: The data contained in the JSON file as a dictionary.
+        dict: The dictionary containing the content of the JSON file.
 
-    Example:
-        >>> file_path = "data.json"  # Example file path
-        >>> data = read_json_file(file_path)
-        >>> print(data)
-        Output: {'key': 'value'}
+    Examples:
+        >>> json_data = {"key1": "value1", "key2": "value2"}
+        >>> file_path = "data.json"
 
-        # Assuming data.json contains the following JSON content:
-        # {
-        #     "key": "value"
-        # }
+        # Creating a sample JSON file
+        >>> with open(file_path, 'w') as json_file:
+        ...     json.dump(json_data, json_file)
+
+        # Reading the JSON file using read_json_file function
+        >>> result = read_json_file(file_path)
+        >>> result == json_data
+        True
+
+        # Clean up: Remove the created file
+        >>> os.remove(file_path)
     """
-    with open(file_path, "r") as json_file:
-        data = json.load(json_file)
-    return data
+    with open(file_path, 'r') as json_file:
+        return json.load(json_file)
 
 
 def read_json_lines_file(file_path: str) -> List[Union[dict, Any]]:
     """
     Read and parse a JSON Lines file from the given file path and return the data as a list.
 
-    Parameters:
+    Args:
         file_path (str): The path to the JSON Lines file.
 
     Returns:
         List[Union[dict, Any]]: The data contained in the JSON Lines file as a list.
 
-    Example:
-        >>> file_path = "data.jsonl"  # Example file path
-        >>> data = read_json_lines_file(file_path)
-        >>> print(data)
-        Output: [{'key': 'value'}, {'key2': 42}, 'text line', 3.14]
+    Examples:
+        Import pandas as pd
 
-        # Assuming data.jsonl contains the following JSON Lines content:
-        # {"key": "value"}
-        # {"key2": 42}
-        # "text line"
-        # 3.14
+        # Create a sample DataFrame
+        data = [
+            {"label": "DRUG", "pattern": "aspirin"},
+            {"label": "DRUG", "pattern": "trazodone"},
+            {"label": "DRUG", "pattern": "citalopram"}
+        ]
+        df = pd.DataFrame(data)
+
+        # Wrap the 'pattern' column in a dictionary
+        df["pattern"] = df.pattern.apply(lambda x: {"lower": x})
+
+        # Output the DataFrame in JSONL format
+        df.to_json("data.jsonl", orient="records", lines=True)
+
+        file_path = "data.jsonl"  # Example file path (created by Pandas)
+        data = read_json_lines_file(file_path)
+        print(data)
+        # Output:
+        # [{'label': 'DRUG', 'pattern': {'lower': 'aspirin'}}, {'label': 'DRUG', 'pattern': {'lower': 'trazodone'}}, {'label': 'DRUG', 'pattern': {'lower': 'citalopram'}}]
+
     """
-    with open(file_path, "r") as file_in:
-        data = [json.loads(line) for line in file_in]
-        return data
+    try:
+        with open(file_path, "r") as file_in:
+            data = [json.loads(line) for line in file_in]
+            return data
+    except FileNotFoundError:
+        print(f"File '{file_path}' not found.")
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON: {e}")
+    return []
 
 
 def keep_recent_files(directory: str, num_files_to_keep: int) -> None:
@@ -263,26 +283,26 @@ def keep_recent_files(directory: str, num_files_to_keep: int) -> None:
             print(f"Error while removing {file_to_remove}: {e}")
 
 
-def set_seed_for_worker(worker_id: Optional[int]) -> Optional[int]:
+def set_seed_for_worker(worker_id: Optional[int]) -> Union[int, None]:
     """
     Sets the seed for NumPy and Python's random module for the given worker.
-    If no worker ID is provided, uses the initial seed for PyTorch and returns None.
+    If no worker ID is provided, uses the initial seed for PyTorch and returns "<initial_seed_value>" as a string.
 
     Parameters:
         worker_id (Optional[int]): The ID of the worker.
 
     Returns:
-        Optional[int]: The seed used for the worker, or None if no worker ID was provided.
+        Optional[int]: The seed used for the worker, or "<initial_seed_value>" as a string if no worker ID was provided.
 
     Example:
         >>> worker_id = 1  # Example worker ID
         >>> seed = set_seed_for_worker(worker_id)
         >>> print(seed)  # Seed used for the worker
-        Output: 1
+        1
 
         >>> seed = set_seed_for_worker(None)  # No worker ID provided
         >>> print(seed)  # Initial seed for PyTorch
-        Output: <initial_seed_value>
+        None
     """
     if worker_id is not None:
         worker_seed = worker_id
@@ -301,7 +321,7 @@ def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
     """
     Load an image dataset using Hugging Face's 'datasets' library.
 
-    Parameters:
+    Args:
         args:
             dataset (str or os.PathLike): The path to a local dataset directory or a Hugging Face dataset name
                                     (or an HTTPS URL for a remote dataset).
@@ -313,24 +333,25 @@ def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
     Raises:
         ValueError: If the provided dataset is not a valid path to a directory, a string (Hugging Face dataset name),
                     or an HTTPS URL for a remote dataset.
-
-     Example:
-         >>> dataset_name = "mnist"
-         >>> loaded_dataset = load_image_dataset(args)
-         >>> print(loaded_dataset)
-         Dataset(features: {'image': Image(shape=(28, 28, 1), dtype=torch.uint8), 'label': ClassLabel(
-                            shape=(), dtype=int64)}, num_rows: 70000)
-
-        >>> local_path = "/path/to/local/image_dataset"
-        >>> loaded_dataset = load_image_dataset(local_path)
-        >>> print(loaded_dataset)
-        Dataset(features: {'image': Image(shape=(None, None, 3), dtype=uint8),
-                           'label': ClassLabel(shape=(), dtype=int64)}, num_rows: 1000)
-
-        >>> remote_url = "https://url.to.remote/image_dataset"
-        >>> loaded_dataset = load_image_dataset(remote_url)
-        >>> print(loaded_dataset)
-        Dataset(features: {'image': Image(shape=(None, None, 3), dtype=uint8)}, num_rows: 5000)
+    Example:
+        >>> from argparse import Namespace
+        >>> args = Namespace(dataset="cifar10", dataset_kwargs="")
+        >>> dataset = load_image_dataset(args)
+        >>> print(dataset)
+        DatasetDict({
+            train: Dataset({
+                features: ['image', 'labels'],
+                num_rows: 40000
+            })
+            test: Dataset({
+                features: ['image', 'labels'],
+                num_rows: 10000
+            })
+            validation: Dataset({
+                features: ['image', 'labels'],
+                num_rows: 10000
+            })
+        })
     """
     if isinstance(args.dataset, Path) and os.path.isdir(args.dataset):
         image_dataset = load_dataset("imagefolder", data_dir=args.dataset)
@@ -372,11 +393,73 @@ def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
     return image_dataset
 
 
+def preprocess_train_eval_data(image_dataset: Dict, data_transforms: Dict) -> Tuple:
+    """
+    Preprocesses training and validation data in an image dataset using specified data transformations.
+
+    This function applies the provided data transformations to the training and validation subsets
+    of an image dataset. It is intended for preparing image data for training and evaluation in
+    machine learning models.
+
+    Args:
+        image_dataset (Dict): A dictionary containing subsets of an image dataset, typically with keys
+            "train" and "validation" pointing to dataset objects.
+        data_transforms (Dict): A dictionary containing data transformation functions for training ("train")
+            and validation ("val"). These functions should accept and process image data.
+
+    Returns:
+        Dict: A dictionary containing the preprocessed training and validation datasets, where the keys "train"
+        and "validation" point to dataset objects with applied transformations.
+
+    Example:
+        >>> from argparse import Namespace
+
+        >>> args = Namespace( \
+            dataset = "cifar10", \
+            dataset_kwargs="", \
+            crop_size=224, \
+            val_resize=256,\
+            interpolation="bilinear", \
+            hflip=0.5, \
+            aug_type="augmix", \
+            mag_bins=30, \
+            grayscale=False \
+            )
+
+        >>> data_transforms = get_data_augmentation(args)
+        >>> dataset = load_image_dataset(args)
+
+        >>> train_dataset, val_dataset = preprocess_train_eval_data(dataset, data_transforms)
+        >>> train_dataset
+        Dataset({
+            features: ['image', 'labels'],
+            num_rows: 40000
+        })
+    """
+
+    def preprocess_train(example_batch):
+        example_batch["pixel_values"] = [
+            data_transforms["train"](image.convert("RGB")) for image in example_batch["image"]
+        ]
+        return example_batch
+
+    def preprocess_val(example_batch):
+        example_batch["pixel_values"] = [
+            data_transforms["val"](image.convert("RGB")) for image in example_batch["image"]
+        ]
+        return example_batch
+
+    train_dataset = image_dataset["train"].with_transform(preprocess_train)
+    val_dataset = image_dataset["validation"].with_transform(preprocess_val)
+
+    return train_dataset, val_dataset
+
+
 def apply_fgsm_attack(image: torch.Tensor, epsilon: float, data_grad: torch.Tensor) -> torch.Tensor:
     """
     Generate an adversarial example using the Fast Gradient Sign Method (FGSM).
 
-    Parameters:
+    Args:
         image (torch.Tensor): The input image.
         epsilon (float): Perturbation magnitude for generating adversarial examples.
         data_grad (torch.Tensor): Gradient of the loss with respect to the image.
@@ -388,7 +471,7 @@ def apply_fgsm_attack(image: torch.Tensor, epsilon: float, data_grad: torch.Tens
         >>> image = torch.rand(1, 3, 32, 32)  # A random image of size (1, 3, 32, 32)
         >>> epsilon = 0.05  # Perturbation magnitude
         >>> data_grad = torch.randn(1, 3, 32, 32)  # Gradient of loss w.r.t. image
-        >>> adversarial_image = fgsm_attack(image, epsilon, data_grad)
+        >>> adversarial_image = apply_fgsm_attack(image, epsilon, data_grad)
     """
     sign_data_grad = data_grad.sign()
     adversarial_image = image + epsilon * sign_data_grad
@@ -400,7 +483,7 @@ def apply_normalization(args: Namespace, aug_list: List) -> List:
     """
     Apply normalization to the augmentation list based on grayscale conversion.
 
-    Parameters:
+    Args:
         args (Namespace): Namespace object containing arguments.
             grayscale (bool): Whether to convert the images to grayscale.
         aug_list (List): The list of transformation functions for data augmentation.
@@ -440,48 +523,90 @@ def apply_normalization(args: Namespace, aug_list: List) -> List:
     return aug_list
 
 
+def get_augmentation_by_type(args: Namespace) -> Callable:
+    """
+    Returns an augmentation transform based on the specified augmentation type.
+
+    Args:
+        args (Namespace): A namespace object containing the following attributes:
+            aug_type (str): The type of augmentation to apply. Must be one of "trivial", "augmix", or "rand".
+            mag_bins (int): The number of magnitude bins for augmentation (used for "trivial" and "rand" types).
+            interpolation (str): The interpolation method for resizing and cropping (e.g., "bilinear").
+
+    Returns:
+        Callable: A callable augmentation transform based on the specified augmentation type.
+
+    Raises:
+        ValueError: If the specified augmentation type is invalid.
+
+    Examples:
+        >>> from argparse import Namespace
+        >>> args = Namespace(aug_type="trivial", mag_bins=30, interpolation="bilinear")
+        >>> augmentation = get_augmentation_by_type(args)
+        >>> isinstance(augmentation, transforms.TrivialAugmentWide)
+        True
+
+    Note:
+        This function returns different augmentation transforms based on the `aug_type` attribute in the `args` namespace.
+        - For "trivial" type, it returns a TrivialAugmentWide transform with specified parameters.
+        - For "augmix" type, it returns an AugMix transform with specified parameters.
+        - For "rand" type, it returns a RandAugment transform with specified parameters.
+        - Raises a ValueError for an invalid `aug_type`.
+    """
+    if args.aug_type == "trivial":
+        return transforms.TrivialAugmentWide(num_magnitude_bins=args.mag_bins,
+                                             interpolation=f.InterpolationMode(args.interpolation))
+    elif args.aug_type == "augmix":
+        return transforms.AugMix(interpolation=f.InterpolationMode(args.interpolation))
+    elif args.aug_type == "rand":
+        return transforms.RandAugment(num_magnitude_bins=args.mag_bins,
+                                      interpolation=f.InterpolationMode(args.interpolation))
+    else:
+        raise ValueError(f"Invalid augmentation type: '{args.aug_type}'")
+
+
 def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
     """
     Returns data augmentation transforms for training and validation sets.
 
-    Parameters:
+    Args:
         args (Namespace): A namespace object containing the following attributes:
             crop_size (int): The size of the crop for the training and validation sets.
             val_resize (int): The target size for resizing the validation images.
                               The validation images will be resized to this size while maintaining their aspect ratio.
             interpolation (int): The interpolation method for resizing and cropping.
-            hflip (bool): Whether to apply random horizontal flip to the training set.
+            hflip (float): The probability of applying random horizontal flip to the training set, a float between 0 and 1.
             aug_type (str): The type of augmentation to apply to the training set.
                              Must be one of "trivial", "augmix", or "rand".
 
     Returns:
         Dict[str, Callable]: A dictionary of data augmentation transforms for the training and validation sets.
 
-    Example:
-        >>> import torchvision.transforms as transforms
-        >>> args = Namespace(crop_size=224, interpolation=3, hflip=True, aug_type='augmix')
-        >>> transforms_dict = get_data_augmentation(args)
-        >>> train_transforms = transforms_dict['train']
-        >>> val_transforms = transforms_dict['val']
-        >>> print(train_transforms)
-        Output: Composed transform with random resized crop, random horizontal flip, and AugMix augmentation
-        >>> print(val_transforms)
-        Output: Composed transform with resize, center crop, and normalization
-    """
-    def get_augmentation_by_type(aug_type: str) -> Callable:
-        if aug_type == "trivial":
-            return transforms.TrivialAugmentWide(num_magnitude_bins=args.mag_bins,
-                                                 interpolation=f.InterpolationMode(args.interpolation))
-        elif aug_type == "augmix":
-            return transforms.AugMix(interpolation=f.InterpolationMode(args.interpolation))
-        elif aug_type == "rand":
-            return transforms.RandAugment(num_magnitude_bins=args.mag_bins,
-                                          interpolation=f.InterpolationMode(args.interpolation))
-        else:
-            raise ValueError(f"Invalid augmentation type: '{aug_type}'")
+    Examples:
+        >>> import utils
 
+        >>> args = Namespace( \
+                crop_size=224, \
+                val_resize=256,\
+                interpolation="bilinear", \
+                hflip=0.5, \
+                aug_type="augmix", \
+                mag_bins=30, \
+                grayscale=False, \
+            )
+
+        >>> data_transforms = get_data_augmentation(args)
+        >>> data_transforms["train"]
+        Compose(
+            RandomResizedCrop(size=(224, 224), scale=(0.08, 1.0), ratio=(0.75, 1.3333), interpolation=bilinear, antialias=warn)
+            RandomHorizontalFlip(p=0.5)
+            AugMix(severity=3, mixture_width=3, chain_depth=-1, alpha=1.0, all_ops=True, interpolation=InterpolationMode.BILINEAR, fill=None)
+            ToTensor()
+            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        )
+    """
     train_aug = [transforms.RandomResizedCrop(args.crop_size, interpolation=f.InterpolationMode(args.interpolation)),
-                 transforms.RandomHorizontalFlip(args.hflip), get_augmentation_by_type(args.aug_type)]
+                 transforms.RandomHorizontalFlip(p=args.hflip), get_augmentation_by_type(args)]
 
     train_transform = transforms.Compose(apply_normalization(args, train_aug))
 
@@ -498,28 +623,31 @@ def apply_mixup(images: Tensor, targets: Tensor, alpha: float = 1.0) -> Tuple[Te
     """
     Applies Mixup augmentation to input data.
 
-    Parameters:
-        images (Tensor): Input images.
-        targets (Tensor): Corresponding targets.
-        alpha (float, optional): Mixup parameter. Defaults to 1.0.
+    This function performs Mixup augmentation, which blends input images and their corresponding
+    targets based on a random mixing coefficient sampled from a Beta distribution.
+
+    Args:
+        images (Tensor): Input images as a tensor of shape (batch_size, channels, height, width).
+        targets (Tensor): Corresponding targets as a tensor of shape (batch_size, num_classes).
+        alpha (float, optional): Mixup parameter that controls the mixing strength.
+            A smaller alpha value results in more conservative mixing. Defaults to 1.0.
 
     Returns:
-        Tuple[Tensor, Tensor, Tensor, float]: Mixed images, mixed labels (labels_a),
-        original labels (labels_b), and mixup factor (lambda).
-    Example:
-         >>> import torch
-         >>> images = torch.tensor([[1, 2, 3], [4, 5, 6]])
-         >>> targets = torch.tensor([0, 1])
-         >>> mixed_images, labels_a, labels_b, lam = apply_mixup(images, targets, alpha=0.5)
-         >>> print(mixed_images)
-         Output: tensor([[2.5000, 3.5000, 4.5000],
-                         [2.0000, 2.5000, 3.0000]])
-         >>> print(labels_a)
-         Output: tensor([0, 1])
-         >>> print(labels_b)
-         Output: tensor([0, 1])
-         >>> print(lam)
-         Output: 0.5
+        Tuple[Tensor, Tensor, Tensor, float]: A tuple containing the following elements:
+            - Mixed images (Tensor): A tensor of mixed images with the same shape as 'images'.
+            - Mixed labels (targets_a) (Tensor): A tensor of mixed labels with the same shape as 'targets'.
+            - Original labels (targets_b) (Tensor): A tensor of original labels with the same shape as 'targets'.
+            - Mixup factor (lambda) (float): The mixing coefficient used for the augmentation.
+
+    Examples:
+        >>> import torch
+        >>> images = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
+        >>> targets = torch.tensor([[0.0, 1.0], [1.0, 0.0]])
+        >>> mixed_images, mixed_labels, original_labels, lam = apply_mixup(images, targets, alpha=0.5)
+        >>> mixed_images.shape
+        torch.Size([2, 2])
+        >>> 0.0 <= lam <= 1.0
+        True
     """
     beta_dist = Beta(alpha, alpha)
     lam = beta_dist.sample().item()
@@ -533,33 +661,38 @@ def apply_mixup(images: Tensor, targets: Tensor, alpha: float = 1.0) -> Tuple[Te
     return mixed_images, targets_a, targets_b, lam
 
 
-def apply_cutmix(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) -> Tuple[torch.Tensor, torch.Tensor,
-torch.Tensor, float]:
+def apply_cutmix(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]:
     """
     Applies CutMix augmentation to input data.
 
-    Parameters:
-        images (torch.Tensor): Input images.
-        targets (torch.Tensor): Corresponding labels.
-        alpha (float, optional): CutMix parameter. Defaults to 1.0.
+    CutMix is an augmentation technique that combines two images by replacing a part of one image with a part of another.
+
+    Args:
+        images (torch.Tensor): Input images as a tensor of shape (batch_size, channels, height, width).
+        targets (torch.Tensor): Corresponding labels as a tensor of shape (batch_size, num_classes).
+        alpha (float, optional): CutMix parameter that controls the mixing strength. Defaults to 1.0.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]: Mixed images, mixed labels (targets_a),
-        original labels (targets_b), and mix factor (lambda).
-    Example:
-         >>> import torch
-         >>> images = torch.tensor([[1, 2, 3], [4, 5, 6]])
-         >>> targets = torch.tensor([0, 1])
-         >>> mixed_images, targets_a, targets_b, lam = apply_cutmix(images, targets, alpha=0.5)
-         >>> print(mixed_images)
-         Output: tensor([[1, 2, 3],
-                         [4, 5, 6]])
-         >>> print(targets_a)
-         Output: tensor([0, 1])
-         >>> print(targets_b)
-         Output: tensor([1, 0])
-         >>> print(lam)
-         Output: 0.5
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]: A tuple containing the following elements:
+            - Mixed images (torch.Tensor): A tensor of mixed images with the same shape as 'images'.
+            - Mixed labels (targets_a) (torch.Tensor): A tensor of mixed labels with the same shape as 'targets'.
+            - Original labels (targets_b) (torch.Tensor): A tensor of original labels with the same shape as 'targets'.
+            - Mixup factor (lambda) (float): The mixing coefficient used for the augmentation.
+
+    Examples:
+        >>> import torch
+        >>> import numpy as np
+        >>> images = torch.tensor([[[[1.0, 2.0], [3.0, 4.0]]]])
+        >>> targets = torch.tensor([[0.0, 1.0]])
+        >>> mixed_images, mixed_labels, original_labels, lam = apply_cutmix(images, targets, alpha=0.5)
+        >>> mixed_images.shape
+        torch.Size([1, 1, 2, 2])
+        >>> mixed_labels.shape
+        torch.Size([1, 2])
+        >>> original_labels.shape
+        torch.Size([1, 2])
+        >>> 0.0 <= lam <= 1.0
+        True
     """
     batch_size = images.size(0)
     index = torch.randperm(batch_size)
@@ -568,14 +701,14 @@ torch.Tensor, float]:
 
     height, width = images.size(2), images.size(3)
     cut_ratio = np.sqrt(1.0 - lam)
-    cut_h = np.int(height * cut_ratio)
-    cut_w = np.int(width * cut_ratio)
+    cut_h = int(height * cut_ratio)
+    cut_w = int(width * cut_ratio)
     cx = np.random.randint(width)
     cy = np.random.randint(height)
-    bbx1 = np.clip(cx - cut_w // 2, 0, width)
-    bby1 = np.clip(cy - cut_h // 2, 0, height)
-    bbx2 = np.clip(cx + cut_w // 2, 0, width)
-    bby2 = np.clip(cy + cut_h // 2, 0, height)
+    bbx1 = max(0, cx - cut_w // 2)
+    bby1 = max(0, cy - cut_h // 2)
+    bbx2 = min(width, cx + cut_w // 2)
+    bby2 = min(height, cy + cut_h // 2)
 
     mixed_images = images.clone()
     mixed_images[:, :, bby1:bby2, bbx1:bbx2] = images[index, :, bby1:bby2, bbx1:bbx2]
@@ -589,18 +722,27 @@ def to_channels_first(image: torch.Tensor) -> torch.Tensor:
     """
     Converts an image tensor from channels-last format to channels-first format.
 
-    Parameters:
+    Args:
         image (torch.Tensor): A 4-D or 3-D image tensor.
 
     Returns:
         torch.Tensor: The image tensor in channels-first format.
 
     Example:
-         >>> import torch
-         >>> image = torch.randn(32, 64, 64, 3)  # Example 4-D image tensor with channels last
-         >>> converted_image = to_channels_first(image)
-         >>> print(converted_image.shape)
-         Output: torch.Size([32, 3, 64, 64])
+        Converting a 4-D image tensor (batch_size, height, width, channels) to channels-first format:
+
+        >>> import torch
+        >>> image = torch.randn(32, 64, 64, 3)  # Example 4-D image tensor with channels last
+        >>> converted_image = to_channels_first(image)
+        >>> converted_image.shape
+        torch.Size([32, 3, 64, 64])
+
+        Converting a 3-D image tensor (height, width, channels) to channels-first format:
+
+        >>> image = torch.randn(64, 64, 3)  # Example 3-D image tensor with channels last
+        >>> converted_image = to_channels_first(image)
+        >>> converted_image.shape
+        torch.Size([3, 64, 64])
     """
     return image.permute(0, 3, 1, 2) if image.dim() == 4 else image.permute(2, 0, 1)
 
@@ -609,18 +751,27 @@ def to_channels_last(image: torch.Tensor) -> torch.Tensor:
     """
     Converts an image tensor from the channels-first format to the channels-last format.
 
-    Parameters:
+    Args:
         image (torch.Tensor): A 4-D or 3-D image tensor in channels-first format.
 
     Returns:
         torch.Tensor: The image tensor in channels-last format.
 
     Example:
+        Converting a 4-D image tensor (batch_size, channels, height, width) to channels-last format:
+
         >>> import torch
         >>> image = torch.randn(1, 3, 32, 32)  # Channels-first format
         >>> image_channels_last = to_channels_last(image)
-        >>> print(image_channels_last.shape)
-        Output: torch.Size([1, 32, 32, 3])
+        >>> image_channels_last.shape
+        torch.Size([1, 32, 32, 3])
+
+        Converting a 3-D image tensor (channels, height, width) to channels-last format:
+
+        >>> image = torch.randn(3, 32, 32)  # Channels-first format
+        >>> image_channels_last = to_channels_last(image)
+        >>> image_channels_last.shape
+        torch.Size([32, 32, 3])
     """
     return image.permute(0, 2, 3, 1) if image.dim() == 4 else image.permute(1, 2, 0)
 
@@ -634,7 +785,7 @@ def convert_to_onnx(
     """
     Convert a PyTorch model to ONNX format.
 
-    Parameters:
+    Args:
         args: A namespace object containing the following attributes:
             crop_size (int, optional): The size of the crop for the inference dataset/image. Default: None.
         model_name (str): The name of the model.
@@ -642,11 +793,11 @@ def convert_to_onnx(
         num_classes (int): The number of classes in the dataset.
 
     Example:
-        >>> args = Namespace(crop_size=224)
-        >>> model_name = "resnet18"
-        >>> checkpoint_path = "./best_model.pt"
-        >>> num_classes = 10
-        >>> convert_to_onnx(args, model_name, checkpoint_path, num_classes)
+        # >>> args = Namespace(crop_size=224, dropout=0.2, grayscale=False, feat_extract=True)
+        # >>> model_name = "xcit_nano_12_p8_224"
+        # >>> checkpoint_path = "best_model.pth"
+        # >>> num_classes = 2
+        # >>> convert_to_onnx(args, model_name, checkpoint_path, num_classes)
     """
 
     model = get_pretrained_model(args, model_name, num_classes)
@@ -676,19 +827,23 @@ def convert_to_onnx(
 
 def get_explanation_transforms() -> Tuple[transforms.Compose, transforms.Compose]:
     """
-    Returns the transforms for data augmentation used for explaining the model.
+    Get transforms for preprocessing and inverse preprocessing of images used in an explanation pipeline.
 
     Returns:
-        Tuple[transforms.Compose, transforms.Compose]: A tuple of two transforms representing the data augmentation
-        transforms used for explanation and the inverse of those transforms.
+        Tuple[transforms.Compose, transforms.Compose]: A tuple of two torchvision.transforms.Compose objects.
+            - The first transform is used for preprocessing an image for explanation.
+            - The second transform is used for inverse preprocessing to revert the explanation to the original image.
+
+    Note:
+        - `to_channels_first` and `to_channels_last` are custom functions for channel ordering.
+        - `IMAGENET_DEFAULT_MEAN` and `IMAGENET_DEFAULT_STD` should be defined elsewhere.
+        - The first transform normalizes the image and changes channel ordering.
+        - The second transform inversely normalizes the image and changes channel ordering.
 
     Example:
-        >>> transform, inv_transform = get_explanation_transforms()
-        >>> original_image = ...  # Load or create the original image
-        >>> transformed_image = transform(original_image)
-        >>> # Perform some model explanation using the transformed image
-        >>> # If needed, revert the transformed image back to the original using the inverse transform
-        >>> original_image_restored = inv_transform(transformed_image)
+        transform, inv_transform = get_explanation_transforms()
+        preprocessed_image = transform(original_image)
+        inverted_image = inv_transform(explanation_image)
     """
     transform = transforms.Compose([
         transforms.Lambda(to_channels_first),
@@ -713,21 +868,23 @@ def collate_fn(examples):
     """
     Collates a list of examples into batches by stacking pixel values of images and creating a tensor for labels.
 
-    Parameters:
+    Args:
         examples (list): A list of examples, each containing a dictionary with "pixel_values" and "labels" keys.
 
     Returns:
         dict: A dictionary containing the batched pixel values and labels.
 
-    Example:
-        >>> examples = [{"pixel_values": torch.tensor([1, 2, 3]), "labels": 0},
-                       {"pixel_values": torch.tensor([4, 5, 6]), "labels": 1},
-                       {"pixel_values": torch.tensor([7, 8, 9]), "labels": 2}]
+    Examples:
+        >>> examples = [ \
+                {"pixel_values": torch.tensor([1, 2, 3]), "labels": 0}, \
+                {"pixel_values": torch.tensor([4, 5, 6]), "labels": 1}, \
+                {"pixel_values": torch.tensor([7, 8, 9]), "labels": 2} \
+                ]
         >>> batch = collate_fn(examples)
         >>> print(batch)
-        Output: {'pixel_values': tensor([[1, 2, 3],
-                                         [4, 5, 6],
-                                         [7, 8, 9]]), 'labels': tensor([0, 1, 2])}
+        {'pixel_values': tensor([[1, 2, 3],
+                [4, 5, 6],
+                [7, 8, 9]]), 'labels': tensor([0, 1, 2])}
     """
     pixel_values = torch.stack([example["pixel_values"] for example in examples])
     labels = torch.tensor([example["labels"] for example in examples])
@@ -738,17 +895,35 @@ def get_classes(dataset: torch.utils.data.Dataset) -> List[str]:
     """
     Get a list of the classes in a dataset.
 
-    Parameters:
+    Args:
         dataset: dataset to get classes from.
 
     Returns:
         List[str]: A sorted list of the classes in the dataset.
 
     Example:
+        >>> from argparse import Namespace
+
+        >>> args = Namespace( \
+                dataset = "cifar10", \
+                dataset_kwargs="", \
+                crop_size=224, \
+                val_resize=256,\
+                interpolation="bilinear", \
+                hflip=0.5, \
+                aug_type="augmix", \
+                mag_bins=30, \
+                grayscale=False, \
+                )
+
+        >>> data_transforms = get_data_augmentation(args)
         >>> dataset = load_image_dataset(args)
-        >>> classes = get_classes(dataset)
+
+        >>> train_dataset, val_dataset = preprocess_train_eval_data(dataset, data_transforms)
+
+        >>> classes = get_classes(train_dataset)
         >>> print(classes)
-        Output: ['class1', 'class2', 'class3', ...]
+        ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
     """
     classes = dataset.features["labels"].names
 
@@ -759,7 +934,7 @@ def get_matching_model_names(args: Namespace) -> List[str]:
     """
     Get a list of model names matching the given image crop size and model size or submodule name.
 
-    Parameters:
+    Args:
         args:
             crop_size (int): Image size the models should be trained on.
             model_size (str): Size of the model (e.g., "tiny", "small", etc.).
@@ -768,18 +943,18 @@ def get_matching_model_names(args: Namespace) -> List[str]:
     Returns:
         List[str]: A list of model names that can be used for training.
 
-    Example:
-        >>> import argparse
+    Examples:
+        >>> from argparse import Namespace
 
         ### Loading models based on model size
-        >>> args = argparse.Namespace(image_size=224, model_size="small")
+        >>> args = Namespace(model_size="nano", crop_size="224", module=None)
         >>> get_matching_model_names(args)
-        ['tf_efficientnet_b0_ns_small_224', 'tf_efficientnet_b1_ns_small_224', 'tf_efficientnet_b2_ns_small_224', ...]
+        ['coatnet_nano_rw_224.sw_in1k', 'coatnet_rmlp_nano_rw_224.sw_in1k', 'coatnext_nano_rw_224.sw_in1k', 'xcit_nano_12_p8_224.fb_dist_in1k', 'xcit_nano_12_p8_224.fb_in1k', 'xcit_nano_12_p16_224.fb_dist_in1k', 'xcit_nano_12_p16_224.fb_in1k']
 
         # Loading models based on specific submodule
-        >>> args = argparse.Namespace(image_size=224, module="resnet")
+        >>> args = Namespace(crop_size=224, module="edgenext")
         >>> get_matching_model_names(args)
-        ['ecaresnet50d.miil_in1k', 'ecaresnet50t.a1_in1k', 'ecaresnet50t.a3_in1k', 'ecaresnet101d.miil_in1k', ...]
+        ['edgenext_base.in21k_ft_in1k', 'edgenext_base.usi_in1k', 'edgenext_small.usi_in1k', 'edgenext_small_rw.sw_in1k', 'edgenext_x_small.in1k', 'edgenext_xx_small.in1k']
     """
 
     def filter_models(models: List[str], crop_size: int) -> List[str]:
@@ -848,21 +1023,51 @@ def prune_model(model: nn.Module, pruning_rate: float) -> List[Tuple[nn.Module, 
     """
     Applies global unstructured pruning to the model.
 
-    Parameters:
+    Args:
         model (nn.Module): The model to be pruned.
         pruning_rate (float): The fraction of weights to be pruned.
 
     Returns:
         List[Tuple[nn.Module, str]]: A list of tuples containing the pruned modules and parameter names.
 
-    Example:
-        >>> model = MyModel()
+    Examples:
+        >>> import torch
+        >>> import torch.nn as nn
+
+        >>> class SimpleCNN(nn.Module):
+        ...     def __init__(self, num_classes):
+        ...         super(SimpleCNN, self).__init__()
+        ...         # First convolutional layer
+        ...         self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, padding=1)
+        ...         self.relu1 = nn.ReLU()
+        ...         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        ...
+        ...         # Second convolutional layer
+        ...         self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
+        ...         self.relu2 = nn.ReLU()
+        ...         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        ...
+        ...         # Fully connected layers
+        ...         self.fc1 = nn.Linear(32 * 8 * 8, 128)  # Assuming input images are 32x32 pixels
+        ...         self.relu3 = nn.ReLU()
+        ...         self.fc2 = nn.Linear(128, num_classes)
+        ...
+        ...     def forward(self, x):
+        ...         x = self.pool1(self.relu1(self.conv1(x)))
+        ...         x = self.pool2(self.relu2(self.conv2(x)))
+        ...         x = x.view(x.size(0), -1)  # Flatten the tensor
+        ...         x = self.relu3(self.fc1(x))
+        ...         x = self.fc2(x)
+        ...         return x
+
+        >>> # Instantiate the model with the number of output classes
+        >>> num_classes = 10  # Example: CIFAR-10 has 10 classes
+        >>> model = SimpleCNN(num_classes)
+
         >>> pruning_rate = 0.5
         >>> pruned_params = prune_model(model, pruning_rate)
         >>> print(pruned_params)
-        Output: [(Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)), 'weight'),
-                 (Conv2d(64, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)), 'weight'),
-                 (Linear(in_features=512, out_features=256, bias=True), 'weight'), ...]
+        [(Conv2d(3, 16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)), 'weight'), (Conv2d(16, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)), 'weight'), (Linear(in_features=2048, out_features=128, bias=True), 'weight'), (Linear(in_features=128, out_features=10, bias=True), 'weight')]
     """
 
     parameters_to_prune = [
@@ -881,14 +1086,15 @@ def remove_pruning_reparam(parameters_to_prune: List[Tuple[nn.Module, str]]) -> 
     """
     Removes pruning re-parametrization for each module and parameter in the provided list.
 
-    Parameters:
+    Args:
         parameters_to_prune (List[Tuple[nn.Module, str]]): List of module and parameter names to remove pruning
         re-parametrization.
 
-    Example:
-         >>> model = MyModel()
-         >>> parameters_to_prune = prune_model(model, pruning_rate=0.2)
-         >>> remove_pruning_reparam(parameters_to_prune)
+    Examples:
+        >>> import timm
+        >>> model = timm.create_model("fastvit_t12.apple_in1k")
+        >>> parameters_to_prune = prune_model(model, pruning_rate=0.2)
+        >>> remove_pruning_reparam(parameters_to_prune)
     """
     for module, parameter_name in parameters_to_prune:
         prune.remove(module, parameter_name)
@@ -901,7 +1107,7 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
     The head of the model is replaced with a new linear layer with the given
     number of classes.
 
-    Parameters:
+    Args:
         args (Namespace): A namespace object containing the following attributes:
             - feat_extract (bool): Whether to freeze the parameters of the model.
             - dropout (float): The dropout rate.
@@ -913,7 +1119,7 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
 
     Example:
         >>> args = Namespace(feat_extract=True, dropout=0.5, grayscale=False)
-        >>> model = get_pretrained_model(args, "tf_efficientnet_b0_ns", num_classes=10)
+        >>> model = get_pretrained_model(args, "tf_efficientnet_b0.ns_jft_in1k", num_classes=10)
     """
     model = timm.create_model(
         model_name,
@@ -934,35 +1140,37 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
     return model
 
 
-# noinspection PyTypeChecker
-def calculate_class_weights(data_loader: torch.utils.data.DataLoader) -> torch.Tensor:
+def calculate_class_weights(dataset: datasets.arrow_dataset.Dataset) -> torch.Tensor:
     """
-    Returns the class weights for the given data loader.
+    Returns the class weights for the given image classification dataset.
 
-    The class weights are calculated as the inverse frequency of each class in the dataset.
+    The class weights are calculated as the inverse frequency of each class in the train dataset.
 
-    Parameters:
-        data_loader (torch.utils.data.DataLoader): A PyTorch data loader.
+    Args:
+        dataset (datasets.arrow_dataset.Dataset): A HuggingFace image classification dataset.
 
     Returns:
         torch.Tensor: A tensor of class weights.
 
     Example:
-        # Assuming you have already loaded the image dataset and set up the data loader:
-        >>> train_dataset = load_image_dataset(args.dataset)["train"]
-        >>> data_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+        >>> from argparse import Namespace
+        >>> import numpy as np
 
-        # Call the function to calculate class weights
-        >>> class_weights = calculate_class_weights(data_loader)
+        >>> args = Namespace( \
+                dataset = "cifar10", \
+                dataset_kwargs="", \
+                )
 
-        # Now you can use the calculated class weights for your training or evaluation
-        # For example, you might use these class weights in your loss function to handle class imbalance.
+        >>> image_dataset = load_image_dataset(args)
+        >>> class_weights = calculate_class_weights(image_dataset)
+        >>> print(class_weights)
+        tensor([1., 1., 1., 1., 1., 1., 1., 1., 1., 1.])
     """
-    targets = data_loader.dataset[:]["labels"]
-    class_counts = np.bincount(targets)
-    total_samples = len(targets)
-    num_classes = len(get_classes(data_loader.dataset))
-    class_weights = torch.tensor(total_samples / (num_classes * class_counts), dtype=torch.float32)
+    labels = dataset['train']['labels']
+    class_counts = np.bincount(labels)
+    total_samples = len(labels)
+    class_weights = torch.tensor(total_samples / (class_counts * len(class_counts)), dtype=torch.float32)
+
     return class_weights
 
 
@@ -972,7 +1180,7 @@ def average_checkpoints(checkpoint_paths: List[str]) -> OrderedDict:
     """
     Averages the parameters of multiple checkpoints.
 
-    Parameters:
+    Args:
         checkpoint_paths (List[str]): List of file paths to the input checkpoint files.
 
     Returns:
@@ -982,9 +1190,13 @@ def average_checkpoints(checkpoint_paths: List[str]) -> OrderedDict:
         KeyError: If the checkpoints have different sets of parameters.
 
     Example:
-        >>> checkpoint_paths = ["checkpoint1.pth", "checkpoint2.pth", "checkpoint3.pth"]
-        >>> averaged_params = average_checkpoints(checkpoint_paths)
-        >>> print(averaged_params)  # Display the averaged parameters
+        >>> from glob import glob
+
+        >>> ckpts = glob("something/xcit_nano_12_p8_224/best_model_*.pth")
+        >>> averaged_ckpt = average_checkpoints(ckpts)
+        >>> averaged_ckpt.keys()
+        odict_keys(['model'])
+
     """
     averaged_params = OrderedDict()
     num_checkpoints = len(checkpoint_paths)
@@ -1027,7 +1239,7 @@ def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
     """
     Returns a list of trainable parameters in the given model.
 
-    Parameters:
+    Args:
         model (nn.Module): A PyTorch neural network model.
 
     Returns:
@@ -1046,7 +1258,7 @@ def get_optimizer(args: Namespace, params: List[nn.Parameter]) -> optim.Optimize
     """
     Returns an optimizer object based on the provided optimization algorithm name.
 
-    Parameters:
+    Args:
         args (Namespace): A namespace object containing the following attributes:
             - opt_name (str): The name of the optimization algorithm.
             - lr (float): The learning rate for the optimizer.
@@ -1057,9 +1269,11 @@ def get_optimizer(args: Namespace, params: List[nn.Parameter]) -> optim.Optimize
         optim.Optimizer: An optimizer object of the specified type.
 
     Example:
-        >>> args = Namespace(opt_name="sgd", lr=0.01, wd=0.0001)
+        >>> from argparse import Namespace
+        >>> import torch
         >>> model = torch.nn.Linear(10, 10)
-        >>> params = get_trainable_parameters(model)
+        >>> params = list(model.parameters())
+        >>> args = Namespace(opt_name="sgd", lr=0.01, wd=0.0001)
         >>> optimizer = get_optimizer(args, params)
     """
     optimizer = create_optimizer_v2(model_or_params=params, opt=args.opt_name, lr=args.lr, weight_decay=args.wd)
@@ -1072,7 +1286,7 @@ def get_lr_scheduler(args: Namespace, optimizer: optim.Optimizer, num_iters: int
     """
     Returns a learning rate scheduler object based on the provided scheduling algorithm name.
 
-    Parameters:
+    Args:
         args (Namespace): A namespace object containing the following attributes:
             - sched_name (str): The name of the scheduling algorithm.
             - warmup_decay (float): The decay rate for the warmup scheduler.
@@ -1089,14 +1303,16 @@ def get_lr_scheduler(args: Namespace, optimizer: optim.Optimizer, num_iters: int
         specified type, or None if the sched_name is not recognized.
 
     Example:
-        # Obtain a learning rate scheduler based on the provided args and optimizer, and use it during training:
-
-        >>> scheduler = get_lr_scheduler(args, optimizer, num_iters)
-        >>> if scheduler is not None:
-        >>>     for epoch in range(args.epochs):
-        >>>         scheduler.step()
-        >>>         train_one_epoch()
-        >>>         evaluate()
+        # Obtain a learning rate scheduler based on the provided args and optimizer:
+        >>> from argparse import Namespace
+        >>> import torch
+        >>> model = torch.nn.Linear(10, 10)
+        >>> params = list(model.parameters())
+        >>> args = Namespace(opt_name="sgd", lr=0.01, wd=0.0001, sched_name="cosine", warmup_decay=0.1, warmup_epochs=5, step_size=10, gamma=0.5, epochs=50, eta_min=0.001)
+        >>> optimizer = get_optimizer(args, params)
+        >>> scheduler = get_lr_scheduler(args, optimizer, num_iters=100)
+        >>> print(scheduler.state_dict()["_last_lr"])
+        [0.001]
     """
     if args.sched_name == "step":
         scheduler = lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
@@ -1125,7 +1341,7 @@ class ExponentialMovingAverage(swa_utils.AveragedModel):
     """
     Exponential Moving Average (EMA) implementation for model parameters.
 
-    Parameters:
+    Args:
         model (torch.nn.Module): The model to apply EMA to.
         decay (float): The decay factor for EMA.
         device (str, optional): The device to use for EMA. Defaults to "cpu".
@@ -1134,7 +1350,39 @@ class ExponentialMovingAverage(swa_utils.AveragedModel):
          # Create an Exponential Moving Average object for a model with a decay factor of 0.9, and update the
          # parameters:
 
-        >>> model = MyModel()
+        >>> import torch
+        >>> import torch.nn as nn
+
+        >>> class SimpleCNN(nn.Module):
+        ...     def __init__(self, num_classes):
+        ...         super(SimpleCNN, self).__init__()
+        ...         # First convolutional layer
+        ...         self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, padding=1)
+        ...         self.relu1 = nn.ReLU()
+        ...         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        ...
+        ...         # Second convolutional layer
+        ...         self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
+        ...         self.relu2 = nn.ReLU()
+        ...         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        ...
+        ...         # Fully connected layers
+        ...         self.fc1 = nn.Linear(32 * 8 * 8, 128)  # Assuming input images are 32x32 pixels
+        ...         self.relu3 = nn.ReLU()
+        ...         self.fc2 = nn.Linear(128, num_classes)
+        ...
+        ...     def forward(self, x):
+        ...         x = self.pool1(self.relu1(self.conv1(x)))
+        ...         x = self.pool2(self.relu2(self.conv2(x)))
+        ...         x = x.view(x.size(0), -1)  # Flatten the tensor
+        ...         x = self.relu3(self.fc1(x))
+        ...         x = self.fc2(x)
+        ...         return x
+
+        >>> # Instantiate the model with the number of output classes
+        >>> num_classes = 10
+        >>> model = SimpleCNN(num_classes)
+
         >>> ema = ExponentialMovingAverage(model, decay=0.9)
         >>> ema.update_parameters(model)
     """
@@ -1151,7 +1399,7 @@ class CreateImgSubclasses:
         """
         Initialize the object with the path to the source and destination directories.
 
-        Parameters:
+        Args:
             img_src (str): Path to the source directory.
             img_dest (str): Path to the destination directory.
         """
@@ -1178,7 +1426,7 @@ class CreateImgSubclasses:
         """
         Create directories for each class in `class_names` under `self.img_dest` directory.
 
-        Parameters:
+        Args:
             class_names (List[str]): A list of strings containing the names of the image classes.
         """
         for dir_name in class_names:
@@ -1204,7 +1452,7 @@ def create_train_val_test_splits(img_src: str, img_dest: str, ratio: tuple) -> N
     Split images from `img_src` directory into train, validation, and test sets and save them in `img_dest`
     directory. This will save the images in the appropriate directories based on the train-val-test split ratio.
 
-    Parameters:
+    Args:
         img_src (str): The source directory containing the images to be split.
         img_dest (str): The destination directory where the split images will be saved.
         ratio (tuple): The train, val, test splits. E.g (0.8, 0.1, 0.1)
@@ -1213,6 +1461,6 @@ def create_train_val_test_splits(img_src: str, img_dest: str, ratio: tuple) -> N
         # Split images from "data/images" into train, validation, and test sets with a split ratio of (0.8, 0.1, 0.1)
         # and save them in the "data/splits" directory:
 
-        >>> create_train_val_test_splits("data/images", "data/splits", ratio=(0.8, 0.1, 0.1))
+        # create_train_val_test_splits("data/images", "data/splits", ratio=(0.8, 0.1, 0.1))
     """
     splitfolders.ratio(img_src, output=img_dest, seed=333777999, ratio=ratio)
