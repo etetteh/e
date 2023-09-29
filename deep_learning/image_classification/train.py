@@ -230,20 +230,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
         image_dataset = utils.load_image_dataset(args)
         image_dataset.set_format("torch")
 
-        def preprocess_train(example_batch):
-            example_batch["pixel_values"] = [
-                data_transforms["train"](image.convert("RGB")) for image in example_batch["image"]
-            ]
-            return example_batch
-
-        def preprocess_val(example_batch):
-            example_batch["pixel_values"] = [
-                data_transforms["val"](image.convert("RGB")) for image in example_batch["image"]
-            ]
-            return example_batch
-
-        train_dataset = image_dataset["train"].with_transform(preprocess_train)
-        val_dataset = image_dataset["validation"].with_transform(preprocess_val)
+        train_dataset, val_dataset = utils.preprocess_train_eval_data(image_dataset, data_transforms)
 
         image_datasets = {
             "train": train_dataset,
@@ -270,7 +257,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
         }
 
         train_loader, val_loader = dataloaders["train"], dataloaders["val"]
-        train_weights = utils.calculate_class_weights(train_loader)
+        train_weights = utils.calculate_class_weights(image_dataset)
 
         test_loader = None
         if args.test_only:
