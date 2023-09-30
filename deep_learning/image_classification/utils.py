@@ -864,7 +864,7 @@ def get_explanation_transforms() -> Tuple[transforms.Compose, transforms.Compose
     return transform, inv_transform
 
 
-def collate_fn(examples):
+def collate_fn(examples) -> Dict:
     """
     Collates a list of examples into batches by stacking pixel values of images and creating a tensor for labels.
 
@@ -872,7 +872,7 @@ def collate_fn(examples):
         examples (list): A list of examples, each containing a dictionary with "pixel_values" and "labels" keys.
 
     Returns:
-        dict: A dictionary containing the batched pixel values and labels.
+        Dict: A dictionary containing the batched pixel values and labels.
 
     Examples:
         >>> examples = [ \
@@ -1087,8 +1087,7 @@ def remove_pruning_reparam(parameters_to_prune: List[Tuple[nn.Module, str]]) -> 
     Removes pruning re-parametrization for each module and parameter in the provided list.
 
     Args:
-        parameters_to_prune (List[Tuple[nn.Module, str]]): List of module and parameter names to remove pruning
-        re-parametrization.
+        parameters_to_prune (List[Tuple[nn.Module, str]]): List of module and parameter names to remove pruning re-parametrization.
 
     Examples:
         >>> import timm
