@@ -10,6 +10,8 @@ from pathlib import Path
 from argparse import Namespace
 from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from datasets import Dataset
+import multiprocessing
 
 import timm
 import torch
@@ -30,65 +32,56 @@ from timm.optim import create_optimizer_v2
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 
-def print_header(*args: Union[str, int], sep: Optional[str] = ' ') -> None:
+def print_header(message: str, sep: str = "=") -> None:
     """
-    Prints one or more arguments as a single line of text to the standard output.
+    Print a header line with a message surrounded by a separator.
 
     Args:
-        *args (Union[str, int]): One or more strings or integer values to be printed.
-        sep (Optional[str]): Separator to be used between arguments (default is a single space).
+        message (str): The message to be included in the header.
+        sep (str): Separator character(s) to be used (default is '=').
 
     Examples:
-        >>> print_header("Hello", "World", 2023)
-        Hello World 2023
-
-        >>> print_header("The answer is", 42, "and the value of pi is", 3.14159, sep=' | ')
-        The answer is | 42 | and the value of pi is | 3.14159
-
-        >>> print_header("A single value:", 10)
-        A single value: 10
-    """
-    message = sep.join(map(str, args))
-    print(message)
-
-
-def print_heading(message: str) -> None:
-    """
-    Print a formatted heading with the given message.
-
-    Args:
-        message (str): The message to be included in the heading.
-
-    Examples:
-        >>> print_heading("Welcome to the Chatbot")
+        >>> print_header("Welcome to the Chatbot")
         ========================
         Welcome to the Chatbot
         ========================
 
-        >>> print_heading("Instructions")
-        ==============
+        >>> print_header("Instructions", sep='-')
+        --------------
         Instructions
-        ==============
+        --------------
 
-        >>> print_heading("Important Notice")
-        ==================
+        >>> print_header("Important Notice", sep='*')
+        ******************
         Important Notice
-        ==================
+        ******************
+
+        Edge Cases:
+        >>> print_header("", sep='#')  # Empty message
+        ###
+        ###
+
+        >>> print_header("Custom Separator", sep='##')  # Multi-character separator
+        ####################
+        Custom Separator
+        ####################
     """
-    line = "=" * len(message) + "=="
-    print_header(line)
-    print_header(message)
-    print_header(line)
+    line = sep * max(len(message), 1)  # Ensure there's at least one separator character
+    header = f"{line}\n{message}\n{line}"
+    print(header)
 
 
-# noinspection PyShadowingNames
-def get_model_run_id(run_ids: Dict[str, str], model_name: str) -> Optional[str]:
+
+from typing import Dict, Optional
+
+def get_model_run_id(run_ids: Dict[str, str], model_name: str = None) -> Optional[str]:
     """
     Get the run ID of a specific model from a dictionary of run IDs.
 
     Args:
         run_ids (Dict[str, str]): A dictionary mapping model names to run IDs.
-        model_name (str): The name of the model for which to retrieve the run ID.
+        model_name (str, optional): The name of the model for which to retrieve the run ID.
+                                    If not provided or the model name is not in the dictionary, returns None.
 
     Returns:
         Optional[str]: The run ID of the specified model, or None if the model is not in the dictionary.
@@ -103,12 +96,15 @@ def get_model_run_id(run_ids: Dict[str, str], model_name: str) -> Optional[str]:
         >>> model_name = "model4"  # Non-existing model name
         >>> get_model_run_id(run_ids, model_name) is None
         True
+
+        Edge Cases:
+        >>> get_model_run_id(run_ids, None) is None  # No model name provided
+        True
+
+        >>> get_model_run_id({}, "model1") is None  # Empty dictionary
+        True
     """
-    try:
-        run_id = run_ids[model_name]
-    except KeyError:
-        return None
-    return run_id
+    return run_ids.get(model_name, None)
 
 
 def write_dictionary_to_json(dictionary: Dict, file_path: str) -> None:
@@ -123,6 +119,11 @@ def write_dictionary_to_json(dictionary: Dict, file_path: str) -> None:
     Returns:
         None
 
+    Raises:
+        IOError: If there is an issue with opening or writing to the file.
+        json.JSONDecodeError: If there is an issue with JSON serialization.
+        Exception: For any unexpected errors.
+
     Examples:
         >>> dictionary = {"key": "value"}  # Example dictionary object to be written
         >>> file_path = "data.json"  # Example file path
@@ -136,47 +137,15 @@ def write_dictionary_to_json(dictionary: Dict, file_path: str) -> None:
             "key": "value"
         }
     """
-    with open(file_path, "w") as file_out:
-        json.dump(dictionary, file_out, indent=4)
-
-
-def append_dictionary_to_json_file(new_dict: Dict, file_path: str) -> None:
-    """
-    Append a dictionary to a JSON file at the given file path.
-    If the file does not exist, it will be created.
-
-    Args:
-        new_dict (Dict): The dictionary to be appended to the JSON file.
-        file_path (str): The path to the JSON file.
-
-    Returns:
-        None
-
-    Examples:
-        >>> new_dict = {"key": "value"}  # Example dictionary to be appended
-        >>> file_path = "data.json"  # Example file path
-        >>> append_dictionary_to_json_file(new_dict, file_path)
-
-        # If data.json file does not exist previously, it will be created and contain the following content:
-        # {
-        #     "key": "value"
-        # }
-
-        # If data.json file already exists with content {"existing_key": "existing_value"},
-        # after appending new_dict, the content will be updated to:
-        # {
-        #     "existing_key": "existing_value",
-        #     "key": "value"
-        # }
-    """
-    if os.path.isfile(file_path):
-        data = read_json_file(file_path)
-    else:
-        data = {}
-
-    data.update(new_dict)
-    with open(file_path, "w") as json_file:
-        json.dump(data, json_file, indent=4)
+    try:
+        with open(file_path, "w") as file_out:
+            json.dump(dictionary, file_out, indent=4)
+    except (IOError, FileNotFoundError) as e:
+        raise IOError(f"Failed to write to JSON file '{file_path}': {e}")
+    except json.JSONDecodeError as e:
+        raise json.JSONDecodeError(f"Failed to serialize dictionary to JSON: {e}")
+    except Exception as e:
+        raise Exception(f"An unexpected error occurred: {e}")
 
 
 def read_json_file(file_path: str) -> Dict:
@@ -187,7 +156,12 @@ def read_json_file(file_path: str) -> Dict:
         file_path (str): The path to the JSON file.
 
     Returns:
-        dict: The dictionary containing the content of the JSON file.
+        Dict: The dictionary containing the content of the JSON file.
+
+    Raises:
+        IOError: If there is an issue with opening or reading the file.
+        json.JSONDecodeError: If there is an issue with JSON parsing.
+        RuntimeError: For any unexpected errors.
 
     Examples:
         >>> json_data = {"key1": "value1", "key2": "value2"}
@@ -205,8 +179,51 @@ def read_json_file(file_path: str) -> Dict:
         # Clean up: Remove the created file
         >>> os.remove(file_path)
     """
-    with open(file_path, 'r') as json_file:
-        return json.load(json_file)
+    try:
+        with open(file_path, "r") as json_file:
+            data = json.load(json_file)
+        return data
+    except (IOError, json.JSONDecodeError) as e:
+        raise RuntimeError(f"Failed to read JSON file '{file_path}': {e}")
+    except Exception as e:
+        raise RuntimeError(f"An unexpected error occurred: {e}")
+
+
+def append_dictionary_to_json_file(new_dict: Dict, file_path: str) -> None:
+    """
+    Append a dictionary to a JSON file at the given file path.
+    If the file does not exist, it will be created.
+
+    Args:
+        new_dict (Dict): The dictionary to be appended to the JSON file.
+        file_path (str): The path to the JSON file.
+
+    Returns:
+        None
+
+    Raises:
+        IOError: If there is an issue with opening or writing the file.
+        json.JSONDecodeError: If there is an issue with JSON serialization.
+        RuntimeError: For any unexpected errors.
+
+    Examples:
+        >>> new_dict = {"key": "value"}  # Example dictionary to be appended
+        >>> file_path = "data.json"  # Example file path
+        >>> append_dictionary_to_json_file(new_dict, file_path)
+    """
+    try:
+        existing_data = {}
+        if os.path.isfile(file_path):
+            existing_data = read_json_file(file_path)
+
+        existing_data.update(new_dict)
+
+        with open(file_path, "w") as json_file:
+            json.dump(existing_data, json_file, indent=4)
+    except (IOError, json.JSONDecodeError) as e:
+        raise RuntimeError(f"Failed to write to JSON file '{file_path}': {e}")
+    except Exception as e:
+        raise RuntimeError(f"An unexpected error occurred: {e}")
 
 
 def read_json_lines_file(file_path: str) -> List[Union[dict, Any]]:
@@ -219,66 +236,73 @@ def read_json_lines_file(file_path: str) -> List[Union[dict, Any]]:
     Returns:
         List[Union[dict, Any]]: The data contained in the JSON Lines file as a list.
 
+    Raises:
+        FileNotFoundError: If the file does not exist.
+        json.JSONDecodeError: If there is an issue with JSON decoding.
+
     Examples:
-        Import pandas as pd
+        >>> import pandas as pd
 
         # Create a sample DataFrame
-        data = [
-            {"label": "DRUG", "pattern": "aspirin"},
-            {"label": "DRUG", "pattern": "trazodone"},
-            {"label": "DRUG", "pattern": "citalopram"}
-        ]
-        df = pd.DataFrame(data)
-
-        # Wrap the 'pattern' column in a dictionary
-        df["pattern"] = df.pattern.apply(lambda x: {"lower": x})
+        >>> data = [
+                {"label": "DRUG", "pattern": "aspirin"},
+                {"label": "DRUG", "pattern": "trazodone"},
+                {"label": "DRUG", "pattern": "citalopram"}
+            ]
+        >>> df = pd.DataFrame(data)
 
         # Output the DataFrame in JSONL format
-        df.to_json("data.jsonl", orient="records", lines=True)
+        >>> df.to_json("data.jsonl", orient="records", lines=True)
 
-        file_path = "data.jsonl"  # Example file path (created by Pandas)
-        data = read_json_lines_file(file_path)
-        print(data)
-        # Output:
-        # [{'label': 'DRUG', 'pattern': {'lower': 'aspirin'}}, {'label': 'DRUG', 'pattern': {'lower': 'trazodone'}}, {'label': 'DRUG', 'pattern': {'lower': 'citalopram'}}]
-
+        >>> file_path = "data.jsonl"  # Example file path (created by Pandas)
+        >>> data = read_json_lines_file(file_path)
+        >>> print(data)
+        [{'label': 'DRUG', 'pattern': {'lower': 'aspirin'}}, {'label': 'DRUG', 'pattern': {'lower': 'trazodone'}}, {'label': 'DRUG', 'pattern': {'lower': 'citalopram'}}]
     """
     try:
         with open(file_path, "r") as file_in:
             data = [json.loads(line) for line in file_in]
             return data
     except FileNotFoundError:
-        print(f"File '{file_path}' not found.")
+        raise FileNotFoundError(f"File {file_path} not found.")
     except json.JSONDecodeError as e:
-        print(f"Error decoding JSON: {e}")
-    return []
+        raise json.JSONDecodeError(f"Error decoding JSON in {file_path}: {e}")
 
 
-def keep_recent_files(directory: str, num_files_to_keep: int) -> None:
+def keep_best_f1_score_files(directory: str, num_files_to_keep: int) -> None:
     """
     Sorts files in the specified directory and keeps
     files with the best f1 scores. Files beyond the specified number of files to keep
     will be removed.
 
-    Parameters:
+    Args:
         directory (str): The path to the directory containing the files.
         num_files_to_keep (int): The number of best f1 score files to keep.
 
     Returns:
         None
 
-    Example:
+    Raises:
+        FileNotFoundError: If the specified directory does not exist.
+
+    Examples:
         >>> directory_path = "/path/to/directory"
         >>> num_files_to_keep = 10
         >>> keep_recent_files(directory_path, num_files_to_keep)
     """
-    file_list = glob(os.path.join(directory, "best_model_*"))
+    directory_path = Path(directory)
+
+    if not directory_path.is_dir():
+        raise FileNotFoundError(f"Directory '{directory}' does not exist.")
+
+    file_list = list(directory_path.glob("best_model_*"))
     sorted_files = sorted(file_list, reverse=True)
+
     files_to_remove = sorted_files[num_files_to_keep:]
 
     for file_to_remove in files_to_remove:
         try:
-            os.remove(file_to_remove)
+            file_to_remove.unlink()
         except OSError as e:
             print(f"Error while removing {file_to_remove}: {e}")
 
@@ -288,13 +312,16 @@ def set_seed_for_worker(worker_id: Optional[int]) -> Union[int, None]:
     Sets the seed for NumPy and Python's random module for the given worker.
     If no worker ID is provided, uses the initial seed for PyTorch and returns "<initial_seed_value>" as a string.
 
-    Parameters:
-        worker_id (Optional[int]): The ID of the worker.
+    Args:
+        worker_id (Optional[int]): The ID of the worker. If None, uses the initial seed.
 
     Returns:
-        Optional[int]: The seed used for the worker, or "<initial_seed_value>" as a string if no worker ID was provided.
+        Union[int, None]: The seed used for the worker, or None if no worker ID was provided.
 
-    Example:
+    Raises:
+        ValueError: If the worker ID is not an integer.
+
+    Examples:
         >>> worker_id = 1  # Example worker ID
         >>> seed = set_seed_for_worker(worker_id)
         >>> print(seed)  # Seed used for the worker
@@ -303,8 +330,15 @@ def set_seed_for_worker(worker_id: Optional[int]) -> Union[int, None]:
         >>> seed = set_seed_for_worker(None)  # No worker ID provided
         >>> print(seed)  # Initial seed for PyTorch
         None
+
+        >>> set_seed_for_worker("invalid")  # Invalid worker ID (not an integer)
+        Traceback (most recent call last):
+            ...
+        ValueError: Worker ID must be an integer.
     """
     if worker_id is not None:
+        if not isinstance(worker_id, int):
+            raise ValueError("Worker ID must be an integer.")
         worker_seed = worker_id
         np.random.seed(worker_seed)
         random.seed(worker_seed)
@@ -316,16 +350,15 @@ def set_seed_for_worker(worker_id: Optional[int]) -> Union[int, None]:
         return None
 
 
-# noinspection PyTypeChecker
 def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
     """
     Load an image dataset using Hugging Face's 'datasets' library.
 
     Args:
-        args:
-            dataset (str or os.PathLike): The path to a local dataset directory or a Hugging Face dataset name
-                                    (or an HTTPS URL for a remote dataset).
-            dataset_kwargs (json): The path to a JSON file containing kwargs of a HuggingFace dataset.
+        args (Namespace): Namespace containing the following attributes:
+            - dataset (str or os.PathLike): The path to a local dataset directory or a Hugging Face dataset name
+              (or an HTTPS URL for a remote dataset).
+            - dataset_kwargs (str): The path to a JSON file containing kwargs of a Hugging Face dataset.
 
     Returns:
         datasets.arrow_dataset.Dataset: The loaded image dataset.
@@ -333,8 +366,8 @@ def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
     Raises:
         ValueError: If the provided dataset is not a valid path to a directory, a string (Hugging Face dataset name),
                     or an HTTPS URL for a remote dataset.
-    Example:
-        >>> from argparse import Namespace
+
+    Examples:
         >>> args = Namespace(dataset="cifar10", dataset_kwargs="")
         >>> dataset = load_image_dataset(args)
         >>> print(dataset)
@@ -353,10 +386,8 @@ def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
             })
         })
     """
-    if isinstance(args.dataset, Path) and os.path.isdir(args.dataset):
-        image_dataset = load_dataset("imagefolder", data_dir=args.dataset)
-    # elif isinstance(dataset, str) and (dataset.startswith("https") or dataset.endswith(".zip")):
-    #     image_dataset = load_dataset("imagefolder", data_files=dataset)
+    if isinstance(args.dataset, Path) and args.dataset.is_dir():
+        image_dataset = load_dataset("imagefolder", data_dir=str(args.dataset))
     elif isinstance(args.dataset, str):
         data_kwargs = {"path": args.dataset}
         if args.dataset_kwargs.endswith(".json"):
@@ -367,13 +398,13 @@ def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
         raise ValueError("Dataset should be a path to a local dataset on disk, a dataset name of an image dataset "
                          "from Hugging Face datasets, or an HTTPS URL for a remote dataset.")
 
-    image_column_names = image_dataset.column_names["train"]
+    image_column_names = image_dataset["train"].column_names
     if "img" in image_column_names:
-        image_dataset = image_dataset.rename_columns({"img": "image"})
+        image_dataset = image_dataset.rename_column("img", "image")
     if "label" in image_column_names:
-        image_dataset = image_dataset.rename_columns({"label": "labels"})
+        image_dataset = image_dataset.rename_column("label", "labels")
     if "fine_label" in image_column_names:
-        image_dataset = image_dataset.rename_columns({"fine_label": "labels"})
+        image_dataset = image_dataset.rename_column("fine_label", "labels")
 
     if "validation" not in image_dataset.keys() and "test" in image_dataset.keys():
         new = image_dataset["train"].train_test_split(test_size=0.2, stratify_by_column="labels")
@@ -393,7 +424,10 @@ def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
     return image_dataset
 
 
-def preprocess_train_eval_data(image_dataset: Dict, data_transforms: Dict) -> Tuple:
+def preprocess_train_eval_data(
+    image_dataset: Dict[str, Dataset],
+    data_transforms: Dict[str, callable]
+) -> Tuple[Dataset, Dataset]:
     """
     Preprocesses training and validation data in an image dataset using specified data transformations.
 
@@ -402,16 +436,19 @@ def preprocess_train_eval_data(image_dataset: Dict, data_transforms: Dict) -> Tu
     machine learning models.
 
     Args:
-        image_dataset (Dict): A dictionary containing subsets of an image dataset, typically with keys
+        image_dataset (Dict[str, Dataset]): A dictionary containing subsets of an image dataset, typically with keys
             "train" and "validation" pointing to dataset objects.
-        data_transforms (Dict): A dictionary containing data transformation functions for training ("train")
+        data_transforms (Dict[str, callable]): A dictionary containing data transformation functions for training ("train")
             and validation ("val"). These functions should accept and process image data.
 
     Returns:
-        Dict: A dictionary containing the preprocessed training and validation datasets, where the keys "train"
-        and "validation" point to dataset objects with applied transformations.
+        Tuple[Dataset, Dataset]: A tuple containing the preprocessed training and validation datasets.
 
-    Example:
+    Raises:
+        ValueError: If the provided data transformations do not match the keys "train" and "val" or
+                    if the provided dataset subsets do not match the keys "train" and "validation".
+
+    Examples:
         >>> from argparse import Namespace
 
         >>> args = Namespace( \
@@ -436,6 +473,14 @@ def preprocess_train_eval_data(image_dataset: Dict, data_transforms: Dict) -> Tu
             num_rows: 40000
         })
     """
+    if "train" not in image_dataset:
+        raise ValueError("The 'train' dataset subset is missing.")
+    if "validation" not in image_dataset:
+        raise ValueError("The 'validation' dataset subset is missing.")
+    if "train" not in data_transforms:
+        raise ValueError("Data transformations for 'train' are missing.")
+    if "val" not in data_transforms:
+        raise ValueError("Data transformations for 'val' are missing.")
 
     def preprocess_train(example_batch):
         example_batch["pixel_values"] = [
@@ -467,13 +512,24 @@ def apply_fgsm_attack(image: torch.Tensor, epsilon: float, data_grad: torch.Tens
     Returns:
         torch.Tensor: Adversarial example perturbed using FGSM.
 
-    Example:
+    Examples:
         >>> image = torch.rand(1, 3, 32, 32)  # A random image of size (1, 3, 32, 32)
         >>> epsilon = 0.05  # Perturbation magnitude
         >>> data_grad = torch.randn(1, 3, 32, 32)  # Gradient of loss w.r.t. image
         >>> adversarial_image = apply_fgsm_attack(image, epsilon, data_grad)
     """
+    # Check if epsilon is a positive value
+    if epsilon <= 0:
+        raise ValueError("Epsilon must be a positive value.")
+
+    # Check if the input tensors have compatible shapes
+    if image.shape != data_grad.shape:
+        raise ValueError("Input image and data_grad must have the same shape.")
+
+    # Compute the sign of the data gradient
     sign_data_grad = data_grad.sign()
+
+    # Perturb the image using FGSM and clamp values to [0, 1]
     adversarial_image = image + epsilon * sign_data_grad
     adversarial_image = torch.clamp(adversarial_image, min=0, max=1)
     return adversarial_image
@@ -491,7 +547,7 @@ def apply_normalization(args: Namespace, aug_list: List) -> List:
     Returns:
         List: The updated list of transformation functions with normalization applied.
 
-    Example:
+    Examples:
         >>> from argparse import Namespace
         >>> args = Namespace(grayscale=True)
         >>> aug_list = [transforms.RandomResizedCrop(224), transforms.ToTensor()]
@@ -508,12 +564,8 @@ def apply_normalization(args: Namespace, aug_list: List) -> List:
     if args.grayscale:
         aug_list.append(transforms.Grayscale())
 
-    if args.grayscale:
-        normalization_mean = [0.5]
-        normalization_std = [0.5]
-    else:
-        normalization_mean = [0.485, 0.456, 0.406]
-        normalization_std = [0.229, 0.224, 0.225]
+    normalization_mean = [0.5] if args.grayscale else IMAGENET_DEFAULT_MEAN
+    normalization_std = [0.5] if args.grayscale else IMAGENET_DEFAULT_STD
 
     aug_list.extend([
         transforms.ToTensor(),
@@ -553,16 +605,22 @@ def get_augmentation_by_type(args: Namespace) -> Callable:
         - For "rand" type, it returns a RandAugment transform with specified parameters.
         - Raises a ValueError for an invalid `aug_type`.
     """
+    valid_aug_types = ["trivial", "augmix", "rand"]
+    if args.aug_type not in valid_aug_types:
+        raise ValueError(f"Invalid augmentation type: '{args.aug_type}'. "
+                         f"Valid options are: {', '.join(valid_aug_types)}")
+
+    interpolation_mode = f.InterpolationMode(args.interpolation)
+
     if args.aug_type == "trivial":
-        return transforms.TrivialAugmentWide(num_magnitude_bins=args.mag_bins,
-                                             interpolation=f.InterpolationMode(args.interpolation))
+        # Trivial augmentation
+        return transforms.TrivialAugmentWide(num_magnitude_bins=args.mag_bins, interpolation=interpolation_mode)
     elif args.aug_type == "augmix":
-        return transforms.AugMix(interpolation=f.InterpolationMode(args.interpolation))
+        # AugMix augmentation
+        return transforms.AugMix(interpolation=interpolation_mode)
     elif args.aug_type == "rand":
-        return transforms.RandAugment(num_magnitude_bins=args.mag_bins,
-                                      interpolation=f.InterpolationMode(args.interpolation))
-    else:
-        raise ValueError(f"Invalid augmentation type: '{args.aug_type}'")
+        # RandAugment augmentation
+        return transforms.RandAugment(num_magnitude_bins=args.mag_bins, interpolation=interpolation_mode)
 
 
 def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
@@ -581,6 +639,9 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
 
     Returns:
         Dict[str, Callable]: A dictionary of data augmentation transforms for the training and validation sets.
+
+    Raises:
+        ValueError: If the provided augmentation type is not one of the supported types.
 
     Examples:
         >>> import utils
@@ -605,6 +666,12 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
             Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         )
     """
+    supported_aug_types = ["trivial", "augmix", "rand"]
+
+    if args.aug_type not in supported_aug_types:
+        raise ValueError(f"Unsupported augmentation type: '{args.aug_type}'. "
+                         f"Supported types are: {', '.join(supported_aug_types)}")
+
     train_aug = [transforms.RandomResizedCrop(args.crop_size, interpolation=f.InterpolationMode(args.interpolation)),
                  transforms.RandomHorizontalFlip(p=args.hflip), get_augmentation_by_type(args)]
 
@@ -650,15 +717,15 @@ def apply_mixup(images: Tensor, targets: Tensor, alpha: float = 1.0) -> Tuple[Te
         True
     """
     beta_dist = Beta(alpha, alpha)
-    lam = beta_dist.sample().item()
+    lam = beta_dist.sample((images.size(0),)).squeeze()
 
-    batch_size = images.size(0)
-    index = torch.randperm(batch_size)
+    index = torch.randperm(images.size(0))
 
-    mixed_images = lam * images + (1 - lam) * images[index, :]
+    # Use in-place operations to optimize memory usage
+    mixed_images = images.mul(lam.view(-1, 1, 1, 1)) + images[index].mul(1 - lam.view(-1, 1, 1, 1))
     targets_a, targets_b = targets, targets[index]
 
-    return mixed_images, targets_a, targets_b, lam
+    return mixed_images, targets_a, targets_b, lam.item()
 
 
 def apply_cutmix(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]:
@@ -694,28 +761,45 @@ def apply_cutmix(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0
         >>> 0.0 <= lam <= 1.0
         True
     """
-    batch_size = images.size(0)
+    batch_size, channels, height, width = images.size()
     index = torch.randperm(batch_size)
-    lam = np.random.beta(alpha, alpha)
-    lam = max(lam, 1 - lam)
+    lam = torch.max(torch.tensor(np.random.beta(alpha, alpha)), torch.tensor(1.0 - alpha))
 
-    height, width = images.size(2), images.size(3)
-    cut_ratio = np.sqrt(1.0 - lam)
-    cut_h = int(height * cut_ratio)
-    cut_w = int(width * cut_ratio)
-    cx = np.random.randint(width)
-    cy = np.random.randint(height)
-    bbx1 = max(0, cx - cut_w // 2)
-    bby1 = max(0, cy - cut_h // 2)
-    bbx2 = min(width, cx + cut_w // 2)
-    bby2 = min(height, cy + cut_h // 2)
+    cut_ratio = torch.sqrt(1.0 - lam)
+    cut_h = (height * cut_ratio).to(torch.int)
+    cut_w = (width * cut_ratio).to(torch.int)
+    cx = torch.randint(0, width, (batch_size,))
+    cy = torch.randint(0, height, (batch_size,))
+    bbx1 = torch.clamp(cx - cut_w // 2, min=0)
+    bby1 = torch.clamp(cy - cut_h // 2, min=0)
+    bbx2 = torch.clamp(cx + cut_w // 2, max=width)
+    bby2 = torch.clamp(cy + cut_h // 2, max=height)
 
     mixed_images = images.clone()
     mixed_images[:, :, bby1:bby2, bbx1:bbx2] = images[index, :, bby1:bby2, bbx1:bbx2]
     lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1)) / (width * height)
 
     targets_a, targets_b = targets, targets[index]
-    return mixed_images, targets_a, targets_b, lam
+    return mixed_images, targets_a, targets_b, lam.item()batch_size, channels, height, width = images.size()
+    index = torch.randperm(batch_size)
+    lam = torch.max(torch.tensor(np.random.beta(alpha, alpha)), torch.tensor(1.0 - alpha))
+
+    cut_ratio = torch.sqrt(1.0 - lam)
+    cut_h = (height * cut_ratio).to(torch.int)
+    cut_w = (width * cut_ratio).to(torch.int)
+    cx = torch.randint(0, width, (batch_size,))
+    cy = torch.randint(0, height, (batch_size,))
+    bbx1 = torch.clamp(cx - cut_w // 2, min=0)
+    bby1 = torch.clamp(cy - cut_h // 2, min=0)
+    bbx2 = torch.clamp(cx + cut_w // 2, max=width)
+    bby2 = torch.clamp(cy + cut_h // 2, max=height)
+
+    mixed_images = images.clone()
+    mixed_images[:, :, bby1:bby2, bbx1:bbx2] = images[index, :, bby1:bby2, bbx1:bbx2]
+    lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1)) / (width * height)
+
+    targets_a, targets_b = targets, targets[index]
+    return mixed_images, targets_a, targets_b, lam.item()
 
 
 def to_channels_first(image: torch.Tensor) -> torch.Tensor:
@@ -728,7 +812,7 @@ def to_channels_first(image: torch.Tensor) -> torch.Tensor:
     Returns:
         torch.Tensor: The image tensor in channels-first format.
 
-    Example:
+    Examples:
         Converting a 4-D image tensor (batch_size, height, width, channels) to channels-first format:
 
         >>> import torch
@@ -757,7 +841,7 @@ def to_channels_last(image: torch.Tensor) -> torch.Tensor:
     Returns:
         torch.Tensor: The image tensor in channels-last format.
 
-    Example:
+    Examples:
         Converting a 4-D image tensor (batch_size, channels, height, width) to channels-last format:
 
         >>> import torch
@@ -792,37 +876,46 @@ def convert_to_onnx(
         checkpoint_path (str): The path to the PyTorch checkpoint.
         num_classes (int): The number of classes in the dataset.
 
-    Example:
+    Examples:
         # >>> args = Namespace(crop_size=224, dropout=0.2, grayscale=False, feat_extract=True)
         # >>> model_name = "xcit_nano_12_p8_224"
         # >>> checkpoint_path = "best_model.pth"
         # >>> num_classes = 2
         # >>> convert_to_onnx(args, model_name, checkpoint_path, num_classes)
     """
+    if not os.path.isfile(checkpoint_path):
+        raise FileNotFoundError(f"Checkpoint file '{checkpoint_path}' not found.")
 
     model = get_pretrained_model(args, model_name, num_classes)
-
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
+
     if "n_averaged" in checkpoint["model"]:
         del checkpoint["model"]["n_averaged"]
         torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(checkpoint["model"], "module.")
+
     model.load_state_dict(checkpoint["model"])
     model.eval()
 
     batch_size = 1
-    dummy_input = torch.randn(batch_size, 1 if args.grayscale else 3, args.crop_size, args.crop_size, requires_grad=True)
+    input_channels = 1 if args.grayscale else 3
+    dummy_input = torch.randn(batch_size, input_channels, args.crop_size, args.crop_size, requires_grad=True)
+
     filename = os.path.join(os.path.dirname(checkpoint_path), "best_model.onnx")
 
-    torch.onnx.export(
-        model,
-        dummy_input,
-        filename,
-        export_params=True,
-        do_constant_folding=True,
-        input_names=["input"],
-        output_names=["output"],
-        dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
-    )
+    try:
+        torch.onnx.export(
+            model,
+            dummy_input,
+            filename,
+            export_params=True,
+            do_constant_folding=True,
+            input_names=["input"],
+            output_names=["output"],
+            dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
+        )
+        print(f"ONNX model saved to {filename}")
+    except Exception as e:
+        raise RuntimeError(f"Failed to export the model to ONNX: {e}")
 
 
 def get_explanation_transforms() -> Tuple[transforms.Compose, transforms.Compose]:
@@ -834,13 +927,7 @@ def get_explanation_transforms() -> Tuple[transforms.Compose, transforms.Compose
             - The first transform is used for preprocessing an image for explanation.
             - The second transform is used for inverse preprocessing to revert the explanation to the original image.
 
-    Note:
-        - `to_channels_first` and `to_channels_last` are custom functions for channel ordering.
-        - `IMAGENET_DEFAULT_MEAN` and `IMAGENET_DEFAULT_STD` should be defined elsewhere.
-        - The first transform normalizes the image and changes channel ordering.
-        - The second transform inversely normalizes the image and changes channel ordering.
-
-    Example:
+    Examples:
         transform, inv_transform = get_explanation_transforms()
         preprocessed_image = transform(original_image)
         inverted_image = inv_transform(explanation_image)
@@ -901,7 +988,7 @@ def get_classes(dataset: torch.utils.data.Dataset) -> List[str]:
     Returns:
         List[str]: A sorted list of the classes in the dataset.
 
-    Example:
+    Examples:
         >>> from argparse import Namespace
 
         >>> args = Namespace( \
@@ -972,7 +1059,7 @@ def get_matching_model_names(args: Namespace) -> List[str]:
         Returns:
             List[str]: A filtered list of model names after the recurring filtering process.
 
-        Example:
+        Examples:
             >>> models = ['flexivit_base.300ep_in1k', 'vit_small_patch16_224.augreg_in1k', 'vit_tiny_patch16_384.augreg_in21k_ft_in1k']
             >>> crop_size = 224
             >>> filtered_models = filter_models(models, crop_size)
@@ -1116,7 +1203,7 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
     Returns:
         nn.Module: The modified model with the new head.
 
-    Example:
+    Examples:
         >>> args = Namespace(feat_extract=True, dropout=0.5, grayscale=False)
         >>> model = get_pretrained_model(args, "tf_efficientnet_b0.ns_jft_in1k", num_classes=10)
     """
@@ -1151,14 +1238,11 @@ def calculate_class_weights(dataset: datasets.arrow_dataset.Dataset) -> torch.Te
     Returns:
         torch.Tensor: A tensor of class weights.
 
-    Example:
+    Examples:
         >>> from argparse import Namespace
         >>> import numpy as np
 
-        >>> args = Namespace( \
-                dataset = "cifar10", \
-                dataset_kwargs="", \
-                )
+        >>> args = Namespace(dataset = "cifar10", dataset_kwargs = "")
 
         >>> image_dataset = load_image_dataset(args)
         >>> class_weights = calculate_class_weights(image_dataset)
@@ -1168,7 +1252,7 @@ def calculate_class_weights(dataset: datasets.arrow_dataset.Dataset) -> torch.Te
     labels = dataset['train']['labels']
     class_counts = np.bincount(labels)
     total_samples = len(labels)
-    class_weights = torch.tensor(total_samples / (class_counts * len(class_counts)), dtype=torch.float32)
+    class_weights = torch.tensor(total_samples / (class_counts * len(class_counts)), dtype = torch.float32)
 
     return class_weights
 
@@ -1188,7 +1272,7 @@ def average_checkpoints(checkpoint_paths: List[str]) -> OrderedDict:
     Raises:
         KeyError: If the checkpoints have different sets of parameters.
 
-    Example:
+    Examples:
         >>> from glob import glob
 
         >>> ckpts = glob("something/xcit_nano_12_p8_224/best_model_*.pth")
@@ -1205,7 +1289,7 @@ def average_checkpoints(checkpoint_paths: List[str]) -> OrderedDict:
         with open(checkpoint_path, "rb") as f_in:
             state = torch.load(
                 f_in,
-                map_location=lambda s, _: torch.serialization.default_restore_location(s, "cpu")
+                map_location = lambda s, _: torch.serialization.default_restore_location(s, "cpu")
             )
 
         if params_keys is None:
@@ -1244,7 +1328,7 @@ def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
     Returns:
         List[nn.Parameter]: A list of trainable parameters in the model.
 
-    Example:
+    Examples:
         >>> model = nn.Linear(10, 5)
         >>> trainable_params = get_trainable_params(model)
         >>> len(trainable_params)
@@ -1267,7 +1351,7 @@ def get_optimizer(args: Namespace, params: List[nn.Parameter]) -> optim.Optimize
     Returns:
         optim.Optimizer: An optimizer object of the specified type.
 
-    Example:
+    Examples:
         >>> from argparse import Namespace
         >>> import torch
         >>> model = torch.nn.Linear(10, 10)
@@ -1275,7 +1359,7 @@ def get_optimizer(args: Namespace, params: List[nn.Parameter]) -> optim.Optimize
         >>> args = Namespace(opt_name="sgd", lr=0.01, wd=0.0001)
         >>> optimizer = get_optimizer(args, params)
     """
-    optimizer = create_optimizer_v2(model_or_params=params, opt=args.opt_name, lr=args.lr, weight_decay=args.wd)
+    optimizer = create_optimizer_v2(model_or_params = params, opt = args.opt_name, lr = args.lr, weight_decay = args.wd)
     return optimizer
 
 
@@ -1301,30 +1385,33 @@ def get_lr_scheduler(args: Namespace, optimizer: optim.Optimizer, num_iters: int
         Union[lr_scheduler.SequentialLR, lr_scheduler.LRScheduler, None]: A learning rate scheduler object of the
         specified type, or None if the sched_name is not recognized.
 
-    Example:
+     Raises:
+        ValueError: If an unsupported scheduler type is provided in args.sched_name.
+
+    Examples:
         # Obtain a learning rate scheduler based on the provided args and optimizer:
         >>> from argparse import Namespace
         >>> import torch
         >>> model = torch.nn.Linear(10, 10)
         >>> params = list(model.parameters())
-        >>> args = Namespace(opt_name="sgd", lr=0.01, wd=0.0001, sched_name="cosine", warmup_decay=0.1, warmup_epochs=5, step_size=10, gamma=0.5, epochs=50, eta_min=0.001)
+        >>> args = Namespace(opt_name="sgd", lr = 0.01, wd = 0.0001, sched_name = "cosine", warmup_decay = 0.1, warmup_epochs = 5, step_size = 10, gamma = 0.5, epochs = 50, eta_min = 0.001)
         >>> optimizer = get_optimizer(args, params)
-        >>> scheduler = get_lr_scheduler(args, optimizer, num_iters=100)
+        >>> scheduler = get_lr_scheduler(args, optimizer, num_iters = 100)
         >>> print(scheduler.state_dict()["_last_lr"])
         [0.001]
     """
-    if args.sched_name == "step":
-        scheduler = lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma)
-    elif args.sched_name == "cosine":
-        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs - args.warmup_epochs,
-                                                   eta_min=args.eta_min)
-    elif args.sched_name == "cosine_wr":
-        scheduler = lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=args.t0, eta_min=args.eta_min)
-    elif args.sched_name == "one_cycle":
-        scheduler = lr_scheduler.OneCycleLR(optimizer, max_lr=args.max_lr, epochs=args.epochs,
-                                            steps_per_epoch=num_iters)
+    scheduler_options = {
+        "step": lambda: lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma),
+        "cosine": lambda: lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs - args.warmup_epochs,
+                                                         eta_min=args.eta_min),
+        "cosine_wr": lambda: lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=args.t0, eta_min=args.eta_min),
+        "one_cycle": lambda: lr_scheduler.OneCycleLR(optimizer, max_lr=args.max_lr, total_steps=num_iters * args.epochs)
+    }
+
+    if args.sched_name in scheduler_options:
+        scheduler = scheduler_options[args.sched_name]()
     else:
-        return None
+        raise ValueError(f"Unsupported scheduler type: {args.sched_name}")
 
     if args.warmup_epochs > 0:
         warmup_lr = lr_scheduler.LinearLR(optimizer, start_factor=args.warmup_decay, total_iters=args.warmup_epochs)
@@ -1345,9 +1432,8 @@ class ExponentialMovingAverage(swa_utils.AveragedModel):
         decay (float): The decay factor for EMA.
         device (str, optional): The device to use for EMA. Defaults to "cpu".
 
-    Example:
-         # Create an Exponential Moving Average object for a model with a decay factor of 0.9, and update the
-         # parameters:
+    Examples:
+         # Create an Exponential Moving Average object for a model with a decay factor of 0.9, and update the parameters:
 
         >>> import torch
         >>> import torch.nn as nn
@@ -1356,14 +1442,14 @@ class ExponentialMovingAverage(swa_utils.AveragedModel):
         ...     def __init__(self, num_classes):
         ...         super(SimpleCNN, self).__init__()
         ...         # First convolutional layer
-        ...         self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, padding=1)
-        ...         self.relu1 = nn.ReLU()
-        ...         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        ...         self.conv1 = nn.Conv2d(in_channels = 3, out_channels = 16, kernel_size = 3, padding = 1)
+        ...         self.relu1  =  nn.ReLU()
+        ...         self.pool1 = nn.MaxPool2d(kernel_size = 2, stride = 2)
         ...
         ...         # Second convolutional layer
-        ...         self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
+        ...         self.conv2 = nn.Conv2d(in_channels = 16, out_channels = 32, kernel_size = 3, padding = 1)
         ...         self.relu2 = nn.ReLU()
-        ...         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        ...         self.pool2 = nn.MaxPool2d(kernel_size = 2, stride = 2)
         ...
         ...         # Fully connected layers
         ...         self.fc1 = nn.Linear(32 * 8 * 8, 128)  # Assuming input images are 32x32 pixels
@@ -1382,7 +1468,7 @@ class ExponentialMovingAverage(swa_utils.AveragedModel):
         >>> num_classes = 10
         >>> model = SimpleCNN(num_classes)
 
-        >>> ema = ExponentialMovingAverage(model, decay=0.9)
+        >>> ema = ExponentialMovingAverage(model, decay = 0.9)
         >>> ema.update_parameters(model)
     """
 
@@ -1390,7 +1476,7 @@ class ExponentialMovingAverage(swa_utils.AveragedModel):
         def ema_avg(avg_model_param, model_param, num_averaged):
             return decay * avg_model_param + (1 - decay) * model_param
 
-        super().__init__(model, device, ema_avg, use_buffers=True)
+        super().__init__(model, device, ema_avg, use_buffers = True)
 
 
 class CreateImgSubclasses:
@@ -1442,7 +1528,10 @@ class CreateImgSubclasses:
         for file in glob(os.path.join(self.img_src, "*")):
             for dir_name in class_names:
                 if dir_name in file:
-                    shutil.copy(file, os.path.join(self.img_dest, dir_name))
+                    try:
+                        shutil.copy(file, os.path.join(self.img_dest, dir_name))
+                    except Exception as e:
+                        print(f"Error copying {file} to {dir_name}: {str(e)}")
                     break
 
 
@@ -1456,10 +1545,15 @@ def create_train_val_test_splits(img_src: str, img_dest: str, ratio: tuple) -> N
         img_dest (str): The destination directory where the split images will be saved.
         ratio (tuple): The train, val, test splits. E.g (0.8, 0.1, 0.1)
 
-    Example:
+    Examples:
         # Split images from "data/images" into train, validation, and test sets with a split ratio of (0.8, 0.1, 0.1)
         # and save them in the "data/splits" directory:
 
         # create_train_val_test_splits("data/images", "data/splits", ratio=(0.8, 0.1, 0.1))
     """
-    splitfolders.ratio(img_src, output=img_dest, seed=333777999, ratio=ratio)
+    try:
+        # Use multiprocessing to parallelize the splitting process
+        multiprocessing.freeze_support()
+        splitfolders.ratio(img_src, output=img_dest, seed=333777999, ratio=ratio)
+    except Exception as e:
+        print(f"Error during image splitting: {str(e)}")
