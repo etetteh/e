@@ -37,7 +37,6 @@ def train_one_epoch(
         classes: List[str],
         train_loader: data.DataLoader,
         model: nn.Module,
-        model_ema: Optional[utils.ExponentialMovingAverage],
         optimizer: optim.Optimizer,
         criterion: Callable,
         train_metrics: Any,
@@ -52,7 +51,6 @@ def train_one_epoch(
         classes (List[str]): The list of class labels.
         train_loader (DataLoader): The training data loader.
         model (nn.Module): The model to be trained.
-        model_ema (ExponentialMovingAverage, optional): The exponential moving average model.
         optimizer (optim.Optimizer): The optimizer used for training.
         criterion (Callable): The loss function.
         train_metrics (Any): An object for storing and computing training metrics.
@@ -96,11 +94,6 @@ def train_one_epoch(
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
 
-            if model_ema and idx % args.ema_steps == 0:
-                model_ema.update_parameters(model)
-                if epoch < args.warmup_epochs:
-                    model_ema.n_averaged.fill_(0)
-
             if len(classes) == 2:
                 _, pred = torch.max(output, 1)
             else:
@@ -142,7 +135,6 @@ def evaluate(
         val_metrics: Any,
         roc_metric: Any,
         accelerator: accelerate.Accelerator,
-        ema: bool,
 ) -> Tuple[Dict, torch.Tensor]:
     """
     Evaluates the model on the validation dataset and returns the metrics.
@@ -154,7 +146,6 @@ def evaluate(
         val_metrics (Any): An object for storing and computing validation metrics.
         roc_metric (Any): An object for computing the ROC curve.
         accelerator (accelerate.Accelerator): The accelerator object for distributed training.
-        ema (bool): Whether evaluation is being performed on model_ema or not.
 
     Returns:
         Tuple[Dict[str, Any], torch.Tensor]: A tuple containing a dictionary of computed metrics
@@ -190,7 +181,7 @@ def evaluate(
         roc = roc_metric.compute()
 
         accelerator.print(
-            f"{'EMA ' if ema else ' '}Val Metrics - "
+            f"Val Metrics - "
             f"loss: {loss:.4f} | "
             f"accuracy: {acc:.4f} | "
             f"auc: {auc:.4f} | "
@@ -341,13 +332,6 @@ def main(args: argparse.Namespace, accelerator) -> None:
                 train_loader, val_loader = accelerator.prepare_data_loader(train_loader), accelerator.prepare_data_loader(val_loader)
                 optimizer, lr_scheduler = accelerator.prepare_optimizer(optimizer), accelerator.prepare_scheduler(lr_scheduler)
 
-            model_ema = None
-            if args.ema:
-                adjust = args.batch_size * args.ema_steps / args.epochs
-                alpha = 1.0 - args.ema_decay
-                alpha = min(1.0, alpha * adjust)
-                model_ema = utils.ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
-
             start_epoch = 0
             best_f1 = 0.0
             best_results = {}
@@ -380,10 +364,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
                             checkpoint_file = os.path.join(args.output_dir, model_name, "best_model.pth")
                             checkpoint = torch.load(checkpoint_file, map_location="cpu")
                         model.load_state_dict(checkpoint["model"])
-                    if model_ema:
-                        total_test_metrics, total_roc_metric = evaluate(classes, test_loader, model_ema, val_metrics, roc_metric, accelerator, ema=True)
-                    else:
-                        total_test_metrics, total_roc_metric = evaluate(classes, test_loader, model, val_metrics, roc_metric, accelerator, ema=False)
+                    total_test_metrics, total_roc_metric = evaluate(classes, test_loader, model, val_metrics, roc_metric, accelerator)
 
                     test_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for key, value in
                                    total_test_metrics.items()}
@@ -410,8 +391,6 @@ def main(args: argparse.Namespace, accelerator) -> None:
                         if not args.test_only:
                             optimizer.load_state_dict(checkpoint["optimizer"])
                             lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
-                        if model_ema:
-                            model_ema.load_state_dict(checkpoint["model_ema"])
 
                         start_epoch = checkpoint["epoch"] + 1
                         best_f1 = checkpoint["best_f1"]
@@ -425,13 +404,13 @@ def main(args: argparse.Namespace, accelerator) -> None:
                 start_time = time.time()
 
                 if accelerator.is_main_process:
-                    utils.print_heading(f"Training a {model_name} model: Model {i + 1} of {len(args.models)}")
+                    utils.print_header(f"Training a {model_name} model: Model {i + 1} of {len(args.models)}")
 
                 for epoch in range(start_epoch, args.epochs):
                     train_metrics.reset()
 
                     with accelerator.autocast():
-                        total_train_metrics = train_one_epoch(args, epoch, classes, train_loader, model, model_ema,
+                        total_train_metrics = train_one_epoch(args, epoch, classes, train_loader, model,
                                                               optimizer, criterion, train_metrics, accelerator)
 
                     if not accelerator.optimizer_step_was_skipped:
@@ -440,13 +419,8 @@ def main(args: argparse.Namespace, accelerator) -> None:
                     val_metrics.reset()
                     roc_metric.reset()
 
-                    if model_ema:
-                        evaluate(classes, val_loader, model, val_metrics, roc_metric, accelerator, ema=False)
-                        total_val_metrics, total_roc_metric = evaluate(classes, val_loader, model_ema, val_metrics,
-                                                                       roc_metric, accelerator, ema=True)
-                    else:
-                        total_val_metrics, total_roc_metric = evaluate(classes, val_loader, model, val_metrics,
-                                                                       roc_metric, accelerator, ema=False)
+                    total_val_metrics, total_roc_metric = evaluate(classes, val_loader, model, val_metrics,
+                                                                       roc_metric, accelerator)
 
                     if args.prune:
                         parameters_to_prune = utils.prune_model(model, args.pruning_rate)
@@ -470,17 +444,11 @@ def main(args: argparse.Namespace, accelerator) -> None:
                         best_f1 = val_results["f1"]
                         best_results = {**{"model": model_name, "fpr": fpr, "tpr": tpr}, **val_results}
                     
-                        if model_ema:
-                            accelerator.save({"model": accelerator.get_state_dict(model_ema)}, f"{best_model_file}_{best_f1}.pth")
-                        else:
-                            accelerator.save({"model": accelerator.get_state_dict(model)}, f"{best_model_file}_{best_f1}.pth")
+                        accelerator.save({"model": accelerator.get_state_dict(model)}, f"{best_model_file}_{best_f1}.pth")
                     
                         best_checkpoints.append(f"{best_model_file}_{best_f1}.pth")
                     elif val_results["f1"] >= bottom_k:
-                        if model_ema:
-                            accelerator.save({"model": accelerator.get_state_dict(model_ema)}, f"{best_model_file}_{val_results['f1']}.pth")
-                        else:
-                            accelerator.save({"model": accelerator.get_state_dict(model)}, f"{best_model_file}_{val_results['f1']}.pth")
+                        accelerator.save({"model": accelerator.get_state_dict(model)}, f"{best_model_file}_{val_results['f1']}.pth")
                     
                         best_checkpoints.append(f"{best_model_file}_{val_results['f1']}.pth")
                     
@@ -496,8 +464,6 @@ def main(args: argparse.Namespace, accelerator) -> None:
                         "lr_scheduler": accelerator.get_state_dict(lr_scheduler),
                         "best_results": best_results,
                     }
-                    if model_ema:
-                        checkpoint["model_ema"] = model_ema.state_dict()
 
                     accelerator.save(checkpoint, os.path.join(args.output_dir, model_name, "checkpoint.pth"))
 
@@ -602,7 +568,7 @@ def get_args():
     parser.add_argument(
         "--module",
         type=str,
-        help="Select a specific model submodule (e.g., 'resnet' or 'deit'). Not compatible with --model_size or --model_name."
+        help="Select a specific model submodule. Choose any of 'beit', 'convnext', 'deit', 'resnet', 'vision_transformer', 'efficientnet', 'xcit', 'regnet', 'nfnet', 'metaformer', 'fastvit', 'efficientvit_msra'] or your favourite from the TIMM  library. Not compatible with --model_size or --model_name."
     )
     parser.add_argument(
         "--model_name",
@@ -648,25 +614,6 @@ def get_args():
         type=float,
         default=0.03,
         help="Set the epsilon value for the FGSM attack if FGSM adversarial training is enabled."
-    )
-
-    # Exponential Moving Average (EMA)
-    parser.add_argument(
-        "--ema",
-        action="store_true",
-        help="Perform Exponential Moving Average (EMA) during training to improve model performance and stability."
-    )
-    parser.add_argument(
-        "--ema_steps",
-        type=int,
-        default=32,
-        help="The number of iterations for updating the EMA model."
-    )
-    parser.add_argument(
-        "--ema_decay",
-        type=float,
-        default=0.99998,
-        help="Set the EMA decay factor, which influences the contribution of past model weights."
     )
 
     # Pruning
@@ -798,8 +745,7 @@ def get_args():
         "--opt_name",
         default="madgradw",
         type=str,
-        help="The optimizer for the training process.",
-        choices=["lion", "madgrad", "madgradw", "adamw", "radabelief", "adafactor", "novograd", "lars", "lamb", "rmsprop", "sgdp"]
+        help="The optimizer for the training process. Choose any of ['lion', 'madgrad', 'madgradw', 'adamw', 'radabelief', 'adafactor', 'novograd', 'lars', 'lamb', 'rmsprop', 'sgdp'] or any favourite from the TIMM library"
     )
     parser.add_argument(
         "--lr",
