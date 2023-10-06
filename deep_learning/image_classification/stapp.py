@@ -86,7 +86,6 @@ if __name__ == "__main__":
             cfgs.model_size = st.selectbox("Select Model Size", ["nano", "tiny", "small", "base", "large", "giant"], help="If you prefer to specify the size of the model, you can use this command. It's not used when Model Name or Module are specified specified.")
         elif model_selection == "Model Name":
             model_name = st.text_input("Model Name(s)", help="Use this to specify the name of the model(s) you want to use from the TIMM library. It's not compatible with the Model Size or Module commands.")
-            # cfgs.model_name = model_name.split(",") if isinstance(model_name, tuple) else model_name
             cfgs.model_name = model_name.split()
                         
         optimizers = ["lion", "madgradw", "adamw", "radabelief", "adafactor", "novograd", "lars", "lamb", "rmsprop", "sgdp", "Other"]
@@ -110,11 +109,6 @@ if __name__ == "__main__":
         cfgs.fgsm = st.toggle("Enable FGSM Adversarial Training", help="This flag allows you to enable FGSM (Fast Gradient Sign Method) adversarial training to enhance model robustness.")
         if cfgs.fgsm:
             cfgs.epsilon = st.number_input("FGSM epsilon Value", value=0.03, help="If FGSM adversarial training is enabled, you can set the epsilon value for the FGSM attack using this command.")
-        
-        cfgs.ema = st.toggle("Enable Exponential Moving Average", help="Enabling this flag performs Exponential Moving Average (EMA) during training, which can improve model performance and stability.")
-        if cfgs.ema:
-            cfgs.ema_steps = st.number_input("EMA Steps", min_value=1, value=32, help="Specify the number of iterations for updating the EMA model.")
-            cfgs.ema_decay = st.number_input("EMA Decay", value=0.99998, help="Set the EMA decay factor, which influences the contribution of past model weights.")
 
         cfgs.mixup = st.toggle("Enable Mixup", help="Include this flag to enable mixup augmentation, which enhances training by mixing pairs of samples.")
         if cfgs.mixup:
