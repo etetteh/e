@@ -716,16 +716,22 @@ def apply_mixup(images: Tensor, targets: Tensor, alpha: float = 1.0) -> Tuple[Te
         >>> 0.0 <= lam <= 1.0
         True
     """
+    if alpha <= 0:
+        raise ValueError("The 'alpha' parameter must be greater than zero.")
+
+    if images.shape[0] != targets.shape[0]:
+        raise ValueError("The number of images and targets must be the same.")
+
     beta_dist = Beta(alpha, alpha)
-    lam = beta_dist.sample((images.size(0),)).squeeze()
+    lam = beta_dist.sample().item()
 
-    index = torch.randperm(images.size(0))
+    batch_size = images.size(0)
+    index = torch.randperm(batch_size)
 
-    # Use in-place operations to optimize memory usage
-    mixed_images = images.mul(lam.view(-1, 1, 1, 1)) + images[index].mul(1 - lam.view(-1, 1, 1, 1))
+    mixed_images = lam * images + (1 - lam) * images[index, :]
     targets_a, targets_b = targets, targets[index]
 
-    return mixed_images, targets_a, targets_b, lam.item()
+    return mixed_images, targets_a, targets_b, lam
 
 
 def apply_cutmix(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]:
@@ -744,7 +750,7 @@ def apply_cutmix(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0
             - Mixed images (torch.Tensor): A tensor of mixed images with the same shape as 'images'.
             - Mixed labels (targets_a) (torch.Tensor): A tensor of mixed labels with the same shape as 'targets'.
             - Original labels (targets_b) (torch.Tensor): A tensor of original labels with the same shape as 'targets'.
-            - Mixup factor (lambda) (float): The mixing coefficient used for the augmentation.
+            - Cutmix factor (lambda) (float): The mixing coefficient used for the augmentation.
 
     Examples:
         >>> import torch
@@ -762,25 +768,6 @@ def apply_cutmix(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0
         True
     """
     batch_size, channels, height, width = images.size()
-    index = torch.randperm(batch_size)
-    lam = torch.max(torch.tensor(np.random.beta(alpha, alpha)), torch.tensor(1.0 - alpha))
-
-    cut_ratio = torch.sqrt(1.0 - lam)
-    cut_h = (height * cut_ratio).to(torch.int)
-    cut_w = (width * cut_ratio).to(torch.int)
-    cx = torch.randint(0, width, (batch_size,))
-    cy = torch.randint(0, height, (batch_size,))
-    bbx1 = torch.clamp(cx - cut_w // 2, min=0)
-    bby1 = torch.clamp(cy - cut_h // 2, min=0)
-    bbx2 = torch.clamp(cx + cut_w // 2, max=width)
-    bby2 = torch.clamp(cy + cut_h // 2, max=height)
-
-    mixed_images = images.clone()
-    mixed_images[:, :, bby1:bby2, bbx1:bbx2] = images[index, :, bby1:bby2, bbx1:bbx2]
-    lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1)) / (width * height)
-
-    targets_a, targets_b = targets, targets[index]
-    return mixed_images, targets_a, targets_b, lam.item()batch_size, channels, height, width = images.size()
     index = torch.randperm(batch_size)
     lam = torch.max(torch.tensor(np.random.beta(alpha, alpha)), torch.tensor(1.0 - alpha))
 
@@ -1419,64 +1406,6 @@ def get_lr_scheduler(args: Namespace, optimizer: optim.Optimizer, num_iters: int
                                               milestones=[args.warmup_epochs])
 
     return scheduler
-
-
-# adapted from https://github.com/pytorch/vision/blob/a5035df501747c8fc2cd7f6c1a41c44ce6934db3/references
-# /classification/utils.py#L159
-class ExponentialMovingAverage(swa_utils.AveragedModel):
-    """
-    Exponential Moving Average (EMA) implementation for model parameters.
-
-    Args:
-        model (torch.nn.Module): The model to apply EMA to.
-        decay (float): The decay factor for EMA.
-        device (str, optional): The device to use for EMA. Defaults to "cpu".
-
-    Examples:
-         # Create an Exponential Moving Average object for a model with a decay factor of 0.9, and update the parameters:
-
-        >>> import torch
-        >>> import torch.nn as nn
-
-        >>> class SimpleCNN(nn.Module):
-        ...     def __init__(self, num_classes):
-        ...         super(SimpleCNN, self).__init__()
-        ...         # First convolutional layer
-        ...         self.conv1 = nn.Conv2d(in_channels = 3, out_channels = 16, kernel_size = 3, padding = 1)
-        ...         self.relu1  =  nn.ReLU()
-        ...         self.pool1 = nn.MaxPool2d(kernel_size = 2, stride = 2)
-        ...
-        ...         # Second convolutional layer
-        ...         self.conv2 = nn.Conv2d(in_channels = 16, out_channels = 32, kernel_size = 3, padding = 1)
-        ...         self.relu2 = nn.ReLU()
-        ...         self.pool2 = nn.MaxPool2d(kernel_size = 2, stride = 2)
-        ...
-        ...         # Fully connected layers
-        ...         self.fc1 = nn.Linear(32 * 8 * 8, 128)  # Assuming input images are 32x32 pixels
-        ...         self.relu3 = nn.ReLU()
-        ...         self.fc2 = nn.Linear(128, num_classes)
-        ...
-        ...     def forward(self, x):
-        ...         x = self.pool1(self.relu1(self.conv1(x)))
-        ...         x = self.pool2(self.relu2(self.conv2(x)))
-        ...         x = x.view(x.size(0), -1)  # Flatten the tensor
-        ...         x = self.relu3(self.fc1(x))
-        ...         x = self.fc2(x)
-        ...         return x
-
-        >>> # Instantiate the model with the number of output classes
-        >>> num_classes = 10
-        >>> model = SimpleCNN(num_classes)
-
-        >>> ema = ExponentialMovingAverage(model, decay = 0.9)
-        >>> ema.update_parameters(model)
-    """
-
-    def __init__(self, model: nn.Module, decay: float, device: str = "cpu"):
-        def ema_avg(avg_model_param, model_param, num_averaged):
-            return decay * avg_model_param + (1 - decay) * model_param
-
-        super().__init__(model, device, ema_avg, use_buffers = True)
 
 
 class CreateImgSubclasses:
