@@ -36,49 +36,47 @@ def print_header(message: str, sep: str = "=") -> None:
     """
     Print a header line with a message surrounded by a separator.
 
-    Args:
+    Parameters:
         message (str): The message to be included in the header.
         sep (str): Separator character(s) to be used (default is '=').
 
     Examples:
         >>> print_header("Welcome to the Chatbot")
-        ========================
+        ======================
         Welcome to the Chatbot
-        ========================
+        ======================
 
         >>> print_header("Instructions", sep='-')
-        --------------
+        ------------
         Instructions
-        --------------
+        ------------
 
         >>> print_header("Important Notice", sep='*')
-        ******************
+        ****************
         Important Notice
-        ******************
+        ****************
 
         Edge Cases:
         >>> print_header("", sep='#')  # Empty message
-        ###
-        ###
+        #
+        <BLANKLINE>
+        #
 
         >>> print_header("Custom Separator", sep='##')  # Multi-character separator
-        ####################
+        ################################
         Custom Separator
-        ####################
+        ################################
     """
     line = sep * max(len(message), 1)  # Ensure there's at least one separator character
     header = f"{line}\n{message}\n{line}"
     print(header)
 
 
-
-from typing import Dict, Optional
-
 def get_model_run_id(run_ids: Dict[str, str], model_name: str = None) -> Optional[str]:
     """
     Get the run ID of a specific model from a dictionary of run IDs.
 
-    Args:
+    Parameters:
         run_ids (Dict[str, str]): A dictionary mapping model names to run IDs.
         model_name (str, optional): The name of the model for which to retrieve the run ID.
                                     If not provided or the model name is not in the dictionary, returns None.
@@ -112,7 +110,7 @@ def write_dictionary_to_json(dictionary: Dict, file_path: str) -> None:
     Write a dictionary object to a JSON file at the given file path.
     If the file already exists, its content will be overwritten.
 
-    Args:
+    Parameters:
         dictionary (Dict): The dictionary object to be written to the JSON file.
         file_path (str): The path to the JSON file.
 
@@ -122,7 +120,6 @@ def write_dictionary_to_json(dictionary: Dict, file_path: str) -> None:
     Raises:
         IOError: If there is an issue with opening or writing to the file.
         json.JSONDecodeError: If there is an issue with JSON serialization.
-        Exception: For any unexpected errors.
 
     Examples:
         >>> dictionary = {"key": "value"}  # Example dictionary object to be written
@@ -136,6 +133,21 @@ def write_dictionary_to_json(dictionary: Dict, file_path: str) -> None:
         {
             "key": "value"
         }
+
+        # Example of handling IOError
+        >>> try:
+        ...     write_dictionary_to_json(dictionary, "/nonexistent_directory/data.json")
+        ... except IOError as e:
+        ...     print(f"An IOError occurred: {e}")
+        An IOError occurred: Failed to write to JSON file '/nonexistent_directory/data.json': [Errno 2] No such file or directory: '/nonexistent_directory/data.json'
+
+        # Example of handling JSONDecodeError
+        # >>> invalid_dictionary = {"key": b"invalid_data"}
+        # >>> try:
+        # ...     write_dictionary_to_json(invalid_dictionary, "invalid.json")
+        # ... except json.JSONDecodeError as e:
+        # ...     print(f"JSONDecodeError occurred: {e}")
+        # JSONDecodeError occurred: Expecting property name enclosed in double quotes: line 1 column 3 (char 2)
     """
     try:
         with open(file_path, "w") as file_out:
@@ -144,19 +156,17 @@ def write_dictionary_to_json(dictionary: Dict, file_path: str) -> None:
         raise IOError(f"Failed to write to JSON file '{file_path}': {e}")
     except json.JSONDecodeError as e:
         raise json.JSONDecodeError(f"Failed to serialize dictionary to JSON: {e}")
-    except Exception as e:
-        raise Exception(f"An unexpected error occurred: {e}")
 
 
-def read_json_file(file_path: str) -> Dict:
+def read_json_file(file_path: str) -> Dict[str, Any]:
     """
     Reads a JSON file and returns its content as a dictionary.
 
-    Args:
+    Parameters:
         file_path (str): The path to the JSON file.
 
     Returns:
-        Dict: The dictionary containing the content of the JSON file.
+        Dict[str, Any]: The dictionary containing the content of the JSON file.
 
     Raises:
         IOError: If there is an issue with opening or reading the file.
@@ -164,6 +174,9 @@ def read_json_file(file_path: str) -> Dict:
         RuntimeError: For any unexpected errors.
 
     Examples:
+        >>> import os
+
+        # Example JSON data and file path
         >>> json_data = {"key1": "value1", "key2": "value2"}
         >>> file_path = "data.json"
 
@@ -173,8 +186,8 @@ def read_json_file(file_path: str) -> Dict:
 
         # Reading the JSON file using read_json_file function
         >>> result = read_json_file(file_path)
-        >>> result == json_data
-        True
+        >>> expected_result = {"key1": "value1", "key2": "value2"}
+        >>> assert result == expected_result
 
         # Clean up: Remove the created file
         >>> os.remove(file_path)
@@ -189,13 +202,13 @@ def read_json_file(file_path: str) -> Dict:
         raise RuntimeError(f"An unexpected error occurred: {e}")
 
 
-def append_dictionary_to_json_file(new_dict: Dict, file_path: str) -> None:
+def append_dictionary_to_json_file(new_dict: Dict[str, Any], file_path: str) -> None:
     """
     Append a dictionary to a JSON file at the given file path.
     If the file does not exist, it will be created.
 
-    Args:
-        new_dict (Dict): The dictionary to be appended to the JSON file.
+    Parameters:
+        new_dict (Dict[str, Any]): The dictionary to be appended to the JSON file.
         file_path (str): The path to the JSON file.
 
     Returns:
@@ -207,9 +220,29 @@ def append_dictionary_to_json_file(new_dict: Dict, file_path: str) -> None:
         RuntimeError: For any unexpected errors.
 
     Examples:
-        >>> new_dict = {"key": "value"}  # Example dictionary to be appended
-        >>> file_path = "data.json"  # Example file path
+        >>> import os
+
+        # Example dictionary to be appended
+        >>> new_dict = {"key": "value"}
+        >>> file_path = "data.json"
+
+        # Creating a sample JSON file with initial data
+        >>> initial_data = {"existing_key": "existing_value"}
+        >>> with open(file_path, 'w') as json_file:
+        ...     json.dump(initial_data, json_file, indent=4)
+
+        # Appending the new_dict to the JSON file using append_dictionary_to_json_file
         >>> append_dictionary_to_json_file(new_dict, file_path)
+
+        # Expected Output:
+        # The data.json file should now contain both dictionaries:
+        # {
+        #     "existing_key": "existing_value",
+        #     "key": "value"
+        # }
+
+        # Clean up: Remove the created file
+        >>> os.remove(file_path)
     """
     try:
         existing_data = {}
@@ -226,15 +259,15 @@ def append_dictionary_to_json_file(new_dict: Dict, file_path: str) -> None:
         raise RuntimeError(f"An unexpected error occurred: {e}")
 
 
-def read_json_lines_file(file_path: str) -> List[Union[dict, Any]]:
+def read_json_lines_file(file_path: str) -> List[Dict[str, Any]]:
     """
     Read and parse a JSON Lines file from the given file path and return the data as a list.
 
-    Args:
+    Parameters:
         file_path (str): The path to the JSON Lines file.
 
     Returns:
-        List[Union[dict, Any]]: The data contained in the JSON Lines file as a list.
+        List[Dict[str, Any]]: The data contained in the JSON Lines file as a list of dictionaries.
 
     Raises:
         FileNotFoundError: If the file does not exist.
@@ -244,11 +277,11 @@ def read_json_lines_file(file_path: str) -> List[Union[dict, Any]]:
         >>> import pandas as pd
 
         # Create a sample DataFrame
-        >>> data = [
-                {"label": "DRUG", "pattern": "aspirin"},
-                {"label": "DRUG", "pattern": "trazodone"},
-                {"label": "DRUG", "pattern": "citalopram"}
-            ]
+        >>> data = [\
+            {"label": "DRUG", "pattern": "aspirin"},\
+            {"label": "DRUG", "pattern": "trazodone"},\
+            {"label": "DRUG", "pattern": "citalopram"}\
+        ]
         >>> df = pd.DataFrame(data)
 
         # Output the DataFrame in JSONL format
@@ -257,7 +290,7 @@ def read_json_lines_file(file_path: str) -> List[Union[dict, Any]]:
         >>> file_path = "data.jsonl"  # Example file path (created by Pandas)
         >>> data = read_json_lines_file(file_path)
         >>> print(data)
-        [{'label': 'DRUG', 'pattern': {'lower': 'aspirin'}}, {'label': 'DRUG', 'pattern': {'lower': 'trazodone'}}, {'label': 'DRUG', 'pattern': {'lower': 'citalopram'}}]
+        [{'label': 'DRUG', 'pattern': 'aspirin'}, {'label': 'DRUG', 'pattern': 'trazodone'}, {'label': 'DRUG', 'pattern': 'citalopram'}]
     """
     try:
         with open(file_path, "r") as file_in:
@@ -269,42 +302,58 @@ def read_json_lines_file(file_path: str) -> List[Union[dict, Any]]:
         raise json.JSONDecodeError(f"Error decoding JSON in {file_path}: {e}")
 
 
-def keep_best_f1_score_files(directory: str, num_files_to_keep: int) -> None:
+def keep_best_f1_score_files(directory: str, num_files_to_keep: int):
     """
-    Sorts files in the specified directory and keeps
-    files with the best f1 scores. Files beyond the specified number of files to keep
-    will be removed.
+    Sorts files in the specified directory and keeps files with the best f1 scores.
+    Files beyond the specified number of files to keep will be removed.
 
-    Args:
+    Parameters:
         directory (str): The path to the directory containing the files.
         num_files_to_keep (int): The number of best f1 score files to keep.
 
-    Returns:
-        None
-
-    Raises:
-        FileNotFoundError: If the specified directory does not exist.
-
     Examples:
-        >>> directory_path = "/path/to/directory"
-        >>> num_files_to_keep = 10
-        >>> keep_recent_files(directory_path, num_files_to_keep)
+        >>> import os
+        >>> import random
+        >>> from glob import glob
+        >>> from pathlib import Path
+
+        # Specify the directory and the number of files to create
+        >>> directory_path = "resnet50_checkpoints"
+        >>> num_files_to_create = 20
+
+        # Create the directory if it doesn't exist
+        >>> directory_path = Path(directory_path)
+        >>> if not directory_path.exists():
+        ...     directory_path.mkdir(parents=True)
+
+        # Predefined F1 scores for testing
+        >>> f1_scores = [0.8971, 0.8632, 0.8819, 0.9854, 0.9531, 0.9342]
+
+        # Create files with names following the format "best_model_{f1_score}.pth" in the specified directory.
+        >>> for f1_score in f1_scores:
+        ...     file_name = f"best_model_{f1_score:.4f}.pth"
+        ...     file_path = directory_path / file_name
+        ...     open(file_path, 'w').close()
+
+        # Sort and keep the best files based on F1 score
+        >>> keep_best_f1_score_files(directory_path, num_files_to_keep=2)
+
+        >>> remaining_files = list(directory_path.glob("best_model_*.pth"))
+        >>> print(remaining_files)
+        [PosixPath('resnet50_checkpoints/best_model_0.9854.pth'), PosixPath('resnet50_checkpoints/best_model_0.9531.pth')]
     """
     directory_path = Path(directory)
 
     if not directory_path.is_dir():
         raise FileNotFoundError(f"Directory '{directory}' does not exist.")
 
-    file_list = list(directory_path.glob("best_model_*"))
-    sorted_files = sorted(file_list, reverse=True)
+    # Sort files by F1 score in descending order
+    file_list = list(directory_path.glob("best_model_*.pth"))
+    sorted_files = sorted(file_list, key=lambda x: float(x.stem.split("_")[2]), reverse=True)
 
+    # Remove files beyond the specified number to keep
     files_to_remove = sorted_files[num_files_to_keep:]
-
-    for file_to_remove in files_to_remove:
-        try:
-            file_to_remove.unlink()
-        except OSError as e:
-            print(f"Error while removing {file_to_remove}: {e}")
+    [file_to_remove.unlink() for file_to_remove in files_to_remove]
 
 
 def set_seed_for_worker(worker_id: Optional[int]) -> Union[int, None]:
@@ -312,7 +361,7 @@ def set_seed_for_worker(worker_id: Optional[int]) -> Union[int, None]:
     Sets the seed for NumPy and Python's random module for the given worker.
     If no worker ID is provided, uses the initial seed for PyTorch and returns "<initial_seed_value>" as a string.
 
-    Args:
+    Parameters:
         worker_id (Optional[int]): The ID of the worker. If None, uses the initial seed.
 
     Returns:
@@ -354,7 +403,7 @@ def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
     """
     Load an image dataset using Hugging Face's 'datasets' library.
 
-    Args:
+    Parameters:
         args (Namespace): Namespace containing the following attributes:
             - dataset (str or os.PathLike): The path to a local dataset directory or a Hugging Face dataset name
               (or an HTTPS URL for a remote dataset).
@@ -435,7 +484,7 @@ def preprocess_train_eval_data(
     of an image dataset. It is intended for preparing image data for training and evaluation in
     machine learning models.
 
-    Args:
+    Parameters:
         image_dataset (Dict[str, Dataset]): A dictionary containing subsets of an image dataset, typically with keys
             "train" and "validation" pointing to dataset objects.
         data_transforms (Dict[str, callable]): A dictionary containing data transformation functions for training ("train")
@@ -504,7 +553,7 @@ def apply_fgsm_attack(image: torch.Tensor, epsilon: float, data_grad: torch.Tens
     """
     Generate an adversarial example using the Fast Gradient Sign Method (FGSM).
 
-    Args:
+    Parameters:
         image (torch.Tensor): The input image.
         epsilon (float): Perturbation magnitude for generating adversarial examples.
         data_grad (torch.Tensor): Gradient of the loss with respect to the image.
@@ -539,7 +588,7 @@ def apply_normalization(args: Namespace, aug_list: List) -> List:
     """
     Apply normalization to the augmentation list based on grayscale conversion.
 
-    Args:
+    Parameters:
         args (Namespace): Namespace object containing arguments.
             grayscale (bool): Whether to convert the images to grayscale.
         aug_list (List): The list of transformation functions for data augmentation.
@@ -579,7 +628,7 @@ def get_augmentation_by_type(args: Namespace) -> Callable:
     """
     Returns an augmentation transform based on the specified augmentation type.
 
-    Args:
+    Parameters:
         args (Namespace): A namespace object containing the following attributes:
             aug_type (str): The type of augmentation to apply. Must be one of "trivial", "augmix", or "rand".
             mag_bins (int): The number of magnitude bins for augmentation (used for "trivial" and "rand" types).
@@ -627,7 +676,7 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
     """
     Returns data augmentation transforms for training and validation sets.
 
-    Args:
+    Parameters:
         args (Namespace): A namespace object containing the following attributes:
             crop_size (int): The size of the crop for the training and validation sets.
             val_resize (int): The target size for resizing the validation images.
@@ -663,7 +712,7 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
             RandomHorizontalFlip(p=0.5)
             AugMix(severity=3, mixture_width=3, chain_depth=-1, alpha=1.0, all_ops=True, interpolation=InterpolationMode.BILINEAR, fill=None)
             ToTensor()
-            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
         )
     """
     supported_aug_types = ["trivial", "augmix", "rand"]
@@ -693,7 +742,7 @@ def apply_mixup(images: Tensor, targets: Tensor, alpha: float = 1.0) -> Tuple[Te
     This function performs Mixup augmentation, which blends input images and their corresponding
     targets based on a random mixing coefficient sampled from a Beta distribution.
 
-    Args:
+    Parameters:
         images (Tensor): Input images as a tensor of shape (batch_size, channels, height, width).
         targets (Tensor): Corresponding targets as a tensor of shape (batch_size, num_classes).
         alpha (float, optional): Mixup parameter that controls the mixing strength.
@@ -740,7 +789,7 @@ def apply_cutmix(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0
 
     CutMix is an augmentation technique that combines two images by replacing a part of one image with a part of another.
 
-    Args:
+    Parameters:
         images (torch.Tensor): Input images as a tensor of shape (batch_size, channels, height, width).
         targets (torch.Tensor): Corresponding labels as a tensor of shape (batch_size, num_classes).
         alpha (float, optional): CutMix parameter that controls the mixing strength. Defaults to 1.0.
@@ -793,7 +842,7 @@ def to_channels_first(image: torch.Tensor) -> torch.Tensor:
     """
     Converts an image tensor from channels-last format to channels-first format.
 
-    Args:
+    Parameters:
         image (torch.Tensor): A 4-D or 3-D image tensor.
 
     Returns:
@@ -822,7 +871,7 @@ def to_channels_last(image: torch.Tensor) -> torch.Tensor:
     """
     Converts an image tensor from the channels-first format to the channels-last format.
 
-    Args:
+    Parameters:
         image (torch.Tensor): A 4-D or 3-D image tensor in channels-first format.
 
     Returns:
@@ -856,7 +905,7 @@ def convert_to_onnx(
     """
     Convert a PyTorch model to ONNX format.
 
-    Args:
+    Parameters:
         args: A namespace object containing the following attributes:
             crop_size (int, optional): The size of the crop for the inference dataset/image. Default: None.
         model_name (str): The name of the model.
@@ -942,7 +991,7 @@ def collate_fn(examples) -> Dict:
     """
     Collates a list of examples into batches by stacking pixel values of images and creating a tensor for labels.
 
-    Args:
+    Parameters:
         examples (list): A list of examples, each containing a dictionary with "pixel_values" and "labels" keys.
 
     Returns:
@@ -969,7 +1018,7 @@ def get_classes(dataset: torch.utils.data.Dataset) -> List[str]:
     """
     Get a list of the classes in a dataset.
 
-    Args:
+    Parameters:
         dataset: dataset to get classes from.
 
     Returns:
@@ -1008,7 +1057,7 @@ def get_matching_model_names(args: Namespace) -> List[str]:
     """
     Get a list of model names matching the given image crop size and model size or submodule name.
 
-    Args:
+    Parameters:
         args:
             crop_size (int): Image size the models should be trained on.
             model_size (str): Size of the model (e.g., "tiny", "small", etc.).
@@ -1039,7 +1088,7 @@ def get_matching_model_names(args: Namespace) -> List[str]:
         those models that do not contain the given crop size in their name
         and have numeric values greater than the crop size in their suffixes.
 
-        Args:
+        Parameters:
             models (List[str]): A list of model names.
             crop_size (int): The crop size to be checked against the models.
 
@@ -1097,7 +1146,7 @@ def prune_model(model: nn.Module, pruning_rate: float) -> List[Tuple[nn.Module, 
     """
     Applies global unstructured pruning to the model.
 
-    Args:
+    Parameters:
         model (nn.Module): The model to be pruned.
         pruning_rate (float): The fraction of weights to be pruned.
 
@@ -1160,7 +1209,7 @@ def remove_pruning_reparam(parameters_to_prune: List[Tuple[nn.Module, str]]) -> 
     """
     Removes pruning re-parametrization for each module and parameter in the provided list.
 
-    Args:
+    Parameters:
         parameters_to_prune (List[Tuple[nn.Module, str]]): List of module and parameter names to remove pruning re-parametrization.
 
     Examples:
@@ -1180,7 +1229,7 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
     The head of the model is replaced with a new linear layer with the given
     number of classes.
 
-    Args:
+    Parameters:
         args (Namespace): A namespace object containing the following attributes:
             - feat_extract (bool): Whether to freeze the parameters of the model.
             - dropout (float): The dropout rate.
@@ -1219,7 +1268,7 @@ def calculate_class_weights(dataset: datasets.arrow_dataset.Dataset) -> torch.Te
 
     The class weights are calculated as the inverse frequency of each class in the train dataset.
 
-    Args:
+    Parameters:
         dataset (datasets.arrow_dataset.Dataset): A HuggingFace image classification dataset.
 
     Returns:
@@ -1250,7 +1299,7 @@ def average_checkpoints(checkpoint_paths: List[str]) -> OrderedDict:
     """
     Averages the parameters of multiple checkpoints.
 
-    Args:
+    Parameters:
         checkpoint_paths (List[str]): List of file paths to the input checkpoint files.
 
     Returns:
@@ -1309,7 +1358,7 @@ def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
     """
     Returns a list of trainable parameters in the given model.
 
-    Args:
+    Parameters:
         model (nn.Module): A PyTorch neural network model.
 
     Returns:
@@ -1328,7 +1377,7 @@ def get_optimizer(args: Namespace, params: List[nn.Parameter]) -> optim.Optimize
     """
     Returns an optimizer object based on the provided optimization algorithm name.
 
-    Args:
+    Parameters:
         args (Namespace): A namespace object containing the following attributes:
             - opt_name (str): The name of the optimization algorithm.
             - lr (float): The learning rate for the optimizer.
@@ -1356,7 +1405,7 @@ def get_lr_scheduler(args: Namespace, optimizer: optim.Optimizer, num_iters: int
     """
     Returns a learning rate scheduler object based on the provided scheduling algorithm name.
 
-    Args:
+    Parameters:
         args (Namespace): A namespace object containing the following attributes:
             - sched_name (str): The name of the scheduling algorithm.
             - warmup_decay (float): The decay rate for the warmup scheduler.
@@ -1413,7 +1462,7 @@ class CreateImgSubclasses:
         """
         Initialize the object with the path to the source and destination directories.
 
-        Args:
+        Parameters:
             img_src (str): Path to the source directory.
             img_dest (str): Path to the destination directory.
         """
@@ -1440,7 +1489,7 @@ class CreateImgSubclasses:
         """
         Create directories for each class in `class_names` under `self.img_dest` directory.
 
-        Args:
+        Parameters:
             class_names (List[str]): A list of strings containing the names of the image classes.
         """
         for dir_name in class_names:
@@ -1469,7 +1518,7 @@ def create_train_val_test_splits(img_src: str, img_dest: str, ratio: tuple) -> N
     Split images from `img_src` directory into train, validation, and test sets and save them in `img_dest`
     directory. This will save the images in the appropriate directories based on the train-val-test split ratio.
 
-    Args:
+    Parameters:
         img_src (str): The source directory containing the images to be split.
         img_dest (str): The destination directory where the split images will be saved.
         ratio (tuple): The train, val, test splits. E.g (0.8, 0.1, 0.1)
