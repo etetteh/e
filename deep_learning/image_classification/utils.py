@@ -474,8 +474,8 @@ def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
 
 
 def preprocess_train_eval_data(
-    image_dataset: Dict[str, Dataset],
-    data_transforms: Dict[str, callable]
+        image_dataset: Dict[str, Dataset],
+        data_transforms: Dict[str, callable]
 ) -> Tuple[Dataset, Dataset]:
     """
     Preprocesses training and validation data in an image dataset using specified data transformations.
@@ -783,7 +783,10 @@ def apply_mixup(images: Tensor, targets: Tensor, alpha: float = 1.0) -> Tuple[Te
     return mixed_images, targets_a, targets_b, lam
 
 
-def apply_cutmix(images: torch.Tensor, targets: torch.Tensor, alpha: float = 1.0) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]:
+def apply_cutmix(images: torch.Tensor,
+                 targets: torch.Tensor,
+                 alpha: float = 1.0
+                 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]:
     """
     Applies CutMix augmentation to input data.
 
@@ -897,10 +900,10 @@ def to_channels_last(image: torch.Tensor) -> torch.Tensor:
 
 
 def convert_to_onnx(
-    args: Namespace,
-    model_name: str,
-    checkpoint_path: str,
-    num_classes: int,
+        args: Namespace,
+        model_name: str,
+        checkpoint_path: str,
+        num_classes: int,
 ) -> None:
     """
     Convert a PyTorch model to ONNX format.
@@ -1121,7 +1124,6 @@ def get_matching_model_names(args: Namespace) -> List[str]:
                             changed = True
         return models
 
-
     def is_matching_model(name: str) -> bool:
         return str(args.crop_size) in name and args.model_size in name
 
@@ -1288,7 +1290,7 @@ def calculate_class_weights(dataset: datasets.arrow_dataset.Dataset) -> torch.Te
     labels = dataset['train']['labels']
     class_counts = np.bincount(labels)
     total_samples = len(labels)
-    class_weights = torch.tensor(total_samples / (class_counts * len(class_counts)), dtype = torch.float32)
+    class_weights = torch.tensor(total_samples / (class_counts * len(class_counts)), dtype=torch.float32)
 
     return class_weights
 
@@ -1325,7 +1327,7 @@ def average_checkpoints(checkpoint_paths: List[str]) -> OrderedDict:
         with open(checkpoint_path, "rb") as f_in:
             state = torch.load(
                 f_in,
-                map_location = lambda s, _: torch.serialization.default_restore_location(s, "cpu")
+                map_location=lambda s, _: torch.serialization.default_restore_location(s, "cpu")
             )
 
         if params_keys is None:
@@ -1395,13 +1397,14 @@ def get_optimizer(args: Namespace, params: List[nn.Parameter]) -> optim.Optimize
         >>> args = Namespace(opt_name="sgd", lr=0.01, wd=0.0001)
         >>> optimizer = get_optimizer(args, params)
     """
-    optimizer = create_optimizer_v2(model_or_params = params, opt = args.opt_name, lr = args.lr, weight_decay = args.wd)
+    optimizer = create_optimizer_v2(model_or_params=params, opt=args.opt_name, lr=args.lr, weight_decay=args.wd)
     return optimizer
 
 
-def get_lr_scheduler(args: Namespace, optimizer: optim.Optimizer, num_iters: int) -> Union[lr_scheduler.SequentialLR,
-                                                                                         lr_scheduler.LRScheduler,
-                                                                                         None]:
+def get_lr_scheduler(args: Namespace,
+                     optimizer: optim.Optimizer,
+                     num_iters: int
+                     ) -> Union[lr_scheduler.SequentialLR, lr_scheduler.LRScheduler, None]:
     """
     Returns a learning rate scheduler object based on the provided scheduling algorithm name.
 
