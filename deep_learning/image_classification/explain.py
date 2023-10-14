@@ -16,7 +16,7 @@ from accelerate import (
     FullyShardedDataParallelPlugin,
     find_executable_batch_size
 )
-from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConfig
+from torch.distributed.fsdp.fully_sharded_data_parallel import FullOptimStateDictConfig, FullStateDictConfig
 
 import utils
 
@@ -25,7 +25,7 @@ def explain_model(args: argparse.Namespace) -> None:
     """
     Explain the predictions of a given model on a dataset using SHAP values.
 
-    Args:
+    Parameters:
         args (argparse.Namespace): Arguments passed to the script. Argument definitions are as follows:
             - dataset (str): Path to the dataset directory or the name of a HuggingFace dataset, defining the data source for model training and evaluation.
             - dataset_kwargs (str): Optional. JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset.
@@ -43,17 +43,29 @@ def explain_model(args: argparse.Namespace) -> None:
     Returns:
         None
 
-    Side Effects:
-        - Plots the SHAP value interpretation for the model predictions on a subset of images from the dataset.
+    Examples:
+        To explain a model's predictions on a dataset, you can use this function with appropriate arguments. For example:
 
-    Example:
-        >>> args = get_args()
-        >>> explain_model(args)
-        # The function will use the provided arguments to load the model, dataset, and then explain the model
-        # predictions using SHAP values. It will plot the SHAP value interpretation for the top-k predictions on
-        # a subset of n_samples images from the dataset. The results will be displayed in the console or as a
-        # visualization, depending on the implementation.
-    """
+        >>> import argparse
+
+        # Define the command-line arguments as if running the script
+        args = argparse.Namespace(
+            dataset='my_dataset',
+            model_output_dir='model_output',
+            feat_extract=True,
+            crop_size=224,
+            batch_size=32,
+            num_workers=4,
+            dropout=0.2,
+            n_samples=100,
+            max_evals=200,
+            topk=3
+        )
+
+        # Call the explain_model function with the arguments
+        explain_model(args)
+
+   """
     def predict(img: np.ndarray) -> torch.Tensor:
         """
         Predict the class probabilities for an image.
@@ -72,13 +84,16 @@ def explain_model(args: argparse.Namespace) -> None:
     deepspeed_plugin = DeepSpeedPlugin(gradient_accumulation_steps=2, gradient_clipping=1.0)
     fsdp_plugin = FullyShardedDataParallelPlugin(
         state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
+        optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=False, rank0_only=False),
     )
-    accelerator = Accelerator(even_batches=True,
-                              gradient_accumulation_steps=2,
-                              mixed_precision="fp16",
-                              deepspeed_plugin=deepspeed_plugin,
-                              fsdp_plugin=fsdp_plugin
-                              )
+
+    accelerator_var = Accelerator(
+        even_batches=True,
+        gradient_accumulation_steps=2,
+        mixed_precision="fp16",
+        deepspeed_plugin=deepspeed_plugin,
+        fsdp_plugin=fsdp_plugin
+    )
 
     device = accelerator.device
     transform, inv_transform = utils.get_explanation_transforms()
@@ -90,6 +105,7 @@ def explain_model(args: argparse.Namespace) -> None:
         torchvision.transforms.RandomResizedCrop(args.crop_size),
         torchvision.transforms.PILToTensor(),
     ])
+
     def preprocess_val(example_batch):
         example_batch["pixel_values"] = [
             augmentation(image.convert("RGB")) for image in example_batch["image"]
@@ -141,7 +157,7 @@ def explain_model(args: argparse.Namespace) -> None:
         shap_values.values = [val for val in np.moveaxis(shap_values.values[0], -1, 0)]
     else:
         shap_values.data = inv_transform(shap_values.data).cpu().numpy()
-        shap_values.values = [val for val in np.moveaxis(shap_values.values, -1, 0)]
+        shap_values.values = [val for val in np.moveaxis(np.array(shap_values.values), -1, 0)]
 
     fig, ax = plt.subplots(figsize=(7.5, 7.5))
     shap.image_plot(shap_values=shap_values.values,
