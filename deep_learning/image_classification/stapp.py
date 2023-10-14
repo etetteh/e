@@ -18,8 +18,7 @@ import pandas as pd
 
 import process
 import torch
-from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConfig
-
+from torch.distributed.fsdp.fully_sharded_data_parallel import FullOptimStateDictConfig, FullStateDictConfig
 import utils
 from explain import explain_model
 from train import main
@@ -39,23 +38,26 @@ if __name__ == "__main__":
         st.info("Author: Enoch Tetteh")
 
     tab1, tab2, tab3, tab4 = st.tabs(["Model Training", "Evaluation Results", "Inference", "Model Explanation"])
-    
+
     with tab1:
         warnings.filterwarnings("ignore")
-    
+
         deepspeed_plugin = DeepSpeedPlugin(gradient_accumulation_steps=2, gradient_clipping=1.0)
         fsdp_plugin = FullyShardedDataParallelPlugin(
             state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
+            optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=False, rank0_only=False),
         )
-        accelerator_var = Accelerator(even_batches=True,
-                                      gradient_accumulation_steps=2,
-                                      mixed_precision="fp16",
-                                      deepspeed_plugin=deepspeed_plugin,
-                                      fsdp_plugin=fsdp_plugin
-                                      )
-    
+
+        accelerator_var = Accelerator(
+            even_batches=True,
+            gradient_accumulation_steps=2,
+            mixed_precision="fp16",
+            deepspeed_plugin=deepspeed_plugin,
+            fsdp_plugin=fsdp_plugin
+        )
+
         cfgs = argparse.Namespace()
-    
+
         st.header("Image Classification Training")
         st.write("Enter the values for the arguments:")
 
@@ -69,12 +71,12 @@ if __name__ == "__main__":
         cfgs.hflip = st.number_input("Horizontal Flip Probability", value=0.5, help="Define the probability of randomly horizontally flipping the input data.")
         cfgs.crop_size = st.number_input("Crop Size", value=224, help="Define the size to which input images will be cropped.")
         cfgs.val_resize = st.number_input("Validation Resize", value=256, help="Specify the size to which validation images will be resized.")
-                
+
         model_selection = st.radio("Select Model Configuration", ["Model Name", "Model Size", "Module"])
         cfgs.module = None
         cfgs.model_name = None
         cfgs.model_size = None
-    
+
         if model_selection == "Module":
             modules = ['beit', 'convnext', 'deit', 'resnet', 'vision_transformer', 'efficientnet', 'xcit', 'regnet', 'nfnet', 'metaformer', 'fastvit', 'efficientvit_msra', "Other"]
             module = st.selectbox("Select Model Submodule", modules, help="If you want to select a specific model submodule, such as 'resnet' or 'deit', you can use this command to make that choice. It's not compatible with the --model_size or --model_name commands")
@@ -87,16 +89,16 @@ if __name__ == "__main__":
         elif model_selection == "Model Name":
             model_name = st.text_input("Model Name(s)", help="Use this to specify the name of the model(s) you want to use from the TIMM library. It's not compatible with the Model Size or Module commands.")
             cfgs.model_name = model_name.split()
-                        
+
         optimizers = ["lion", "madgradw", "adamw", "radabelief", "adafactor", "novograd", "lars", "lamb", "rmsprop", "sgdp", "Other"]
         opt_name = st.selectbox("Optimizer Name", optimizers, help="Choose the optimizer for the training process.")
         if opt_name == "Other":
             cfgs.opt_name = st.text_input("Enter your preferred optimizer")
         else:
             cfgs.opt_name = opt_name
-            
+
         cfgs.sched_name = st.selectbox("Learning Rate Scheduler", ["step", "cosine", "cosine_wr", "one_cycle"], help="Choose the learning rate scheduler strategy")
-        
+
         cfgs.feat_extract = st.toggle("Enable Feature Extraction", help="By including this flag, you can enable feature extraction during training, which is useful when using pretrained models.")
         cfgs.grayscale = st.toggle("Use Grayscale Images", help="If needed, use this flag to indicate that grayscale images should be used during training.")
 
@@ -105,7 +107,7 @@ if __name__ == "__main__":
             cfgs.pruning_rate = st.number_input("Pruning Rate", value=0.25, help="Set the pruning rate to control the extent of pruning applied to the model.")
 
         cfgs.avg_ckpts = st.toggle("Enable Checkpoint Averaging",  help="When enabled, this flag triggers checkpoint averaging during training. It helps stabilize the training process.")
-                    
+
         cfgs.fgsm = st.toggle("Enable FGSM Adversarial Training", help="This flag allows you to enable FGSM (Fast Gradient Sign Method) adversarial training to enhance model robustness.")
         if cfgs.fgsm:
             cfgs.epsilon = st.number_input("FGSM epsilon Value", value=0.03, help="If FGSM adversarial training is enabled, you can set the epsilon value for the FGSM attack using this command.")
@@ -113,7 +115,7 @@ if __name__ == "__main__":
         cfgs.mixup = st.toggle("Enable Mixup", help="Include this flag to enable mixup augmentation, which enhances training by mixing pairs of samples.")
         if cfgs.mixup:
             cfgs.mixup_alpha = st.number_input("Mixup Alpha", value=1.0, help="Set the mixup hyperparameter alpha to control the interpolation factor.")
-        
+
         cfgs.cutmix = st.toggle("Enable Cutmix", help="Enable cutmix augmentation, which combines patches from different images to create new training samples.")
         if cfgs.cutmix:
             cfgs.cutmix_alpha = st.number_input("Cutmix Alpha", value=1.0, help="Set the cutmix hyperparameter alpha to control the interpolation factor.")
@@ -128,9 +130,9 @@ if __name__ == "__main__":
             cfgs.epochs = st.number_input("Number of Epochs", value=100, help="Set the number of training epochs, determining how many times the entire dataset will be iterated.")
             cfgs.dropout = st.number_input("Dropout Rate", value=0.2, help="Define the dropout rate for the classifier head of the model.")
             cfgs.label_smoothing = st.number_input("Label Smoothing", value=0.1, help="Set the amount of label smoothing to use during training.")
-        
+
             cfgs.wd = st.number_input("Weight Decay", value=1e-4, help="Set the weight decay (L2 regularization) for the optimizer.")
-            
+
             cfgs.max_lr = st.number_input("Maximum Learning Rate", value=0.1, help="Set the maximum learning rate when using cyclic learning rate scheduling.")
             cfgs.eta_min = st.number_input("Minimum Learning Rate", value=1e-4, help="Define the minimum learning rate that the scheduler can reach.")
             cfgs.lr = st.number_input("Initial Learning Rate", value=0.001, help=" Specify the initial learning rate for the optimizer.")
@@ -138,39 +140,39 @@ if __name__ == "__main__":
             cfgs.warmup_epochs = st.number_input("Warmup Epochs", value=5, help="Specify the number of epochs for the warmup phase of learning rate scheduling.")
             cfgs.warmup_decay = st.number_input("Warmup Decay", value=0.1, help="Set the decay rate for the learning rate during the warmup phase.")
             cfgs.gamma = st.number_input("Gamma", value=0.1, help="Set the gamma parameter used in certain learning rate scheduling strategies.")
-            
+
             cfgs.t0 = st.number_input("First Restart Iterations", value=5, help="Specify the number of iterations for the first restart in learning rate scheduling strategies.")
-        
+
             cfgs.sorting_metric = st.selectbox("Sorting Metric", ["f1", "auc", "accuracy", "precision", "recall"], help="Choose the metric by which the model results will be sorted.")
-        
+
         cfgs.test_only = st.toggle("Enable Test Only", help="When enabled, this flag indicates that you want to perform testing on the test split only, skipping training.")
 
         method = "Run Evaluation" if cfgs.test_only else "Start Training"
         status = "Evaluation in progress" if cfgs.test_only else "Training in progress"
-        update_label ="Model evaluation complete!" if cfgs.test_only else "Model training complete!"
-        
+        update_label = "Model evaluation complete!" if cfgs.test_only else "Model training complete!"
+
         if st.button(method):
             with st.status(status, expanded=True) as status:
-                
+
                 set_seed(cfgs.seed)
-                
+
                 if not os.path.isdir(cfgs.output_dir):
                     os.makedirs(cfgs.output_dir, exist_ok=True)
                     accelerator_var.print(f"Output directory created: {os.path.abspath(cfgs.output_dir)}")
                 else:
                     accelerator_var.print(f"Output directory already exists at: {os.path.abspath(cfgs.output_dir)}")
-                           
+
                 if cfgs.model_name is not None:
                     cfgs.models = sorted(cfgs.model_name)
                 else:
                     cfgs.models = sorted(utils.get_matching_model_names(cfgs))
-            
+
                 cfgs.lr *= accelerator_var.num_processes
-                
+
                 main(cfgs, accelerator_var)
 
                 status.update(label=update_label, state="complete", expanded=False)
-                
+
         st.divider()
 
         jsonl_file = None
@@ -185,16 +187,15 @@ if __name__ == "__main__":
             if os.path.isfile(os.path.join(cfgs.output_dir, "performance_metrics.jsonl")):
                 jsonl_file = os.path.join(cfgs.output_dir, "performance_metrics.jsonl")
 
-        if not jsonl_file is None:
+        if jsonl_file is not None:
             st.button("Clear results", type="primary")
             if st.button("Show results", type="primary"):
                 df = pd.read_json(jsonl_file, lines=True)
                 st.dataframe(df)
 
-
     with tab2:
         st.header("Evaluation Results")
-        
+
         args = argparse.Namespace()
         args.output_dir = st.text_input("Enter Directory of Trained Model")
 
@@ -202,24 +203,21 @@ if __name__ == "__main__":
             st.divider()
             results_list = utils.read_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
             best_compare_model_name = os.path.join(args.output_dir, results_list[0]["model"])
-                
-    
             st.subheader("Confusion Matrix")
             if os.path.isfile(os.path.join(best_compare_model_name, "confusion_matrix.png")):
                 st.image(os.path.join(best_compare_model_name, "confusion_matrix.png"))
-    
+
             st.subheader("ROC AUC Curve")
             if os.path.isfile(os.path.join(best_compare_model_name, "roc_curve.png")):
                 st.image(os.path.join(best_compare_model_name, "roc_curve.png"))
 
-    
     with tab3:
         st.header("Model Inference")
 
         st.write("Enter the values for the arguments:")
-    
+
         infer_args = argparse.Namespace()
-        
+
         infer_args.output_dir = st.text_input("Inference Output Directory", help="Specify the directory where the output files will be saved, such as classification results")
         infer_args.onnx_model_path = st.text_input("ONNX Model Path", help="Provide the path to the ONNX model file that you want to use for inference.")
         infer_args.img_path = st.text_input("Image Path", help="Specify the path to a single image or a directory containing images that you want to classify.")
@@ -229,19 +227,19 @@ if __name__ == "__main__":
         infer_args.crop_size = st.number_input("Inference Image Crop Size", value=224, help="Define the size to which input images will be cropped during inference.")
         infer_args.val_resize = st.number_input("Inference Image Resize", value=256, help="Specify the size to which validation images will be resized during inference.")
         infer_args.grayscale = st.toggle("Use Grayscale Images", help="Use this flag if you want to use grayscale images during inference.")
-        
+
         if st.button("Run Inference"):
             with st.status("Model inference in progress", expanded=True) as status:
                 warnings.filterwarnings("ignore", category=UserWarning)
-        
+
                 if not os.path.isdir(infer_args.output_dir):
                     os.makedirs(infer_args.output_dir, exist_ok=True)
-            
+
                 result = run_inference(infer_args)
                 utils.write_dictionary_to_json(dictionary=result, file_path=f"{infer_args.output_dir}/inference_results.json")
-                
+
                 status.update(label="Model inference complete!", state="complete", expanded=False)
-            
+
         st.divider()
 
         st.subheader("Inference Results")
@@ -255,12 +253,12 @@ if __name__ == "__main__":
     with tab4:
         st.header("Model Explanation")
         args = argparse.Namespace()
-    
+
         args.model_output_dir = st.text_input("Model Output Directory", help="Specifies the output directory where the model is contained")
 
         args.dataset = st.text_input("Dataset", help="Use this command to provide the path to the dataset directory or the name of a HuggingFace dataset. It defines the data source for the explanation")
         args.dataset_kwargs = st.text_input("Dataset kwargs", help="If necessary, you can provide the path to a JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset.")
-        
+
         args.crop_size = st.number_input("Image Crop Size", value=224, help="Define the size to which input images will be cropped.")
         args.batch_size = st.number_input("Batch Size", value=128, help="Define the batch size for both training and evaluation stages.")
         args.num_workers = st.number_input("Number of Workers", value=8, help="Specify the number of workers for training and evaluation.")
@@ -285,4 +283,3 @@ if __name__ == "__main__":
                 st.image(f"{args.model_output_dir}/explanation.png")
         else:
             pass
-            
