@@ -25,7 +25,7 @@ def display_results_dataframe(output_dir: str, sorting_metric: str, test_only: b
     This function loads results from a JSONL file in the specified `output_dir`, converts them into a DataFrame, and
     sorts the DataFrame based on a given metric.
 
-    Args:
+    Parameters:
         output_dir (str): Directory where the results file is stored.
         sorting_metric (str): The metric by which to sort the DataFrame.
         test_only (bool): Indicates whether user is performing inference on test data
@@ -35,13 +35,9 @@ def display_results_dataframe(output_dir: str, sorting_metric: str, test_only: b
 
     Example:
         >>> output_dir = "results"
-        >>> sorting_metric = "accuracy"
-        >>> test_only = True  # Set this to True if performing inference on test data
+        >>> sorting_metric = "f1"
+        >>> test_only = True
         >>> results_df = display_results_dataframe(output_dir, sorting_metric, test_only)
-        # The function will load the results from the "test_results.jsonl" file in the "results" directory if test_only is True,
-        # or from the "results.jsonl" file if test_only is False. It converts the results into a DataFrame,
-        # and sorts the DataFrame based on the specified sorting_metric in descending order.
-        # The sorted DataFrame will be stored in the variable "results_df".
     """
     if test_only:
         results_list = utils.read_json_lines_file(os.path.join(output_dir, "test_results.jsonl"))
@@ -59,7 +55,7 @@ def plot_confusion_matrix(results_df: pd.DataFrame, model_name: str, classes: Li
     """
     Plot the confusion matrix for a given model.
 
-    Args:
+    Parameters:
         results_df (pd.DataFrame): DataFrame of results.
         model_name (str): Name of the model to plot the confusion matrix for.
         classes (List[str]): List of classes in the dataset.
@@ -107,7 +103,7 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
 
     The plot is displayed and can be saved to an HTML file if the output_dir is provided.
 
-    Args:
+    Parameters:
         classes (List[str]): A list of strings representing the names of different classes.
         results_df (pd.DataFrame): A DataFrame containing the results of the model(s) being plotted,
             including the false positive rate (fpr) and true positive rate (tpr).
@@ -177,7 +173,7 @@ def plot_results(args: argparse.Namespace, model_name: str, classes: List[str], 
     """
     Processes and saves performance metrics, plots confusion matrix and ROC curve.
 
-    Args:
+    Parameters:
         args (argparse.Namespace): A Namespace object with the following attributes:
             - output_dir (str): Directory where results will be saved.
             - sorting_metric (str): Metric to sort results by.
@@ -189,20 +185,12 @@ def plot_results(args: argparse.Namespace, model_name: str, classes: List[str], 
     Returns:
         None
 
-    Side Effects:
-        - Saves performance metrics as a JSONL file in 'args.output_dir'.
-        - Prints the model's performance or its performance compared to other models.
-        - Plots the confusion matrix and ROC curve, saving them in 'args.output_dir'.
-
     Example:
         >>> args = argparse.Namespace(output_dir="results", sorting_metric="accuracy", dataset_dir="data")
         >>> model_name = "MyModel"
         >>> classes = ["class1", "class2", "class3"]
         >>> accelerator = Accelerator()
         >>> plot_results(args, model_name, classes, accelerator)
-        # The function will process results, save performance metrics as a JSONL file in 'results' directory,
-        # print the model's performance or its performance compared to other models, and plot the confusion matrix
-        # and ROC curve, saving them in 'results' directory.
     """
     results_df = display_results_dataframe(args.output_dir, args.sorting_metric, args.test_only)
     results_drop = results_df.drop(columns=["loss", "fpr", "tpr", "cm"])
