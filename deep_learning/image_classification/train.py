@@ -849,12 +849,13 @@ if __name__ == "__main__":
     fsdp_plugin = FullyShardedDataParallelPlugin(
         state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
     )
-    accelerator_var = Accelerator(even_batches=True,
-                                  gradient_accumulation_steps=2,
-                                  mixed_precision="fp16",
-                                  deepspeed_plugin=deepspeed_plugin,
-                                  fsdp_plugin=fsdp_plugin
-                                  )
+    accelerator_var = Accelerator(
+        even_batches=True,
+        gradient_accumulation_steps=2,
+        mixed_precision="fp16",
+        deepspeed_plugin=deepspeed_plugin,
+        fsdp_plugin=fsdp_plugin
+        )
 
     if not os.path.isdir(cfgs.output_dir):
         os.makedirs(cfgs.output_dir, exist_ok=True)
