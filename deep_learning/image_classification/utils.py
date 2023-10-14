@@ -119,7 +119,11 @@ def write_dictionary_to_json(dictionary: Dict, file_path: str) -> None:
 
     Raises:
         IOError: If there is an issue with opening or writing to the file.
+            - doc: Raised when there is an issue with opening or writing to the file.
+
         json.JSONDecodeError: If there is an issue with JSON serialization.
+            - doc: Raised when there is an issue with JSON serialization.
+            - pos (int): The character position in the input string where the error occurred.
 
     Examples:
         >>> dictionary = {"key": "value"}  # Example dictionary object to be written
@@ -146,8 +150,8 @@ def write_dictionary_to_json(dictionary: Dict, file_path: str) -> None:
         # >>> try:
         # ...     write_dictionary_to_json(invalid_dictionary, "invalid.json")
         # ... except json.JSONDecodeError as e:
-        # ...     print(f"JSONDecodeError occurred: {e}")
-        # JSONDecodeError occurred: Expecting property name enclosed in double quotes: line 1 column 3 (char 2)
+        # ...     print(f"JSONDecodeError occurred at character {e.pos}: {e}")
+        # JSONDecodeError occurred at character 2: Expecting property name enclosed in double quotes: line 1 column 3 (char 2)
     """
     try:
         with open(file_path, "w") as file_out:
@@ -155,7 +159,7 @@ def write_dictionary_to_json(dictionary: Dict, file_path: str) -> None:
     except (IOError, FileNotFoundError) as e:
         raise IOError(f"Failed to write to JSON file '{file_path}': {e}")
     except json.JSONDecodeError as e:
-        raise json.JSONDecodeError(f"Failed to serialize dictionary to JSON: {e}")
+        raise json.JSONDecodeError(f"Failed to serialize dictionary to JSON: {e}", e.doc, e.pos) from e
 
 
 def read_json_file(file_path: str) -> Dict[str, Any]:
@@ -261,7 +265,7 @@ def append_dictionary_to_json_file(new_dict: Dict[str, Any], file_path: str) -> 
 
 def read_json_lines_file(file_path: str) -> List[Dict[str, Any]]:
     """
-    Read and parse a JSON Lines file from the given file path and return the data as a list.
+    Read and parse a JSON Lines file from the given file path and return the data as a list of dictionaries.
 
     Parameters:
         file_path (str): The path to the JSON Lines file.
@@ -271,7 +275,11 @@ def read_json_lines_file(file_path: str) -> List[Dict[str, Any]]:
 
     Raises:
         FileNotFoundError: If the file does not exist.
+            - doc: Raised when the specified file does not exist.
+
         json.JSONDecodeError: If there is an issue with JSON decoding.
+            - doc: Raised when there is an issue decoding JSON data.
+            - pos (int): The character position in the input where the error occurred.
 
     Examples:
         >>> import pandas as pd
@@ -296,13 +304,13 @@ def read_json_lines_file(file_path: str) -> List[Dict[str, Any]]:
         with open(file_path, "r") as file_in:
             data = [json.loads(line) for line in file_in]
             return data
-    except FileNotFoundError:
-        raise FileNotFoundError(f"File {file_path} not found.")
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"File {file_path} not found.") from e
     except json.JSONDecodeError as e:
-        raise json.JSONDecodeError(f"Error decoding JSON in {file_path}: {e}")
+        raise json.JSONDecodeError(f"Error decoding JSON in {file_path}: {e}", e.doc, e.pos) from e
 
 
-def keep_best_f1_score_files(directory: str, num_files_to_keep: int):
+def keep_best_f1_score_files(directory: Path, num_files_to_keep: int):
     """
     Sorts files in the specified directory and keeps files with the best f1 scores.
     Files beyond the specified number of files to keep will be removed.
@@ -319,7 +327,6 @@ def keep_best_f1_score_files(directory: str, num_files_to_keep: int):
 
         # Specify the directory and the number of files to create
         >>> directory_path = "resnet50_checkpoints"
-        >>> num_files_to_create = 20
 
         # Create the directory if it doesn't exist
         >>> directory_path = Path(directory_path)
@@ -340,7 +347,7 @@ def keep_best_f1_score_files(directory: str, num_files_to_keep: int):
 
         >>> remaining_files = list(directory_path.glob("best_model_*.pth"))
         >>> print(remaining_files)
-        [PosixPath('resnet50_checkpoints/best_model_0.9854.pth'), PosixPath('resnet50_checkpoints/best_model_0.9531.pth')]
+        [PosixPath('resnet50_checkpoints/best_model_0.9531.pth'), PosixPath('resnet50_checkpoints/best_model_0.9854.pth')]
     """
     directory_path = Path(directory)
 
@@ -379,11 +386,6 @@ def set_seed_for_worker(worker_id: Optional[int]) -> Union[int, None]:
         >>> seed = set_seed_for_worker(None)  # No worker ID provided
         >>> print(seed)  # Initial seed for PyTorch
         None
-
-        >>> set_seed_for_worker("invalid")  # Invalid worker ID (not an integer)
-        Traceback (most recent call last):
-            ...
-        ValueError: Worker ID must be an integer.
     """
     if worker_id is not None:
         if not isinstance(worker_id, int):
@@ -474,9 +476,9 @@ def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
 
 
 def preprocess_train_eval_data(
-        image_dataset: Dict[str, Dataset],
+        image_dataset: Dataset,
         data_transforms: Dict[str, callable]
-) -> Tuple[Dataset, Dataset]:
+) -> Tuple[Dataset, Dataset, Dataset]:
     """
     Preprocesses training and validation data in an image dataset using specified data transformations.
 
@@ -515,7 +517,7 @@ def preprocess_train_eval_data(
         >>> data_transforms = get_data_augmentation(args)
         >>> dataset = load_image_dataset(args)
 
-        >>> train_dataset, val_dataset = preprocess_train_eval_data(dataset, data_transforms)
+        >>> train_dataset, val_dataset, test_dataset = preprocess_train_eval_data(dataset, data_transforms)
         >>> train_dataset
         Dataset({
             features: ['image', 'labels'],
@@ -526,6 +528,8 @@ def preprocess_train_eval_data(
         raise ValueError("The 'train' dataset subset is missing.")
     if "validation" not in image_dataset:
         raise ValueError("The 'validation' dataset subset is missing.")
+    if "test" not in image_dataset:
+        raise ValueError("The 'test' dataset subset is missing.")
     if "train" not in data_transforms:
         raise ValueError("Data transformations for 'train' are missing.")
     if "val" not in data_transforms:
@@ -545,8 +549,9 @@ def preprocess_train_eval_data(
 
     train_dataset = image_dataset["train"].with_transform(preprocess_train)
     val_dataset = image_dataset["validation"].with_transform(preprocess_val)
+    test_dataset = image_dataset["test"].with_transform(preprocess_val)
 
-    return train_dataset, val_dataset
+    return train_dataset, val_dataset, test_dataset
 
 
 def apply_fgsm_attack(image: torch.Tensor, epsilon: float, data_grad: torch.Tensor) -> torch.Tensor:
@@ -646,13 +651,6 @@ def get_augmentation_by_type(args: Namespace) -> Callable:
         >>> augmentation = get_augmentation_by_type(args)
         >>> isinstance(augmentation, transforms.TrivialAugmentWide)
         True
-
-    Note:
-        This function returns different augmentation transforms based on the `aug_type` attribute in the `args` namespace.
-        - For "trivial" type, it returns a TrivialAugmentWide transform with specified parameters.
-        - For "augmix" type, it returns an AugMix transform with specified parameters.
-        - For "rand" type, it returns a RandAugment transform with specified parameters.
-        - Raises a ValueError for an invalid `aug_type`.
     """
     valid_aug_types = ["trivial", "augmix", "rand"]
     if args.aug_type not in valid_aug_types:
@@ -1045,7 +1043,7 @@ def get_classes(dataset: torch.utils.data.Dataset) -> List[str]:
         >>> data_transforms = get_data_augmentation(args)
         >>> dataset = load_image_dataset(args)
 
-        >>> train_dataset, val_dataset = preprocess_train_eval_data(dataset, data_transforms)
+        >>> train_dataset, val_dataset, test_dataset = preprocess_train_eval_data(dataset, data_transforms)
 
         >>> classes = get_classes(train_dataset)
         >>> print(classes)
@@ -1199,6 +1197,7 @@ def prune_model(model: nn.Module, pruning_rate: float) -> List[Tuple[nn.Module, 
         (module, 'weight') for module in model.modules() if isinstance(module, (nn.Conv2d, nn.Linear))
     ]
 
+    # noinspection PyTypeChecker
     prune.global_unstructured(
         parameters_to_prune,
         pruning_method=prune.L1Unstructured,
@@ -1287,6 +1286,7 @@ def calculate_class_weights(dataset: datasets.arrow_dataset.Dataset) -> torch.Te
         >>> print(class_weights)
         tensor([1., 1., 1., 1., 1., 1., 1., 1., 1., 1.])
     """
+    # noinspection PyTypeChecker
     labels = dataset['train']['labels']
     class_counts = np.bincount(labels)
     total_samples = len(labels)
@@ -1356,26 +1356,7 @@ def average_checkpoints(checkpoint_paths: List[str]) -> OrderedDict:
     return OrderedDict(new_state)
 
 
-def get_trainable_params(model: nn.Module) -> List[nn.Parameter]:
-    """
-    Returns a list of trainable parameters in the given model.
-
-    Parameters:
-        model (nn.Module): A PyTorch neural network model.
-
-    Returns:
-        List[nn.Parameter]: A list of trainable parameters in the model.
-
-    Examples:
-        >>> model = nn.Linear(10, 5)
-        >>> trainable_params = get_trainable_params(model)
-        >>> len(trainable_params)
-        2
-    """
-    return list(filter(lambda param: param.requires_grad, model.parameters()))
-
-
-def get_optimizer(args: Namespace, params: List[nn.Parameter]) -> optim.Optimizer:
+def get_optimizer(args: Namespace, model: torch.nn.Module) -> optim.Optimizer:
     """
     Returns an optimizer object based on the provided optimization algorithm name.
 
@@ -1384,7 +1365,7 @@ def get_optimizer(args: Namespace, params: List[nn.Parameter]) -> optim.Optimize
             - opt_name (str): The name of the optimization algorithm.
             - lr (float): The learning rate for the optimizer.
             - wd (float): The weight decay for the optimizer.
-        params (List[nn.Parameter]): A list of parameters for the optimizer.
+        model (torch.mo ): A list of parameters for the optimizer.
 
     Returns:
         optim.Optimizer: An optimizer object of the specified type.
@@ -1393,11 +1374,10 @@ def get_optimizer(args: Namespace, params: List[nn.Parameter]) -> optim.Optimize
         >>> from argparse import Namespace
         >>> import torch
         >>> model = torch.nn.Linear(10, 10)
-        >>> params = list(model.parameters())
         >>> args = Namespace(opt_name="sgd", lr=0.01, wd=0.0001)
-        >>> optimizer = get_optimizer(args, params)
+        >>> optimizer = get_optimizer(args, model)
     """
-    optimizer = create_optimizer_v2(model_or_params=params, opt=args.opt_name, lr=args.lr, weight_decay=args.wd)
+    optimizer = create_optimizer_v2(model_or_params=model, opt=args.opt_name, lr=args.lr, weight_decay=args.wd)
     return optimizer
 
 
@@ -1432,12 +1412,11 @@ def get_lr_scheduler(args: Namespace,
         >>> from argparse import Namespace
         >>> import torch
         >>> model = torch.nn.Linear(10, 10)
-        >>> params = list(model.parameters())
         >>> args = Namespace(opt_name="sgd", lr = 0.01, wd = 0.0001, sched_name = "cosine", warmup_decay = 0.1, warmup_epochs = 5, step_size = 10, gamma = 0.5, epochs = 50, eta_min = 0.001)
-        >>> optimizer = get_optimizer(args, params)
+        >>> optimizer = get_optimizer(args, model)
         >>> scheduler = get_lr_scheduler(args, optimizer, num_iters = 100)
         >>> print(scheduler.state_dict()["_last_lr"])
-        [0.001]
+        [0.001, 0.001]
     """
     scheduler_options = {
         "step": lambda: lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=args.gamma),
