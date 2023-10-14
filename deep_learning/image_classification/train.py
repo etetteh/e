@@ -73,7 +73,7 @@ def train_one_epoch(
                     loss = lam * criterion(output, labels_a) + (1 - lam) * criterion(output, labels_b)
                 elif args.cutmix:
                     mixed_images, labels_a, labels_b, lam = utils.apply_cutmix(images, labels,
-                                                                                 alpha=args.cutmix_alpha)
+                                                                               alpha=args.cutmix_alpha)
                     output = model(mixed_images.contiguous(memory_format=torch.channels_last))
                     loss = lam * criterion(output, labels_a) + (1 - lam) * criterion(output, labels_b)
                 else:
@@ -329,8 +329,10 @@ def main(args: argparse.Namespace, accelerator) -> None:
             if args.test_only:
                 test_loader = accelerator.prepare_data_loader(test_loader)
             else:
-                train_loader, val_loader = accelerator.prepare_data_loader(train_loader), accelerator.prepare_data_loader(val_loader)
-                optimizer, lr_scheduler = accelerator.prepare_optimizer(optimizer), accelerator.prepare_scheduler(lr_scheduler)
+                train_loader, val_loader = accelerator.prepare_data_loader(
+                    train_loader), accelerator.prepare_data_loader(val_loader)
+                optimizer, lr_scheduler = accelerator.prepare_optimizer(optimizer), accelerator.prepare_scheduler(
+                    lr_scheduler)
 
             start_epoch = 0
             best_f1 = 0.0
@@ -341,7 +343,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
             checkpoint_file = os.path.join(args.output_dir, model_name, "checkpoint.pth")
             best_model_file = os.path.join(args.output_dir, model_name, "best_model")
-            
+
             mlflow.set_experiment(args.experiment_name)
 
             with mlflow.start_run(run_id=run_id, run_name=model_name) as run:
@@ -364,10 +366,12 @@ def main(args: argparse.Namespace, accelerator) -> None:
                             checkpoint_file = os.path.join(args.output_dir, model_name, "best_model.pth")
                             checkpoint = torch.load(checkpoint_file, map_location="cpu")
                         model.load_state_dict(checkpoint["model"])
-                    total_test_metrics, total_roc_metric = evaluate(classes, test_loader, model, val_metrics, roc_metric, accelerator)
+                    total_test_metrics, total_roc_metric = evaluate(classes, test_loader, model, val_metrics,
+                                                                    roc_metric, accelerator)
 
-                    test_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for key, value in
-                                   total_test_metrics.items()}
+                    test_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for
+                                    key, value in
+                                    total_test_metrics.items()}
                     fpr, tpr, _ = total_roc_metric
                     fpr, tpr = [ff.detach().tolist() for ff in fpr], [tt.detach().tolist() for tt in tpr]
 
@@ -420,18 +424,20 @@ def main(args: argparse.Namespace, accelerator) -> None:
                     roc_metric.reset()
 
                     total_val_metrics, total_roc_metric = evaluate(classes, val_loader, model, val_metrics,
-                                                                       roc_metric, accelerator)
+                                                                   roc_metric, accelerator)
 
                     if args.prune:
                         parameters_to_prune = utils.prune_model(model, args.pruning_rate)
                         utils.remove_pruning_reparam(parameters_to_prune)
 
-                    train_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for key, value in
+                    train_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for
+                                     key, value in
                                      total_train_metrics.items()}
-                    val_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for key, value in
+                    val_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for
+                                   key, value in
                                    total_val_metrics.items()}
 
-                    accelerator.wait_for_everyone()       
+                    accelerator.wait_for_everyone()
                     best_model_list = sorted(glob(os.path.join(args.output_dir, model_name, "best_model_*")))
                     if best_model_list:
                         bottom_k = os.path.splitext(os.path.basename(best_model_list[0]))[0].split("_")[-1]
@@ -440,18 +446,20 @@ def main(args: argparse.Namespace, accelerator) -> None:
                     if val_results["f1"] >= best_f1:
                         fpr, tpr, _ = total_roc_metric
                         fpr, tpr = [ff.detach().tolist() for ff in fpr], [tt.detach().tolist() for tt in tpr]
-                    
+
                         best_f1 = val_results["f1"]
                         best_results = {**{"model": model_name, "fpr": fpr, "tpr": tpr}, **val_results}
-                    
-                        accelerator.save({"model": accelerator.get_state_dict(model)}, f"{best_model_file}_{best_f1}.pth")
-                    
+
+                        accelerator.save({"model": accelerator.get_state_dict(model)},
+                                         f"{best_model_file}_{best_f1}.pth")
+
                         best_checkpoints.append(f"{best_model_file}_{best_f1}.pth")
                     elif val_results["f1"] >= bottom_k:
-                        accelerator.save({"model": accelerator.get_state_dict(model)}, f"{best_model_file}_{val_results['f1']}.pth")
-                    
+                        accelerator.save({"model": accelerator.get_state_dict(model)},
+                                         f"{best_model_file}_{val_results['f1']}.pth")
+
                         best_checkpoints.append(f"{best_model_file}_{val_results['f1']}.pth")
-                    
+
                     if len(best_checkpoints) > args.num_ckpts:
                         utils.keep_best_f1_score_files(os.path.join(args.output_dir, model_name), args.num_ckpts)
 
@@ -509,14 +517,14 @@ def main(args: argparse.Namespace, accelerator) -> None:
         results_list = utils.read_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
         best_compare_model_name = results_list[0]["model"]
         best_compare_model_file = os.path.join(args.output_dir,
-                                                os.path.join(best_compare_model_name, "averaged") if args.avg_ckpts
-                                                else best_compare_model_name,
-                                                "best_model.pth")
+                                               os.path.join(best_compare_model_name, "averaged") if args.avg_ckpts
+                                               else best_compare_model_name,
+                                               "best_model.pth")
 
         utils.convert_to_onnx(args, best_compare_model_name, best_compare_model_file, num_classes)
         accelerator.print(f"Exported best performing model, {best_compare_model_name},"
-                            f" to ONNX format. File is located in "
-                            f"{os.path.join(args.output_dir, best_compare_model_name)}")
+                          f" to ONNX format. File is located in "
+                          f"{os.path.join(args.output_dir, best_compare_model_name)}")
 
         accelerator.print(f"All results have been saved at {os.path.abspath(args.output_dir)}")
 
@@ -568,7 +576,10 @@ def get_args():
     parser.add_argument(
         "--module",
         type=str,
-        help="Select a specific model submodule. Choose any of 'beit', 'convnext', 'deit', 'resnet', 'vision_transformer', 'efficientnet', 'xcit', 'regnet', 'nfnet', 'metaformer', 'fastvit', 'efficientvit_msra'] or your favourite from the TIMM  library. Not compatible with --model_size or --model_name."
+        help="Select a specific model submodule. Choose any of ['beit', 'convnext', 'deit', 'resnet', "
+             "'vision_transformer', 'efficientnet', 'xcit', 'regnet', 'nfnet', 'metaformer', 'fastvit', "
+             "'efficientvit_msra']"
+             "or your favourite from the TIMM  library. Not compatible with --model_size or --model_name."
     )
     parser.add_argument(
         "--model_name",
@@ -745,7 +756,9 @@ def get_args():
         "--opt_name",
         default="madgradw",
         type=str,
-        help="The optimizer for the training process. Choose any of ['lion', 'madgrad', 'madgradw', 'adamw', 'radabelief', 'adafactor', 'novograd', 'lars', 'lamb', 'rmsprop', 'sgdp'] or any favourite from the TIMM library"
+        help="The optimizer for the training process. Choose any of ['lion', 'madgrad', 'madgradw', 'adamw', "
+             "'radabelief', 'adafactor', 'novograd', 'lars', 'lamb', 'rmsprop', 'sgdp'] or any favourite from the "
+             "TIMM library"
     )
     parser.add_argument(
         "--lr",
