@@ -15,10 +15,10 @@ from accelerate import Accelerator
 import utils
 
 import argparse
-import pandas as pd
+from pandas import DataFrame
 
 
-def display_results_dataframe(output_dir: str, sorting_metric: str, test_only: bool) -> pd.DataFrame:
+def display_results_dataframe(output_dir: str, sorting_metric: str, test_only: bool) -> DataFrame:
     """
     Load and display results from a results file.
 
