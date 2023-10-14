@@ -23,7 +23,7 @@ import mlflow.pytorch
 import process
 import torch
 from torch import nn, optim
-from torch.distributed.fsdp.fully_sharded_data_parallel import FullStateDictConfig
+from torch.distributed.fsdp.fully_sharded_data_parallel import FullOptimStateDictConfig, FullStateDictConfig
 from torch.utils import data
 from torchmetrics import MetricCollection
 import torchmetrics.classification as metrics
@@ -65,7 +65,7 @@ def train_one_epoch(
             images, labels = batch["pixel_values"], batch["labels"]
             images.requires_grad = True
 
-            with accelerator.accumulate(model):
+            with accelerator.accumulate([model]):
                 optimizer.zero_grad()
                 if args.mixup:
                     mixed_images, labels_a, labels_b, lam = utils.apply_mixup(images, labels, alpha=args.mixup_alpha)
@@ -221,7 +221,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
         image_dataset = utils.load_image_dataset(args)
         image_dataset.set_format("torch")
 
-        train_dataset, val_dataset = utils.preprocess_train_eval_data(image_dataset, data_transforms)
+        train_dataset, val_dataset, test_dataset = utils.preprocess_train_eval_data(image_dataset, data_transforms)
 
         image_datasets = {
             "train": train_dataset,
@@ -252,7 +252,6 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
         test_loader = None
         if args.test_only:
-            test_dataset = image_dataset["test"].with_transform(preprocess_val)
             test_sampler = data.SequentialSampler(test_dataset)
 
             test_loader = data.DataLoader(
@@ -322,8 +321,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
             model = utils.get_pretrained_model(args, model_name=model_name, num_classes=num_classes)
             model = accelerator.prepare_model(model)
 
-            params = utils.get_trainable_params(model)
-            optimizer = utils.get_optimizer(args, params)
+            optimizer = utils.get_optimizer(args, model)
             lr_scheduler = utils.get_lr_scheduler(args, optimizer, len(train_loader))
 
             if args.test_only:
@@ -848,14 +846,16 @@ if __name__ == "__main__":
     deepspeed_plugin = DeepSpeedPlugin(gradient_accumulation_steps=2, gradient_clipping=1.0)
     fsdp_plugin = FullyShardedDataParallelPlugin(
         state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
+        optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=False, rank0_only=False),
     )
+
     accelerator_var = Accelerator(
         even_batches=True,
         gradient_accumulation_steps=2,
         mixed_precision="fp16",
         deepspeed_plugin=deepspeed_plugin,
         fsdp_plugin=fsdp_plugin
-        )
+    )
 
     if not os.path.isdir(cfgs.output_dir):
         os.makedirs(cfgs.output_dir, exist_ok=True)
@@ -864,7 +864,7 @@ if __name__ == "__main__":
         accelerator_var.print(f"Output directory already exists at: {os.path.abspath(cfgs.output_dir)}")
 
     if cfgs.model_name is not None:
-        if type(cfgs.model_name) == list:
+        if isinstance(cfgs.model_name, list):
             cfgs.models = sorted(cfgs.model_name)
         else:
             cfgs.models = [cfgs.model_name]
