@@ -95,7 +95,7 @@ def explain_model(args: argparse.Namespace) -> None:
         fsdp_plugin=fsdp_plugin
     )
 
-    device = accelerator.device
+    device = accelerator_var.device
     transform, inv_transform = utils.get_explanation_transforms()
 
     image_dataset = utils.load_image_dataset(args)
@@ -121,17 +121,13 @@ def explain_model(args: argparse.Namespace) -> None:
                              collate_fn=utils.collate_fn
                              )
 
-    batch = next(iter(data_loader))
-    images, labels = batch["pixel_values"], batch["labels"]
-    images = images.permute(0, 2, 3, 1)
-    images = transform(images)
-
     if args.model_output_dir.endswith("/"):
         model_name = args.model_output_dir.split("/")[-2]
     else:
         model_name = args.model_output_dir.split("/")[-1]
 
     model = utils.get_pretrained_model(args, model_name=model_name, num_classes=len(classes))
+    model = accelerator_var.prepare_model(model)
 
     checkpoint_file = os.path.join(os.path.join(args.model_output_dir, "best_model.pth"))
     checkpoint = torch.load(checkpoint_file, map_location="cpu")
@@ -142,6 +138,12 @@ def explain_model(args: argparse.Namespace) -> None:
 
     model.eval()
     model.to(device)
+
+    data_loader = accelerator_var.prepare_data_loader(data_loader)
+    batch = next(iter(data_loader))
+    images, labels = batch["pixel_values"], batch["labels"]
+    images = images.permute(0, 2, 3, 1)
+    images = transform(images)
 
     masker_blur = shap.maskers.Image("blur(128,128)", images[0].shape)
     explainer = shap.Explainer(predict, masker_blur, output_names=classes)
@@ -159,19 +161,16 @@ def explain_model(args: argparse.Namespace) -> None:
         shap_values.data = inv_transform(shap_values.data).cpu().numpy()
         shap_values.values = [val for val in np.moveaxis(np.array(shap_values.values), -1, 0)]
 
-    fig, ax = plt.subplots(figsize=(7.5, 7.5))
+    fig, ax = plt.subplots(figsize=(12, 12))
     shap.image_plot(shap_values=shap_values.values,
                     pixel_values=shap_values.data,
                     labels=shap_values.output_names,
                     true_labels=[classes[idx] for idx in labels[:len(labels)]],
-                    aspect=0.15,
-                    hspace=0.15,
                     show=False,
                     )
 
-    filename = f"{args.model_output_dir}/explanation.png"
+    filename = os.path.join(args.model_output_dir, "explanation.png")
 
-    # Save the SHAP explanation plot as a PNG image
     plt.savefig(filename, bbox_inches='tight', format='png')
     plt.close(fig)
 
