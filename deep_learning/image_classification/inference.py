@@ -71,7 +71,8 @@ def run_inference(args: argparse.Namespace) -> dict:
     imgs = [transform_img(img) for img in imgs]
     imgs = [img.unsqueeze_(0) for img in imgs]
 
-    ort_session = onnxruntime.InferenceSession(args.onnx_model_path)
+    ort_session = onnxruntime.InferenceSession(args.onnx_model_path, providers=['AzureExecutionProvider',
+                                                                                'CPUExecutionProvider'])
 
     results = {}
     num_out = range(3) if len(classes) >= 3 else range(2)
