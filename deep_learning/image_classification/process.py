@@ -84,7 +84,11 @@ def plot_confusion_matrix(results_df: pd.DataFrame, model_name: str, classes: Li
                     labels={"x": "Predicted Condition", "y": "Actual Condition", "color": "Score"},
                     )
 
-    fig.update_layout(width=750, height=750)
+    fig.update_layout(width=1080,
+                      height=1080
+                      )
+
+    # fig.update_layout(width=7680 / 300, height=4320 / 300)
     if output_dir:
         fig.write_html(os.path.join(output_dir, model_name, "confusion_matrix.html"))
         fig.write_image(os.path.join(output_dir, model_name, "confusion_matrix.png"))
@@ -161,7 +165,7 @@ def plot_roc_curve(classes: List[str], results_df: pd.DataFrame, model_name: str
         yaxis_title='True Positive Rate',
         yaxis=dict(scaleanchor="x", scaleratio=1),
         xaxis=dict(constrain='domain'),
-        width=750, height=750
+        width=1080, height=1080
     )
 
     if output_dir:
