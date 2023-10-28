@@ -13,10 +13,8 @@ from torch.utils.data import DataLoader
 from accelerate import (
     Accelerator,
     DeepSpeedPlugin,
-    FullyShardedDataParallelPlugin,
     find_executable_batch_size
 )
-from torch.distributed.fsdp.fully_sharded_data_parallel import FullOptimStateDictConfig, FullStateDictConfig
 
 import utils
 
@@ -82,17 +80,12 @@ def explain_model(args: argparse.Namespace) -> None:
         return output
 
     deepspeed_plugin = DeepSpeedPlugin(gradient_accumulation_steps=2, gradient_clipping=1.0)
-    fsdp_plugin = FullyShardedDataParallelPlugin(
-        state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
-        optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=False, rank0_only=False),
-    )
 
     accelerator_var = Accelerator(
         even_batches=True,
         gradient_accumulation_steps=2,
         mixed_precision="fp16",
         deepspeed_plugin=deepspeed_plugin,
-        fsdp_plugin=fsdp_plugin
     )
 
     device = accelerator_var.device
