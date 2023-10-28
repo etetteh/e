@@ -8,7 +8,6 @@ import accelerate
 from accelerate import (
     Accelerator,
     DeepSpeedPlugin,
-    FullyShardedDataParallelPlugin,
     find_executable_batch_size
 )
 from accelerate.utils import set_seed
@@ -18,7 +17,6 @@ import pandas as pd
 
 import process
 import torch
-from torch.distributed.fsdp.fully_sharded_data_parallel import FullOptimStateDictConfig, FullStateDictConfig
 import utils
 from explain import explain_model
 from train import main
@@ -43,17 +41,12 @@ if __name__ == "__main__":
         warnings.filterwarnings("ignore")
 
         deepspeed_plugin = DeepSpeedPlugin(gradient_accumulation_steps=2, gradient_clipping=1.0)
-        fsdp_plugin = FullyShardedDataParallelPlugin(
-            state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
-            optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=False, rank0_only=False),
-        )
 
         accelerator_var = Accelerator(
             even_batches=True,
             gradient_accumulation_steps=2,
             mixed_precision="fp16",
             deepspeed_plugin=deepspeed_plugin,
-            fsdp_plugin=fsdp_plugin
         )
 
         cfgs = argparse.Namespace()
