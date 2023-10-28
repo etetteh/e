@@ -9,7 +9,6 @@ import accelerate
 from accelerate import (
     Accelerator,
     DeepSpeedPlugin,
-    FullyShardedDataParallelPlugin,
     find_executable_batch_size
 )
 from accelerate.utils import set_seed
@@ -23,7 +22,6 @@ import mlflow.pytorch
 import process
 import torch
 from torch import nn, optim
-from torch.distributed.fsdp.fully_sharded_data_parallel import FullOptimStateDictConfig, FullStateDictConfig
 from torch.utils import data
 from torchmetrics import MetricCollection
 import torchmetrics.classification as metrics
@@ -844,17 +842,12 @@ if __name__ == "__main__":
     set_seed(cfgs.seed)
 
     deepspeed_plugin = DeepSpeedPlugin(gradient_accumulation_steps=2, gradient_clipping=1.0)
-    fsdp_plugin = FullyShardedDataParallelPlugin(
-        state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
-        optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=False, rank0_only=False),
-    )
 
     accelerator_var = Accelerator(
         even_batches=True,
         gradient_accumulation_steps=2,
         mixed_precision="fp16",
         deepspeed_plugin=deepspeed_plugin,
-        fsdp_plugin=fsdp_plugin
     )
 
     if not os.path.isdir(cfgs.output_dir):
