@@ -386,11 +386,13 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
                 if os.path.isfile(checkpoint_file):
                     with accelerator.main_process_first():
-                        checkpoint = torch.load(checkpoint_file, map_location="cpu")
-                        model.load_state_dict(checkpoint["model"])
+                        checkpoint = torch.load(checkpoint_file, mmap=True)
+                        with torch.device('meta'):
+                            model, optimizer, lr_scheduler = model, optimizer, lr_scheduler
+                        model.load_state_dict(checkpoint["model"], assign=True)
                         if not args.test_only:
-                            optimizer.load_state_dict(checkpoint["optimizer"])
-                            lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+                            optimizer.load_state_dict(checkpoint["optimizer"], assign=True)
+                            lr_scheduler.load_state_dict(checkpoint["lr_scheduler"], assign=True)
 
                         start_epoch = checkpoint["epoch"] + 1
                         best_f1 = checkpoint["best_f1"]
