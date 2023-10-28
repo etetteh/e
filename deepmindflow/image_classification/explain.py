@@ -119,15 +119,16 @@ def explain_model(args: argparse.Namespace) -> None:
     else:
         model_name = args.model_output_dir.split("/")[-1]
 
-    model = utils.get_pretrained_model(args, model_name=model_name, num_classes=len(classes))
+    checkpoint_file = os.path.join(os.path.join(args.model_output_dir, "best_model.pth"))
+    checkpoint = torch.load(checkpoint_file, mmap=True)
+    with torch.device('meta'):
+        model = utils.get_pretrained_model(args, model_name=model_name, num_classes=len(classes))
     model = accelerator_var.prepare_model(model)
 
-    checkpoint_file = os.path.join(os.path.join(args.model_output_dir, "best_model.pth"))
-    checkpoint = torch.load(checkpoint_file, map_location="cpu")
     if "n_averaged" in checkpoint["model"]:
         del checkpoint["model"]["n_averaged"]
         torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(checkpoint["model"], "module.")
-    model.load_state_dict(checkpoint["model"])
+    model.load_state_dict(checkpoint["model"], assign=True)
 
     model.eval()
     model.to(device)
