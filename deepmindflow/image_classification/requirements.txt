@@ -8,8 +8,6 @@ timm
 torchmetrics
 accelerate
 deepspeed
-ray[default]
-ray[air]
 onnx
 onnxruntime
 plotly
@@ -17,3 +15,5 @@ kaleido
 streamlit
 transformers
 opencv-python
+ray[all]
+GPy
