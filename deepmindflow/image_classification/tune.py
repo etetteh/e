@@ -1,239 +1,280 @@
-from functools import partial
+# Standard Library
 import argparse
 import os
+from functools import partial
 import warnings
 
+# External Libraries
+import numpy as np
 import torch
+import torch.optim as optim
+import torchvision.transforms as transforms
 from torch.utils import data
 from torchvision import datasets
 from torchmetrics import MetricCollection
 from torchmetrics.classification import (
-                    HammingDistance,
-                    AUROC,
-                    Accuracy,
-                    F1Score,
-                    Recall,
-                    Precision,
-                    ConfusionMatrix,
-                    ROC,
-                    )
+    HammingDistance,
+    AUROC,
+    Accuracy,
+    F1Score,
+    Recall,
+    Precision,
+    ConfusionMatrix,
+    ROC,
+)
 
+# Local Modules
 import utils
 from train import train_one_epoch, evaluate
 
-from ray import tune
-from ray.tune import CLIReporter
-from ray.tune.schedulers import ASHAScheduler, PopulationBasedTraining, pb2
-from accelerate import Accelerator
+# Accelerate
+import accelerate
+from accelerate import (
+    Accelerator,
+    DeepSpeedPlugin,
+    find_executable_batch_size,
+)
+from accelerate.utils import set_seed
+
+# Ray and Ray Tune
+import ray
+import tempfile
+from ray import train, tune
+from ray.train import Checkpoint
+from ray.tune.schedulers import ASHAScheduler, PopulationBasedTraining
+from ray.tune.schedulers.pb2 import PB2
+
+from ray.tune.search import Repeater
+from ray.tune.search.bohb import TuneBOHB
+from ray.tune.search.flaml import BlendSearch, CFO
 
 
-def main(config: dict, args: argparse.Namespace) -> None:
-    """
-    Main function to run the training and validation process.
+def tune_classifier(config, args):
+    @find_executable_batch_size(starting_batch_size=args.batch_size)
+    def inner_main_loop(batch_size):
+        if args.tune_aug_type:
+            args.aug_type = config["aug_type"]
 
-    Parameters
-        - config: Dictionary containing the configuration parameters.
-        - args: Argument namespace containing the parsed command line arguments.
-    
-    Returns
-        - None
-    """
-    if args.tune_aug_type:
-        args.aug_type = config["aug_type"]
+        if args.tune_mag_bins:
+            args.mag_bins = config["mag_bins"]
 
-    if args.tune_mag_bins:
-        args.mag_bins = config["mag_bins"]
+        if args.tune_interpolation:
+            args.interpolation = config["interpolation"]
 
-    if args.tune_interpolation:
-        args.interpolation = config["interpolation"]
+        if args.tune_dropout:
+            args.dropout = config["dropout"]
 
-    if args.tune_dropout:
-        args.dropout = config["dropout"]
+        if args.tune_mixup:
+            args.mixup_alpha = config["mixup_alpha"]
 
-    if args.tune_ema_steps:
-        args.ema_steps = config["ema_steps"]
+        if args.tune_cutmix:
+            args.cutmix_alpha = config["cutmix_alpha"]
 
-    if args.tune_mixup:
-        args.mixup_alpha = config["mixup_alpha"]
+        if args.tune_fgsm:
+            args.epsilon = config["epsilon"]
 
-    if args.tune_cutmix:
-        args.cutmix_alpha = config["cutmix_alpha"]
+        if args.tune_batch_size:
+            batch_size = config["batch_size"]
 
-    if args.tune_fgsm:
-        args.epsilon = config["epsilon"]
+        if args.tune_opt:
+            args.lr = config["lr"]
+            args.weight_decay = config["weight_decay"]
+            if args.opt_name == "sgd":
+                args.momentum = config["momentum"]
 
-    if args.tune_batch_size:
-        args.batch_size = config["batch_size"]
+        if args.tune_sched:
+            if args.sched_name == "step":
+                args.step_size = config["step_size"]
+                args.gamma = config["gamma"]
+            elif args.sched_name == "cosine":
+                args.warmup_epochs = config["warmup_epochs"]
+                args.eta_min = config["eta_min"]
+            elif args.sched_name == "cosine_wr":
+                args.t0 = config["t0"]
+                args.eta_min = config["eta_min"]
+            elif args.sched_name == "one_cycle":
+                args.max_lr = config["max_lr"]
 
-    if args.tune_opt:
-        args.lr = config["lr"]
-        args.weight_decay = config["weight_decay"]
-        if args.opt_name == "sgd":
-            args.momentum = config["momentum"]
+        deepspeed_plugin = DeepSpeedPlugin(gradient_accumulation_steps=2, gradient_clipping=1.0)
 
-    if args.tune_sched:
-        if args.sched_name == "step":
-            args.step_size = config["step_size"]
-            args.gamma = config["gamma"]
-        elif args.sched_name == "cosine":
-            args.warmup_epochs = config["warmup_epochs"]
-            args.eta_min = config["eta_min"]
-
-    accelerator = Accelerator(gradient_accumulation_steps=2, mixed_precision="fp16")
-
-    device = accelerator.device
-    g = torch.Generator()
-    g.manual_seed(args.seed)
-    utils.set_seed_for_all(args.seed)
-
-    data_transforms = utils.get_data_augmentation(args)
-    image_datasets = {
-        x: datasets.ImageFolder(
-            os.path.join(args.dataset_dir, x), data_transforms[x]
-        )
-        for x in ["train", "val"]
-    }
-
-    samplers = {
-        "train": data.RandomSampler(image_datasets["train"]),
-        "val": data.SequentialSampler(image_datasets["val"]),
-    }
-    dataloaders = {
-        x: data.DataLoader(
-            image_datasets[x],
-            batch_size=args.batch_size,
-            sampler=samplers[x],
-            num_workers=args.num_workers,
-            worker_init_fn=utils.set_seed_for_worker,
-            generator=g,
-            pin_memory=True,
-        )
-        for x in ["train", "val"]
-    }
-
-    train_loader, val_loader = dataloaders["train"], dataloaders["val"]
-    train_weights = utils.get_class_weights(train_loader)
-
-    criterion = torch.nn.CrossEntropyLoss(weight=train_weights,
-                                          label_smoothing=config["smoothing"]
-                                          if args.tune_smoothing
-                                          else args.label_smoothing
-                                          ).to(device)
-
-    num_classes = len(train_loader.dataset.classes)
-    task = "binary" if num_classes == 2 else "multiclass"
-    top_k = 1 if task == "multiclass" else None
-    average = "macro" if task == "multiclass" else "weighted"
-
-    metric_params = {
-        "task": task,
-        "average": average,
-        "num_classes": num_classes,
-        "top_k": top_k,
-    }
-
-    metric_collection = MetricCollection({
-        "loss": HammingDistance(**metric_params),
-        "auc": AUROC(**metric_params),
-        "acc": Accuracy(**metric_params),
-        "f1": F1Score(**metric_params),
-        "recall": Recall(**metric_params),
-        "precision": Precision(**metric_params),
-        "cm": ConfusionMatrix(**metric_params)
-    })
-
-    roc_metric = ROC(**metric_params).to(device)
-
-    train_metrics = metric_collection.to(device)
-    val_metrics = metric_collection.to(device)
-
-    model = utils.get_model(model_name=args.model_name, num_classes=num_classes, dropout=args.dropout)
-    model = accelerator.prepare_model(model)
-
-    model_ema = None
-    if args.ema:
-        adjust = args.batch_size * args.ema_steps / args.epochs
-        alpha = 1.0 - args.ema_decay
-        alpha = min(1.0, alpha * adjust)
-        model_ema = utils.ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
-
-    params = utils.get_trainable_params(model)
-    optimizer = utils.get_optimizer(args, params)
-    lr_scheduler = utils.get_lr_scheduler(args, optimizer, len(train_loader))
-
-    optimizer, train_loader, val_loader, lr_scheduler = accelerator.prepare(optimizer, train_loader, val_loader,
-                                                                            lr_scheduler)
-
-    start_epoch = 0
-    checkpoint_dir = args.output_dir
-    checkpoint_file = os.path.join(checkpoint_dir, "best_model.pth")
-    if os.path.isfile(checkpoint_file):
-        checkpoint = torch.load(checkpoint_file, map_location="cpu")
-        model.load_state_dict(checkpoint["model"])
-        optimizer.load_state_dict(checkpoint["optimizer"])
-        lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
-        start_epoch = checkpoint["epoch"] + 1
-
-    for epoch in range(start_epoch, args.epochs):
-        train_metrics.reset()
-        train_one_epoch(args, epoch, train_loader, model, model_ema, optimizer, criterion, train_metrics, accelerator)
-
-        # if not accelerator.optimizer_step_was_skipped:
-        lr_scheduler.step()
-
-        val_metrics.reset()
-        roc_metric.reset()
-
-        if model_ema:
-            evaluate(args, val_loader, model, val_metrics, roc_metric, accelerator, ema=False)
-            total_val_metrics, total_roc_metric = evaluate(args, val_loader, model_ema, val_metrics,
-                                                           roc_metric, accelerator, ema=True)
-        else:
-            total_val_metrics, total_roc_metric = evaluate(args, val_loader, model, val_metrics,
-                                                           roc_metric, accelerator, ema=False)
-
-        val_results = {key: val.detach().tolist() if key == "cm" else round(val.item(), 4) for key, val in
-                       total_val_metrics.items()}
-
-        with tune.checkpoint_dir(epoch) as checkpoint_dir:
-            path = os.path.join(checkpoint_dir, "best_model.pth")
-            torch.save(
-                {"epoch": epoch,
-                 "model": model.state_dict(),
-                 "optimizer": optimizer.state_dict(),
-                 "lr_scheduler": lr_scheduler.state_dict()
-                 },
-                path)
-
-        tune.report(
-            auc=val_results["auc"],
-            f1=val_results["f1"],
-            recall=val_results["recall"],
-            prec=val_results["precision"]
+        accelerator = Accelerator(
+            even_batches=True,
+            gradient_accumulation_steps=2,
+            mixed_precision="fp16",
+            deepspeed_plugin=deepspeed_plugin,
         )
 
-    args.logger.info("Finished Training")
+        accelerator.free_memory()
+
+        device = accelerator.device
+        g = torch.Generator()
+        g.manual_seed(args.seed)
+        set_seed(args.seed)
+
+        data_transforms = utils.get_data_augmentation(args)
+        image_dataset = utils.load_image_dataset(args)
+        image_dataset.set_format("torch")
+
+        train_dataset, val_dataset, _ = utils.preprocess_train_eval_data(image_dataset, data_transforms)
+
+        image_datasets = {
+            "train": train_dataset,
+            "val": val_dataset
+        }
+
+        samplers = {
+            "train": data.RandomSampler(train_dataset),
+            "val": data.SequentialSampler(val_dataset),
+        }
+
+        dataloaders = {
+            x: data.DataLoader(
+                image_datasets[x],
+                collate_fn=utils.collate_fn,
+                batch_size=batch_size,
+                sampler=samplers[x],
+                num_workers=args.num_workers,
+                worker_init_fn=utils.set_seed_for_worker,
+                generator=g,
+                pin_memory=True,
+            )
+            for x in ["train", "val"]
+        }
+
+        train_loader, val_loader = dataloaders["train"], dataloaders["val"]
+        train_weights = utils.calculate_class_weights(image_dataset)
+
+        criterion = torch.nn.CrossEntropyLoss(weight=train_weights, label_smoothing=args.label_smoothing).to(device)
+
+        classes = utils.get_classes(train_dataset)
+        num_classes = len(classes)
+        task = "binary" if num_classes == 2 else "multiclass"
+        top_k = 1 if task == "multiclass" else None
+        average = "macro" if task == "multiclass" else "weighted"
+
+        metric_params = {
+            "task": task,
+            "average": average,
+            "num_classes": num_classes,
+            "top_k": top_k,
+        }
+
+        metric_params_clone = metric_params.copy()
+        metric_params_clone.pop("top_k", None)
+
+        metric_collection = MetricCollection({
+            "loss": HammingDistance(**metric_params),
+            "auc": AUROC(**metric_params_clone),
+            "acc": Accuracy(**metric_params),
+            "f1": F1Score(**metric_params),
+            "recall": Recall(**metric_params),
+            "precision": Precision(**metric_params),
+            "cm": ConfusionMatrix(**{"task": task, "num_classes": num_classes})
+        })
+
+        roc_metric = ROC(**{"task": task, "num_classes": num_classes}).to(device)
+
+        train_metrics = metric_collection.to(device)
+        val_metrics = metric_collection.to(device)
+
+        model = utils.get_pretrained_model(args, model_name=args.model_name, num_classes=num_classes)
+
+        model = accelerator.prepare_model(model)
+
+        optimizer = utils.get_optimizer(args, model)
+        lr_scheduler = utils.get_lr_scheduler(args, optimizer, len(train_loader))
+
+        train_loader, val_loader = accelerator.prepare_data_loader(
+            train_loader), accelerator.prepare_data_loader(val_loader)
+        optimizer, lr_scheduler = accelerator.prepare_optimizer(optimizer), accelerator.prepare_scheduler(
+            lr_scheduler)
+
+        start_epoch = 0
+        best_f1 = 0.0
+
+        loaded_checkpoint = train.get_checkpoint()
+        if loaded_checkpoint:
+            with loaded_checkpoint.as_directory() as loaded_checkpoint_dir:
+                ckpts = torch.load(os.path.join(loaded_checkpoint_dir, "checkpoint.pt"))
+                with accelerator.main_process_first():
+                    checkpoint = torch.load(os.path.join(loaded_checkpoint_dir, "checkpoint.pt"), map_location="cpu")
+                    model.load_state_dict(checkpoint["model"])
+                    lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+                    optimizer.load_state_dict(checkpoint["optimizer"])
+                    for param_group in optimizer.param_groups:
+                        if "lr" in config:
+                            param_group["lr"] = config["lr"]
+                        if "weight_decay" in config:
+                            param_group["weight_decay"] = config["weight_decay"]
+
+                    start_epoch = checkpoint["epoch"] + 1
+                    best_f1 = checkpoint["best_f1"]
+
+                    if start_epoch == args.epochs:
+                        accelerator.print("Training completed")
+                    else:
+                        accelerator.print(f"Resuming training from epoch {start_epoch}\n")
+
+        for epoch in range(start_epoch, args.epochs):
+            train_metrics.reset()
+
+            with accelerator.autocast():
+                total_train_metrics = train_one_epoch(
+                    args,
+                    epoch,
+                    classes,
+                    train_loader,
+                    model,
+                    optimizer,
+                    criterion,
+                    train_metrics,
+                    accelerator
+                )
+
+            if not accelerator.optimizer_step_was_skipped:
+                lr_scheduler.step()
+
+            val_metrics.reset()
+            roc_metric.reset()
+
+            total_val_metrics, total_roc_metric = evaluate(
+                classes,
+                val_loader,
+                model,
+                val_metrics,
+                roc_metric,
+                accelerator
+            )
+
+            val_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for key, value in
+                           total_val_metrics.items()}
+
+            with tempfile.TemporaryDirectory() as tempdir:
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "best_f1": best_f1,
+                        "model": accelerator.get_state_dict(model),
+                        "optimizer": accelerator.get_state_dict(optimizer),
+                        "lr_scheduler": accelerator.get_state_dict(lr_scheduler),
+                    },
+                    os.path.join(tempdir, "checkpoint.pt"),
+                )
+                metrics = {
+                    "loss": val_results["loss"],
+                    "acc": val_results["acc"],
+                    "auc": val_results["auc"],
+                    "f1": val_results["f1"],
+                    "recall": val_results["recall"],
+                    "precision": val_results["precision"]
+                }
+                train.report(metrics=metrics, checkpoint=Checkpoint.from_directory(tempdir))
+        accelerator.print("Finished Training")
+
+    inner_main_loop()
 
 
-def tune_params(args):
-    """
-    Tune the hyperparameters of a model based on given arguments.
-
-    Parameters:
-        - args (argparse.Namespace): Command-line arguments.
-
-    Returns:
-        - tuned results.
-    """
-    if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir, exist_ok=True)
-        print(f"Output directory created: {os.path.abspath(args.output_dir)}")
-    else:
-        print(f"Output directory already exist at: {os.path.abspath(args.output_dir)}")
-
-    args.logger = utils.get_logger(f"Training and Evaluation of Image Classifiers",
-                                   f"{args.output_dir}/training_logs.log")
-
+def main(args):
     config = {}
     hyperparam_mutations = {}
 
@@ -241,17 +282,12 @@ def tune_params(args):
         config["lr"] = tune.qloguniform(1e-4, 1e-1, 1e-5)
         config["weight_decay"] = tune.qloguniform(1e-4, 1e-1, 1e-5)
 
-        if args.opt_name == "sgd":
-            config["momentum"] = tune.uniform(0.6, 0.99)
         hyperparam_mutations["lr"] = [1e-4, 1e-1]
         hyperparam_mutations["weight_decay"] = [1e-5, 1e-1]
 
-        if args.opt_name == "sgd":
-            hyperparam_mutations["momentum"] = [0.001, 1]
-
     if args.tune_batch_size:
-        config["batch_size"] = tune.choice([8, 16, 32, 64])
-        hyperparam_mutations["batch_size"] = [8, 64]
+        config["batch_size"] = tune.choice([16, 32, 64, 128])
+        hyperparam_mutations["batch_size"] = [16, 128]
 
     if args.tune_smoothing:
         config["smoothing"] = tune.choice([0.05, 0.1, 0.15])
@@ -264,13 +300,21 @@ def tune_params(args):
         hyperparam_mutations["warmup_epochs"] = [3, 15]
         hyperparam_mutations["warmup_decay"] = [0.1, 0.001]
         if args.sched_name == "step":
-            config["step_size"] = tune.randint(args.epochs // 5, args.epochs // 3)
+            config["step_size"] = tune.randint(10, 30)
             config["gamma"] = tune.uniform(0.01, 0.1)
-            hyperparam_mutations["step_size"] = [args.epochs // 5, args.epochs // 3]
+            hyperparam_mutations["step_size"] = [10, 30]
             hyperparam_mutations["gamma"] = [0.01, 0.1]
         elif args.sched_name == "cosine":
             config["eta_min"] = tune.qloguniform(1e-4, 1e-1, 1e-5)
             hyperparam_mutations["eta_min"] = [1e-4, 1e-1]
+        elif args.sched_name == "cosine_wr":
+            config["t0"] = tune.randint(3, 20)
+            config["eta_min"] = tune.qloguniform(1e-4, 1e-1, 1e-5)
+            hyperparam_mutations["t0"] = [3, 20]
+            hyperparam_mutations["eta_min"] = [1e-4, 1e-1]
+        elif args.sched_name == "one_cycle":
+            config["max_lr"] = tune.loguniform(1e-2, 1e-1)
+            hyperparam_mutations["max_lr"] = [1e-2, 1e-1]
 
     if args.tune_dropout:
         config["dropout"] = tune.choice([0, 0.1, 0.2, 0.3, 0.4])
@@ -283,20 +327,16 @@ def tune_params(args):
         config["interpolation"] = tune.choice(["nearest", "bilinear", "bicubic"])
 
     if args.tune_mag_bins:
-        config["mag_bins"] = tune.qrandint(16, 39, 1)
-        hyperparam_mutations["mag_bins"] = [16, 39]
-
-    if args.tune_ema_steps:
-        config["ema_steps"] = tune.choice([8, 16, 32, 48])
-        hyperparam_mutations["ema_steps"] = [8, 48]
+        config["mag_bins"] = tune.qrandint(4, 32, 4)
+        hyperparam_mutations["mag_bins"] = [4, 32]
 
     if args.tune_mixup:
-        config["mixup_alpha"] = tune.quniform(0.2, 0.6, 0.1)
-        hyperparam_mutations["mixup_alpha"] = [0.2, 0.6]
+        config["mixup_alpha"] = tune.quniform(0.1, 0.6, 0.1)
+        hyperparam_mutations["mixup_alpha"] = [0.1, 0.6]
 
     if args.tune_cutmix:
-        config["cutmix_alpha"] = tune.quniform(0.2, 0.6, 0.1)
-        hyperparam_mutations["cutmix_alpha"] = [0.2, 0.6]
+        config["cutmix_alpha"] = tune.quniform(0.1, 0.6, 0.1)
+        hyperparam_mutations["cutmix_alpha"] = [0.1, 0.6]
 
     if args.tune_fgsm:
         config["epsilon"] = tune.quniform(0.01, 0.1, 0.01)
@@ -320,139 +360,471 @@ def tune_params(args):
         )
 
     if args.pb2:
-        scheduler = pb2.PB2(
+        scheduler = PB2(
             time_attr="training_iteration",
             perturbation_interval=300.0,
             quantile_fraction=0.35,
             hyperparam_bounds=hyperparam_mutations
         )
 
-    reporter = CLIReporter(
-        infer_limit=4,
-        metric_columns=["auc", "f1", "recall", "prec", "training_iteration"]
-    )
+    search_algo = None
+    if args.search_algo == "bohb":
+        search_algo = TuneBOHB(metric=args.sorting_metric, mode="max")
+    elif args.search_algo == "cfo":
+        search_algo = CFO(metric=args.sorting_metric, mode="max")
 
-    result = tune.run(
-        partial(main, args=args),
-        name=args.name,
-        local_dir=args.output_dir,
-        resources_per_trial={"cpu": args.cpus_per_trial, "gpu": args.gpus_per_trial},
-        config=config,
-        num_samples=args.num_samples,
-        metric="f1",
-        mode="max",
-        search_alg=args.search_alg if args.asha else None,
-        scheduler=scheduler,
-        progress_reporter=reporter,
-        stop={"f1": 0.9999, "training_iteration": 100},
-        reuse_actors=True,
-        keep_checkpoints_num=1,
-        checkpoint_score_attr="f1",
-        resume="AUTO",
+    storage_path = os.path.expanduser(f"~/{args.output_dir}")
+    exp_dir = os.path.join(storage_path, args.experiment_name)
 
-    )
+    if tune.Tuner.can_restore(exp_dir):
+        tuner = tune.Tuner.restore(
+            path=exp_dir,
+            trainable=tune.with_resources(
+                tune.with_parameters(partial(tune_classifier, args=args)),
+                resources={"cpu": args.cpus_per_trial, "gpu": args.gpus_per_trial}
+            ),
+            resume_unfinished=True,
+            resume_errored=True,
+            param_space=config,
+        )
+    else:
+        tuner = tune.Tuner(
+            tune.with_resources(
+                tune.with_parameters(partial(tune_classifier, args=args)),
+                resources={"cpu": args.cpus_per_trial, "gpu": args.gpus_per_trial}
+            ),
+            tune_config=tune.TuneConfig(
+                metric=args.sorting_metric,
+                mode="max",
+                scheduler=scheduler,
+                num_samples=args.num_samples,
+                search_alg=search_algo if args.asha else None,
+                max_concurrent_trials=10,
+            ),
+            run_config=train.RunConfig(
+                name=args.experiment_name,
+                storage_path=storage_path,
+                log_to_file=True,
+                stop={
+                    args.sorting_metric: 0.99,
+                    "training_iteration": args.training_iteration,
+                },
+                checkpoint_config=train.CheckpointConfig(
+                    checkpoint_score_attribute=args.sorting_metric,
+                    checkpoint_score_order="max",
+                    num_to_keep=3
+                ),
+                failure_config=train.FailureConfig(max_failures=3),
+            ),
+            param_space=config,
+        )
+    results = tuner.fit()
 
-    # print(ss)
-    best_trial = result.get_best_trial("f1", "max", "last")
-    print("Best trial config: {}".format(best_trial.config))
-    print("Best trial final validation f1: {}".format(
-        best_trial.last_result["f1"]))
-    print("Best trial final validation auc: {}".format(
-        best_trial.last_result["auc"]))
-
-    return result
+    return results
 
 
 def get_args():
     """
     Parse and return the command line arguments.
+
+    Returns:
+        argparse.Namespace: A namespace containing parsed command line arguments.
     """
-    parser = argparse.ArgumentParser(description="Image Classification Tuning")
+    parser = argparse.ArgumentParser(description="Image Classification")
 
-    parser.add_argument("--name", required=True, type=str, help="name of the experiment")
-    parser.add_argument("--dataset_dir", required=True, type=str, help="Directory of the dataset.")
-    parser.add_argument("--output_dir", required=True, type=str, help="Directory to save the output files to.")
+    # General Configuration
+    parser.add_argument(
+        "--experiment_name",
+        required=True,
+        type=str,
+        default="Experiment_1",
+        help="The name of the Ray Tune experiment to organize and categorize experimental runs."
+    )
+    parser.add_argument(
+        "--dataset",
+        required=True,
+        type=str,
+        help="The path to the dataset directory or the name of a HuggingFace dataset for training and evaluation."
+    )
+    parser.add_argument(
+        "--dataset_kwargs",
+        type=str,
+        default="",
+        help="Path to a JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset."
+    )
+    parser.add_argument(
+        "--output_dir",
+        required=True,
+        type=str,
+        help="The directory where output files, such as trained models and evaluation results, will be saved."
+    )
 
-    parser.add_argument("--model_name", required=True, type=str, help="The name of the model to use")
+    # Model Configuration
+    parser.add_argument(
+        "--feat_extract",
+        action="store_true",
+        help="Enable feature extraction during training when using pretrained models."
+    )
+    parser.add_argument(
+        "--model_name",
+        type=str,
+        default=None,
+        help="Specify the name of the model from the TIMM library."
+    )
+    parser.add_argument(
+        "--to_onnx",
+        action="store_true",
+        help="Convert the trained model(s) to ONNX format. If not used, only the best model will be converted."
+    )
 
-    parser.add_argument("--seed", default=999333666, type=int, help="Random seed.")
+    # Training Configuration
+    # Checkpoint Averaging:
+    parser.add_argument(
+        "--avg_ckpts",
+        action="store_true",
+        help="Enable checkpoint averaging during training to stabilize the process."
+    )
+    parser.add_argument(
+        "--num_ckpts",
+        type=int,
+        default=1,
+        help="The number of best checkpoints to save when checkpoint averaging is active."
+    )
 
-    parser.add_argument("--crop_size", default=224, type=int, help="Size to crop the input images to.")
-    parser.add_argument("--val_resize", default=256, type=int, help="Size to resize the validation images to.")
-    parser.add_argument("--mag_bins", default=31, type=int, help="Number of magnitude bins.")
-    parser.add_argument("--aug_type", default="rand", type=str, help="Type of data augmentation to use.",
-                        choices=["augmix", "rand", "trivial"])
-    parser.add_argument("--interpolation", default="bilinear", type=str, help="Type of interpolation to use.",
-                        choices=["nearest", "bicubic", "bilinear"])
-    parser.add_argument("--hflip", default=0.5, type=float,
-                        help="Probability of randomly horizontally flipping the input data.")
+    # FGSM Adversarial Training
+    parser.add_argument(
+        "--fgsm",
+        action="store_true",
+        help="Enable FGSM (Fast Gradient Sign Method) adversarial training to enhance model robustness."
+    )
+    parser.add_argument(
+        "--epsilon",
+        type=float,
+        default=0.03,
+        help="Set the epsilon value for the FGSM attack if FGSM adversarial training is enabled."
+    )
 
-    parser.add_argument("--batch_size", default=16, type=int, help="Batch size for training and evaluation.")
-    parser.add_argument("--num_workers", default=4, type=int, help="Number of workers for data loading.")
-    parser.add_argument("--epochs", default=100, type=int, help="Number of epochs to train.")
+    # Pruning
+    parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="Enable pruning during training to reduce model complexity and size."
+    )
+    parser.add_argument(
+        "--pruning_rate",
+        type=float,
+        default=0.25,
+        help="Set the pruning rate to control the extent of pruning applied to the model."
+    )
 
-    parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate for classifier head")
-    parser.add_argument("--label_smoothing", default=0.1, type=float, help="Amount of label smoothing to use.")
+    # Random Seed
+    parser.add_argument(
+        "--seed",
+        default=999333666,
+        type=int,
+        help="Set the random seed for reproducibility of training results."
+    )
 
-    parser.add_argument("--opt_name", default="adamw", type=str, help="Name of the optimizer to use.",
-                        choices=["adamw", "sgd"])
-    parser.add_argument("--sched_name", default="cosine", type=str, help="Name of the learning rate scheduler to use.",
-                        choices=["step", "cosine", "one_cycle"])
-    parser.add_argument("--lr", default=0.001, type=float, help="Initial learning rate.")
-    parser.add_argument('--max_lr', type=float, default=0.1, help='Maximum learning rate')
-    parser.add_argument("--wd", default=1e-4, type=float, help="Weight decay.")
-    parser.add_argument("--step_size", default=30, type=int, help="Step size for the learning rate scheduler.")
-    parser.add_argument("--warmup_epochs", default=5, type=int, help="Number of epochs for the warmup period.")
-    parser.add_argument("--warmup_decay", default=0.1, type=float, help="Decay rate for the warmup learning rate.")
-    parser.add_argument("--gamma", default=0.1, type=float, help="Gamma for the learning rate scheduler.")
-    parser.add_argument("--eta_min", default=1e-4, type=float,
-                        help="Minimum learning rate for the learning rate scheduler.")
+    # Data Augmentation
+    parser.add_argument(
+        '--grayscale',
+        action='store_true',
+        help="Use grayscale images during training."
+    )
+    parser.add_argument(
+        "--crop_size",
+        default=224,
+        type=int,
+        help="The size to which input images will be cropped."
+    )
+    parser.add_argument(
+        "--val_resize",
+        default=256,
+        type=int,
+        help="The size to which validation images will be resized."
+    )
+    parser.add_argument(
+        "--mag_bins",
+        default=31,
+        type=int,
+        help="The number of magnitude bins for augmentation-related operations."
+    )
+    parser.add_argument(
+        "--aug_type",
+        default="rand",
+        type=str,
+        help="The type of data augmentation to use.",
+        choices=["augmix", "rand", "trivial"]
+    )
+    parser.add_argument(
+        "--interpolation",
+        default="bilinear",
+        type=str,
+        help="The type of interpolation method to use.",
+        choices=["nearest", "bicubic", "bilinear"]
+    )
+    parser.add_argument(
+        "--hflip",
+        default=0.5,
+        type=float,
+        help="The probability of randomly horizontally flipping the input data."
+    )
 
-    parser.add_argument("--mixup", action="store_true", help="Whether to enable mixup or not")
-    parser.add_argument("--mixup_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
+    # Mixup Augmentation
+    parser.add_argument(
+        "--mixup",
+        action="store_true",
+        help="Enable mixup augmentation, which enhances training by mixing pairs of samples."
+    )
+    parser.add_argument(
+        "--mixup_alpha",
+        type=float,
+        default=1.0,
+        help="Set the mixup hyperparameter alpha to control the interpolation factor."
+    )
 
-    parser.add_argument("--cutmix", action="store_true", help="Whether to enable mixup or not")
-    parser.add_argument("--cutmix_alpha", type=float, default=1.0, help="mixup hyperparameter alpha")
+    # Cutmix Augmentation
+    parser.add_argument(
+        "--cutmix",
+        action="store_true",
+        help="Enable cutmix augmentation, which combines patches from different images to create new training samples."
+    )
+    parser.add_argument(
+        "--cutmix_alpha",
+        type=float,
+        default=1.0,
+        help="Set the cutmix hyperparameter alpha to control the interpolation factor."
+    )
 
-    parser.add_argument("--fgsm", action="store_true", help="Whether to enable FGSM adversarial training")
-    parser.add_argument("--epsilon", type=float, default=0.03, help="Epsilon value for FGSM attack")
+    # Training Parameters
+    parser.add_argument(
+        "--batch_size",
+        default=16,
+        type=int,
+        help="The batch size for both training and evaluation."
+    )
+    parser.add_argument(
+        "--num_workers",
+        default=4,
+        type=int,
+        help="The number of workers for training and evaluation."
+    )
+    parser.add_argument(
+        "--epochs",
+        default=100,
+        type=int,
+        help="The number of training epochs, determining how many times the entire dataset will be iterated."
+    )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.2,
+        help="The dropout rate for the classifier head of the model."
+    )
+    parser.add_argument(
+        "--label_smoothing",
+        default=0.1,
+        type=float,
+        help="The amount of label smoothing to use during training."
+    )
 
-    parser.add_argument("--ema", action="store_true", help="Whether to perform Exponential Moving Average or not")
-    parser.add_argument("--ema_steps", type=int, default=32, help="number of iterations to update the EMA model ")
-    parser.add_argument("--ema_decay", type=float, default=0.99998, help="EMA decay factor")
+    # Optimization and Learning Rate Scheduling
+    parser.add_argument(
+        "--opt_name",
+        default="madgradw",
+        type=str,
+        help="The optimizer for the training process. Choose any of ['lion', 'madgrad', 'madgradw', 'adamw', "
+             "'radabelief', 'adafactor', 'novograd', 'lars', 'lamb', 'rmsprop', 'sgdp'] or any favourite from the "
+             "TIMM library"
+    )
+    parser.add_argument(
+        "--lr",
+        default=0.01,
+        type=float,
+        help="The initial learning rate for the optimizer."
+    )
+    parser.add_argument(
+        "--wd",
+        default=1e-4,
+        type=float,
+        help="The weight decay (L2 regularization) for the optimizer."
+    )
+    parser.add_argument(
+        "--sched_name",
+        default="one_cycle",
+        type=str,
+        help="The learning rate scheduler strategy",
+        choices=["step", "cosine", "cosine_wr", "one_cycle"]
+    )
+    parser.add_argument(
+        '--max_lr',
+        type=float,
+        default=0.1,
+        help='The maximum learning rate when using cyclic learning rate scheduling.'
+    )
+    parser.add_argument(
+        "--step_size",
+        default=30,
+        type=int,
+        help="The step size for learning rate adjustments in certain scheduler strategies."
+    )
+    parser.add_argument(
+        "--warmup_epochs",
+        default=5,
+        type=int,
+        help="The number of epochs for the warmup phase of learning rate scheduling."
+    )
+    parser.add_argument(
+        "--warmup_decay",
+        default=0.1,
+        type=float,
+        help="The decay rate for the learning rate during the warmup phase."
+    )
+    parser.add_argument(
+        "--gamma",
+        default=0.1,
+        type=float,
+        help="The gamma parameter used in certain learning rate scheduling strategies."
+    )
+    parser.add_argument(
+        "--eta_min",
+        default=1e-5,
+        type=float,
+        help="The minimum learning rate that the scheduler can reach."
+    )
+    parser.add_argument(
+        "--t0",
+        type=int,
+        default=5,
+        help="The number of iterations for the first restart in learning rate scheduling strategies."
+    )
 
-    parser.add_argument("--num_samples", type=int, default=16, help="Number of samples to search for hyperparameters")
-    parser.add_argument("--cpus_per_trial", type=int, default=8, help="Number of CPUs per trial")
-    parser.add_argument("--gpus_per_trial", type=int, default=0, help="Number of GPUs per trial")
-    parser.add_argument("--search_alg", type=str, default="bohb", help="Hyperparameter search algorithm")
+    parser.add_argument(
+        "--sorting_metric",
+        default="f1",
+        type=str,
+        help="The metric by which the model results will be sorted.",
+        choices=["f1", "auc", "accuracy", "precision", "recall"]
+    )
+    parser.add_argument(
+        "--training_iteration",
+        type=int,
+        default=10,
+        help="Number of training_iteration"
+    )
 
-    parser.add_argument("--asha", action="store_true", help="whether to use ASHA optimization algorithm")
-    parser.add_argument("--pbt", action="store_true",
-                        help="whether to use Population Based Training optimization algorithm")
-    parser.add_argument("--pb2", action="store_true",
-                        help="whether to use Population Based Training 2 optimization algorithm")
+    parser.add_argument(
+        "--num_samples",
+        type=int,
+        default=16,
+        help="Number of samples to search for hyperparameters"
+    )
+    parser.add_argument(
+        "--cpus_per_trial",
+        type=int,
+        default=8,
+        help="Number of CPUs per trial"
+    )
+    parser.add_argument(
+        "--gpus_per_trial",
+        type=int,
+        default=0,
+        help="Number of GPUs per trial"
+    )
+    parser.add_argument(
+        "--search_algo",
+        type=str,
+        default="bohb",
+        help="Hyperparameter search algorithm"
+    )
 
-    parser.add_argument("--tune_smoothing", action="store_true", help="whether to tune label smoothing hyperparameter")
-    parser.add_argument("--tune_dropout", action="store_true", help="whether to tune dropout rate hyperparameter")
-    parser.add_argument("--tune_ema_steps", action="store_true", help="whether to tune ema steps")
-    parser.add_argument("--tune_mixup", action="store_true", help="whether to tune mixup")
-    parser.add_argument("--tune_cutmix", action="store_true", help="whether to tune cutmix")
-    parser.add_argument("--tune_fgsm", action="store_true", help="whether to tune fgsm")
-    parser.add_argument("--tune_aug_type", action="store_true", help="whether to tune augmentation type hyperparameter")
-    parser.add_argument("--tune_mag_bins", action="store_true", help="whether to tune magnitude bins hyperparameter")
-    parser.add_argument("--tune_batch_size", action="store_true", help="whether to tune batch size hyperparameter")
-    parser.add_argument("--tune_opt", action="store_true",
-                        help="whether to tune optimization algorithm hyperparameters")
-    parser.add_argument("--tune_sched", action="store_true",
-                        help="whether to tune learning rate schedule hyperparameters")
-    parser.add_argument("--tune_interpolation", action="store_true",
-                        help="whether to tune image interpolation method hyperparameter")
+    parser.add_argument(
+        "--asha",
+        action="store_true",
+        help="whether to use ASHA optimization algorithm"
+    )
+    parser.add_argument(
+        "--pbt",
+        action="store_true",
+        help="whether to use Population Based Training optimization algorithm"
+    )
+    parser.add_argument(
+        "--pb2",
+        action="store_true",
+        help="whether to use Population Based Training 2 optimization algorithm"
+    )
+
+    parser.add_argument(
+        "--tune_smoothing",
+        action="store_true",
+        help="whether to tune label smoothing hyperparameter"
+    )
+
+    parser.add_argument(
+        "--tune_dropout",
+        action="store_true",
+        help="whether to tune dropout rate hyperparameter"
+    )
+    parser.add_argument(
+        "--tune_mixup",
+        action="store_true",
+        help="whether to tune mixup"
+    )
+    parser.add_argument(
+        "--tune_cutmix",
+        action="store_true",
+        help="whether to tune cutmix"
+    )
+    parser.add_argument(
+        "--tune_fgsm",
+        action="store_true",
+        help="whether to tune fgsm"
+    )
+    parser.add_argument(
+        "--tune_aug_type",
+        action="store_true",
+        help="whether to tune augmentation type hyperparameter"
+    )
+    parser.add_argument(
+        "--tune_mag_bins",
+        action="store_true",
+        help="whether to tune magnitude bins hyperparameter"
+    )
+    parser.add_argument(
+        "--tune_batch_size",
+        action="store_true",
+        help="whether to tune batch size hyperparameter"
+    )
+    parser.add_argument(
+        "--tune_opt",
+        action="store_true",
+        help="whether to tune optimization algorithm hyperparameters"
+    )
+    parser.add_argument(
+        "--tune_sched",
+        action="store_true",
+        help="whether to tune learning rate schedule hyperparameters"
+    )
+    parser.add_argument(
+        "--tune_interpolation",
+        action="store_true",
+        help="whether to tune image interpolation method hyperparameter"
+    )
 
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     warnings.filterwarnings("ignore")
-
     cfgs = get_args()
-    tune_params(cfgs)
+    cfgs.module = None
+    cfgs.model_size = None
+
+    set_seed(cfgs.seed)
+
+    results = main(cfgs)
+    best_result = results.get_best_result(metric=cfgs.sorting_metric, mode="max")
+
+    print(f"\nBest trial config: {best_result.config}")
+    print(f"Best trial final validation loss: {best_result.metrics['loss']}")
+    print(f"Best trial final validation {cfgs.sorting_metric}: {best_result.metrics[cfgs.sorting_metric]}")
