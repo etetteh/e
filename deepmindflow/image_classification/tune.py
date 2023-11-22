@@ -1,16 +1,10 @@
-# Standard Library
 import argparse
 import os
 from functools import partial
 import warnings
 
-# External Libraries
-import numpy as np
 import torch
-import torch.optim as optim
-import torchvision.transforms as transforms
 from torch.utils import data
-from torchvision import datasets
 from torchmetrics import MetricCollection
 from torchmetrics.classification import (
     HammingDistance,
@@ -23,30 +17,23 @@ from torchmetrics.classification import (
     ROC,
 )
 
-# Local Modules
 import utils
 from train import train_one_epoch, evaluate
 
-# Accelerate
-import accelerate
 from accelerate import (
     Accelerator,
-    DeepSpeedPlugin,
     find_executable_batch_size,
 )
 from accelerate.utils import set_seed
 
-# Ray and Ray Tune
-import ray
 import tempfile
 from ray import train, tune
 from ray.train import Checkpoint
 from ray.tune.schedulers import ASHAScheduler, PopulationBasedTraining
 from ray.tune.schedulers.pb2 import PB2
 
-from ray.tune.search import Repeater
 from ray.tune.search.bohb import TuneBOHB
-from ray.tune.search.flaml import BlendSearch, CFO
+from ray.tune.search.flaml import CFO
 
 
 def tune_classifier(config, args):
@@ -79,8 +66,6 @@ def tune_classifier(config, args):
         if args.tune_opt:
             args.lr = config["lr"]
             args.weight_decay = config["weight_decay"]
-            if args.opt_name == "sgd":
-                args.momentum = config["momentum"]
 
         if args.tune_sched:
             if args.sched_name == "step":
@@ -95,13 +80,10 @@ def tune_classifier(config, args):
             elif args.sched_name == "one_cycle":
                 args.max_lr = config["max_lr"]
 
-        deepspeed_plugin = DeepSpeedPlugin(gradient_accumulation_steps=2, gradient_clipping=1.0)
-
         accelerator = Accelerator(
             even_batches=True,
             gradient_accumulation_steps=2,
             mixed_precision="fp16",
-            deepspeed_plugin=deepspeed_plugin,
         )
 
         accelerator.free_memory()
@@ -195,7 +177,6 @@ def tune_classifier(config, args):
         loaded_checkpoint = train.get_checkpoint()
         if loaded_checkpoint:
             with loaded_checkpoint.as_directory() as loaded_checkpoint_dir:
-                ckpts = torch.load(os.path.join(loaded_checkpoint_dir, "checkpoint.pt"))
                 with accelerator.main_process_first():
                     checkpoint = torch.load(os.path.join(loaded_checkpoint_dir, "checkpoint.pt"), map_location="cpu")
                     model.load_state_dict(checkpoint["model"])
@@ -219,17 +200,7 @@ def tune_classifier(config, args):
             train_metrics.reset()
 
             with accelerator.autocast():
-                total_train_metrics = train_one_epoch(
-                    args,
-                    epoch,
-                    classes,
-                    train_loader,
-                    model,
-                    optimizer,
-                    criterion,
-                    train_metrics,
-                    accelerator
-                )
+                train_one_epoch(args, epoch, classes, train_loader, model, optimizer, criterion, train_metrics, accelerator)
 
             if not accelerator.optimizer_step_was_skipped:
                 lr_scheduler.step()
@@ -237,14 +208,7 @@ def tune_classifier(config, args):
             val_metrics.reset()
             roc_metric.reset()
 
-            total_val_metrics, total_roc_metric = evaluate(
-                classes,
-                val_loader,
-                model,
-                val_metrics,
-                roc_metric,
-                accelerator
-            )
+            total_val_metrics, total_roc_metric = evaluate(classes, val_loader, model, val_metrics, roc_metric, accelerator)
 
             val_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for key, value in
                            total_val_metrics.items()}
@@ -279,10 +243,9 @@ def main(args):
     hyperparam_mutations = {}
 
     if args.tune_opt:
-        config["lr"] = tune.qloguniform(1e-4, 1e-1, 1e-5)
-        config["weight_decay"] = tune.qloguniform(1e-4, 1e-1, 1e-5)
+        config["weight_decay"] = tune.grid_search([1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 3e-5, 3e-4, 3e-3, 3e-2, 3e-1])
 
-        hyperparam_mutations["lr"] = [1e-4, 1e-1]
+        hyperparam_mutations["lr"] = [1e-5, 1e-1]
         hyperparam_mutations["weight_decay"] = [1e-5, 1e-1]
 
     if args.tune_batch_size:
