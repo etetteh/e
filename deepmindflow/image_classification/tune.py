@@ -1,5 +1,6 @@
 import argparse
 import os
+from glob import glob
 from functools import partial
 import warnings
 
@@ -39,17 +40,42 @@ from ray.tune.search.flaml import CFO
 def tune_classifier(config, args):
     @find_executable_batch_size(starting_batch_size=args.batch_size)
     def inner_main_loop(batch_size):
-        if args.tune_aug_type:
-            args.aug_type = config["aug_type"]
+        if args.tune_opt:
+            args.lr = config["lr"]
+            args.wd = config["weight_decay"]
 
-        if args.tune_mag_bins:
-            args.mag_bins = config["mag_bins"]
+        if args.tune_batch_size:
+            args.batch_size = config["batch_size"]
 
-        if args.tune_interpolation:
-            args.interpolation = config["interpolation"]
+        if args.tune_smoothing:
+            args.label_smoothing = config["smoothing"]
+
+        if args.tune_sched:
+            args.warmup_epochs = config["warmup_epochs"]
+            args.warmup_decay = config["warmup_decay"]
+
+            if args.sched_name == "step":
+                args.step_size = config["step_size"]
+                args.gamma = config["gamma"]
+            elif args.sched_name == "cosine":
+                args.eta_min = config["eta_min"]
+            elif args.sched_name == "cosine_wr":
+                args.t0 = config["t0"]
+                args.eta_min = config["eta_min"]
+            elif args.sched_name == "one_cycle":
+                args.max_lr = config["max_lr"]
 
         if args.tune_dropout:
             args.dropout = config["dropout"]
+
+        if args.tune_aug_type:
+            args.aug_type = config["aug_type"]
+
+        if args.tune_interpolation:
+            args.aug_type = config["interpolation"]
+
+        if args.tune_mag_bins:
+            args.mag_bins = config["mag_bins"]
 
         if args.tune_mixup:
             args.mixup_alpha = config["mixup_alpha"]
@@ -60,25 +86,8 @@ def tune_classifier(config, args):
         if args.tune_fgsm:
             args.epsilon = config["epsilon"]
 
-        if args.tune_batch_size:
-            batch_size = config["batch_size"]
-
-        if args.tune_opt:
-            args.lr = config["lr"]
-            args.weight_decay = config["weight_decay"]
-
-        if args.tune_sched:
-            if args.sched_name == "step":
-                args.step_size = config["step_size"]
-                args.gamma = config["gamma"]
-            elif args.sched_name == "cosine":
-                args.warmup_epochs = config["warmup_epochs"]
-                args.eta_min = config["eta_min"]
-            elif args.sched_name == "cosine_wr":
-                args.t0 = config["t0"]
-                args.eta_min = config["eta_min"]
-            elif args.sched_name == "one_cycle":
-                args.max_lr = config["max_lr"]
+        if args.tune_prune:
+            args.pruning_rate = config["pruning_rate"]
 
         accelerator = Accelerator(
             even_batches=True,
@@ -173,6 +182,7 @@ def tune_classifier(config, args):
 
         start_epoch = 0
         best_f1 = 0.0
+        best_results = {}
 
         loaded_checkpoint = train.get_checkpoint()
         if loaded_checkpoint:
@@ -190,6 +200,7 @@ def tune_classifier(config, args):
 
                     start_epoch = checkpoint["epoch"] + 1
                     best_f1 = checkpoint["best_f1"]
+                    best_results = checkpoint["best_results"]
 
                     if start_epoch == args.epochs:
                         accelerator.print("Training completed")
@@ -200,7 +211,8 @@ def tune_classifier(config, args):
             train_metrics.reset()
 
             with accelerator.autocast():
-                train_one_epoch(args, epoch, classes, train_loader, model, optimizer, criterion, train_metrics, accelerator)
+                train_one_epoch(args, epoch, classes, train_loader, model, optimizer, criterion, train_metrics,
+                                accelerator)
 
             if not accelerator.optimizer_step_was_skipped:
                 lr_scheduler.step()
@@ -208,30 +220,48 @@ def tune_classifier(config, args):
             val_metrics.reset()
             roc_metric.reset()
 
-            total_val_metrics, total_roc_metric = evaluate(classes, val_loader, model, val_metrics, roc_metric, accelerator)
+            total_val_metrics, total_roc_metric = evaluate(classes, val_loader, model, val_metrics, roc_metric,
+                                                           accelerator)
 
             val_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for key, value in
                            total_val_metrics.items()}
 
+            if args.prune:
+                parameters_to_prune = utils.prune_model(model, args.pruning_rate)
+                utils.remove_pruning_reparam(parameters_to_prune)
+
             with tempfile.TemporaryDirectory() as tempdir:
-                torch.save(
+                accelerator.wait_for_everyone()
+                if val_results["f1"] >= best_f1:
+                    best_f1 = val_results["f1"]
+                    best_results = val_results
+
+                    accelerator.save(
+                        {
+                            "model": accelerator.get_state_dict(model)
+                        },
+                        os.path.join(tempdir, "best_model.pth"))
+
+                metrics = {
+                    "loss": best_results["loss"],
+                    "acc": best_results["acc"],
+                    "auc": best_results["auc"],
+                    "f1": best_results["f1"],
+                    "recall": best_results["recall"],
+                    "precision": best_results["precision"]
+                }
+                accelerator.save(
                     {
                         "epoch": epoch,
                         "best_f1": best_f1,
                         "model": accelerator.get_state_dict(model),
                         "optimizer": accelerator.get_state_dict(optimizer),
                         "lr_scheduler": accelerator.get_state_dict(lr_scheduler),
+                        "best_results": best_results,
                     },
                     os.path.join(tempdir, "checkpoint.pt"),
                 )
-                metrics = {
-                    "loss": val_results["loss"],
-                    "acc": val_results["acc"],
-                    "auc": val_results["auc"],
-                    "f1": val_results["f1"],
-                    "recall": val_results["recall"],
-                    "precision": val_results["precision"]
-                }
+
                 train.report(metrics=metrics, checkpoint=Checkpoint.from_directory(tempdir))
         accelerator.print("Finished Training")
 
@@ -243,6 +273,7 @@ def main(args):
     hyperparam_mutations = {}
 
     if args.tune_opt:
+        config["lr"] = tune.grid_search([1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 3e-5, 3e-4, 3e-3, 3e-2, 3e-1])
         config["weight_decay"] = tune.grid_search([1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 3e-5, 3e-4, 3e-3, 3e-2, 3e-1])
 
         hyperparam_mutations["lr"] = [1e-5, 1e-1]
@@ -284,10 +315,10 @@ def main(args):
         hyperparam_mutations["dropout"] = [0, 0.4]
 
     if args.tune_aug_type:
-        config["aug_type"] = tune.choice(["augmix", "rand", "trivial"])
+        config["aug_type"] = tune.grid_search(["augmix", "rand", "trivial"])
 
     if args.tune_interpolation:
-        config["interpolation"] = tune.choice(["nearest", "bilinear", "bicubic"])
+        config["interpolation"] = tune.grid_search(["nearest", "bilinear", "bicubic"])
 
     if args.tune_mag_bins:
         config["mag_bins"] = tune.qrandint(4, 32, 4)
@@ -304,6 +335,10 @@ def main(args):
     if args.tune_fgsm:
         config["epsilon"] = tune.quniform(0.01, 0.1, 0.01)
         hyperparam_mutations["epsilon"] = [0.01, 0.1]
+
+    if args.tune_prune:
+        config["pruning_rate"] = tune.quniform(0.1, 1.0, 0.1)
+        hyperparam_mutations["pruning_rate"] = [0.1, 1.0]
 
     scheduler = None
     if args.asha:
@@ -369,8 +404,8 @@ def main(args):
                 storage_path=storage_path,
                 log_to_file=True,
                 stop={
-                    args.sorting_metric: 0.99,
-                    "training_iteration": args.training_iteration,
+                    args.sorting_metric: 0.9998,
+                    # "training_iteration": args.epochs,
                 },
                 checkpoint_config=train.CheckpointConfig(
                     checkpoint_score_attribute=args.sorting_metric,
@@ -378,6 +413,8 @@ def main(args):
                     num_to_keep=3
                 ),
                 failure_config=train.FailureConfig(max_failures=3),
+                progress_reporter=tune.CLIReporter(
+                    metric_columns=["loss", "acc", "auc", "f1", "precision", "recall", "training_iteration"])
             ),
             param_space=config,
         )
@@ -669,12 +706,6 @@ def get_args():
         help="The metric by which the model results will be sorted.",
         choices=["f1", "auc", "accuracy", "precision", "recall"]
     )
-    parser.add_argument(
-        "--training_iteration",
-        type=int,
-        default=10,
-        help="Number of training_iteration"
-    )
 
     parser.add_argument(
         "--num_samples",
@@ -742,6 +773,11 @@ def get_args():
         "--tune_fgsm",
         action="store_true",
         help="whether to tune fgsm"
+    )
+    parser.add_argument(
+        "--tune_prune",
+        action="store_true",
+        help="whether to tune pruning"
     )
     parser.add_argument(
         "--tune_aug_type",
