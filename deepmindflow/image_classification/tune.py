@@ -1,6 +1,5 @@
 import argparse
 import os
-from glob import glob
 from functools import partial
 import warnings
 
@@ -38,14 +37,14 @@ from ray.tune.search.flaml import CFO
 
 
 def tune_classifier(config, args):
+    if args.tune_batch_size:
+        args.batch_size = config["batch_size"]
+
     @find_executable_batch_size(starting_batch_size=args.batch_size)
     def inner_main_loop(batch_size):
         if args.tune_opt:
             args.lr = config["lr"]
             args.wd = config["weight_decay"]
-
-        if args.tune_batch_size:
-            args.batch_size = config["batch_size"]
 
         if args.tune_smoothing:
             args.label_smoothing = config["smoothing"]
@@ -273,14 +272,14 @@ def main(args):
     hyperparam_mutations = {}
 
     if args.tune_opt:
-        config["lr"] = tune.grid_search([1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 3e-5, 3e-4, 3e-3, 3e-2, 3e-1])
-        config["weight_decay"] = tune.grid_search([1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 3e-5, 3e-4, 3e-3, 3e-2, 3e-1])
+        config["lr"] = tune.qloguniform(5e-3, 1e-1, 5e-4)
+        config["weight_decay"] = tune.qloguniform(5e-3, 1e-1, 5e-4)
 
-        hyperparam_mutations["lr"] = [1e-5, 1e-1]
-        hyperparam_mutations["weight_decay"] = [1e-5, 1e-1]
+        hyperparam_mutations["lr"] = [5e-3, 1e-1]
+        hyperparam_mutations["weight_decay"] = [5e-3, 1e-1]
 
     if args.tune_batch_size:
-        config["batch_size"] = tune.choice([16, 32, 64, 128])
+        config["batch_size"] = tune.grid_search([16, 32, 64, 128])
         hyperparam_mutations["batch_size"] = [16, 128]
 
     if args.tune_smoothing:
@@ -288,10 +287,10 @@ def main(args):
         hyperparam_mutations["smoothing"] = [0.05, 0.15]
 
     if args.tune_sched:
-        config["warmup_epochs"] = tune.randint(3, 15)
+        config["warmup_epochs"] = tune.randint(5, 20)
         config["warmup_decay"] = tune.choice([0.1, 0.01, 0.001])
 
-        hyperparam_mutations["warmup_epochs"] = [3, 15]
+        hyperparam_mutations["warmup_epochs"] = [5, 20]
         hyperparam_mutations["warmup_decay"] = [0.1, 0.001]
         if args.sched_name == "step":
             config["step_size"] = tune.randint(10, 30)
@@ -299,20 +298,20 @@ def main(args):
             hyperparam_mutations["step_size"] = [10, 30]
             hyperparam_mutations["gamma"] = [0.01, 0.1]
         elif args.sched_name == "cosine":
-            config["eta_min"] = tune.qloguniform(1e-4, 1e-1, 1e-5)
-            hyperparam_mutations["eta_min"] = [1e-4, 1e-1]
+            config["eta_min"] = tune.qloguniform(5e-3, 1e-1, 5e-4)
+            hyperparam_mutations["eta_min"] = [5e-3, 1e-1]
         elif args.sched_name == "cosine_wr":
-            config["t0"] = tune.randint(3, 20)
-            config["eta_min"] = tune.qloguniform(1e-4, 1e-1, 1e-5)
-            hyperparam_mutations["t0"] = [3, 20]
-            hyperparam_mutations["eta_min"] = [1e-4, 1e-1]
+            config["t0"] = tune.randint(2, 25)
+            config["eta_min"] = tune.qloguniform(5e-3, 1e-1, 5e-4)
+            hyperparam_mutations["t0"] = [2, 25]
+            hyperparam_mutations["eta_min"] = [5e-3, 1e-1, 5e-4]
         elif args.sched_name == "one_cycle":
-            config["max_lr"] = tune.loguniform(1e-2, 1e-1)
-            hyperparam_mutations["max_lr"] = [1e-2, 1e-1]
+            config["max_lr"] = tune.qloguniform(5e-3, 1e-1, 5e-4)
+            hyperparam_mutations["max_lr"] = [5e-3, 1e-1]
 
     if args.tune_dropout:
-        config["dropout"] = tune.choice([0, 0.1, 0.2, 0.3, 0.4])
-        hyperparam_mutations["dropout"] = [0, 0.4]
+        config["dropout"] = tune.choice([0.0, 0.1, 0.2, 0.3, 0.4])
+        hyperparam_mutations["dropout"] = [0.0, 0.4]
 
     if args.tune_aug_type:
         config["aug_type"] = tune.grid_search(["augmix", "rand", "trivial"])
@@ -349,21 +348,29 @@ def main(args):
             reduction_factor=2
         )
 
+    perturbation_interval = 300.0
     if args.pbt:
         scheduler = PopulationBasedTraining(
             time_attr="training_iteration",
-            perturbation_interval=300.0,
-            quantile_fraction=0.35,
-            hyperparam_mutations=hyperparam_mutations
+            perturbation_interval=perturbation_interval,
+            quantile_fraction=0.5,
+            resample_probability=0.5,
+            hyperparam_mutations=hyperparam_mutations,
+            synch=True,
         )
+
+        config["checkpoint_interval"] = perturbation_interval
 
     if args.pb2:
         scheduler = PB2(
             time_attr="training_iteration",
-            perturbation_interval=300.0,
-            quantile_fraction=0.35,
-            hyperparam_bounds=hyperparam_mutations
+            perturbation_interval=perturbation_interval,
+            quantile_fraction=0.5,
+            hyperparam_bounds=hyperparam_mutations,
+            synch=True,
         )
+
+        config["checkpoint_interval"] = perturbation_interval
 
     search_algo = None
     if args.search_algo == "bohb":
@@ -413,8 +420,7 @@ def main(args):
                     num_to_keep=3
                 ),
                 failure_config=train.FailureConfig(max_failures=3),
-                progress_reporter=tune.CLIReporter(
-                    metric_columns=["loss", "acc", "auc", "f1", "precision", "recall", "training_iteration"])
+                progress_reporter=tune.CLIReporter(metric_columns=["auc", "f1", "precision", "recall"])
             ),
             param_space=config,
         )
