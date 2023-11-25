@@ -5,6 +5,7 @@ import random
 import shutil
 
 from glob import glob
+from os import PathLike
 from pathlib import Path
 from argparse import Namespace
 from collections import OrderedDict
@@ -21,10 +22,10 @@ import torch.nn.utils.prune as prune
 import torch.optim.lr_scheduler as lr_scheduler
 
 from datasets import load_dataset
+from torch.optim import swa_utils
 from torch import nn, optim, Tensor
 from torch.distributions import Beta
 from torch.utils.data import DataLoader
-from torchao.quantization import quant_api
 from torchvision import transforms
 from torchvision.transforms import functional as f
 from timm.optim import create_optimizer_v2
@@ -919,8 +920,6 @@ def convert_to_onnx(
         # >>> num_classes = 2
         # >>> convert_to_onnx(args, model_name, checkpoint_path, num_classes)
     """
-    torch.jit.enable_onednn_fusion(True)
-
     if not os.path.isfile(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint file '{checkpoint_path}' not found.")
 
@@ -932,15 +931,11 @@ def convert_to_onnx(
         torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(checkpoint["model"], "module.")
 
     model.load_state_dict(checkpoint["model"])
+    model.eval()
 
     batch_size = 1
     input_channels = 1 if args.grayscale else 3
     dummy_input = torch.randn(batch_size, input_channels, args.crop_size, args.crop_size, requires_grad=True)
-
-    with torch.no_grad():
-        model.eval()
-        model = torch.jit.trace(model, dummy_input)
-        model = torch.jit.freeze(model)
 
     filename = os.path.join(os.path.dirname(checkpoint_path), "best_model.onnx")
 
@@ -1228,7 +1223,7 @@ def remove_pruning_reparam(parameters_to_prune: List[Tuple[nn.Module, str]]) -> 
         prune.remove(module, parameter_name)
 
 
-def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> Any:
+def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> nn.Module:
     """
     Returns a pretrained model with a new head and the specified model name.
 
@@ -1265,8 +1260,6 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
         for param in model.get_classifier().parameters():
             param.requires_grad = True
 
-    quant_api.apply_weight_only_int8_quant(model)
-    model = torch.compile(model, mode='max-autotune')
     return model
 
 
