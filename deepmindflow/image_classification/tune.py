@@ -22,6 +22,7 @@ from train import train_one_epoch, evaluate
 
 from accelerate import (
     Accelerator,
+    DeepSpeedPlugin,
     find_executable_batch_size,
 )
 from accelerate.utils import set_seed
@@ -88,10 +89,12 @@ def tune_classifier(config, args):
         if args.tune_prune:
             args.pruning_rate = config["pruning_rate"]
 
+        deepspeed_plugin = DeepSpeedPlugin(gradient_accumulation_steps=2, gradient_clipping=1.0)
         accelerator = Accelerator(
             even_batches=True,
             gradient_accumulation_steps=2,
             mixed_precision="fp16",
+            deepspeed_plugin=deepspeed_plugin,
         )
 
         accelerator.free_memory()
@@ -476,11 +479,6 @@ def get_args():
         type=str,
         default=None,
         help="Specify the name of the model from the TIMM library."
-    )
-    parser.add_argument(
-        "--to_onnx",
-        action="store_true",
-        help="Convert the trained model(s) to ONNX format. If not used, only the best model will be converted."
     )
 
     # Training Configuration
