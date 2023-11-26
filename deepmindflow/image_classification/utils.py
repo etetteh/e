@@ -32,6 +32,9 @@ from timm.optim import create_optimizer_v2
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 
+torch.jit.enable_onednn_fusion(True)
+
+
 def print_header(message: str, sep: str = "=") -> None:
     """
     Print a header line with a message surrounded by a separator.
@@ -931,13 +934,17 @@ def convert_to_onnx(
         torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(checkpoint["model"], "module.")
 
     model.load_state_dict(checkpoint["model"])
-    model.eval()
 
     batch_size = 1
     input_channels = 1 if args.grayscale else 3
     dummy_input = torch.randn(batch_size, input_channels, args.crop_size, args.crop_size, requires_grad=True)
 
     filename = os.path.join(os.path.dirname(checkpoint_path), "best_model.onnx")
+
+    with torch.no_grad():
+        model.eval()
+        model = torch.jit.trace(model, dummy_input)
+        model = torch.jit.freeze(model)
 
     try:
         torch.onnx.export(
@@ -1223,7 +1230,7 @@ def remove_pruning_reparam(parameters_to_prune: List[Tuple[nn.Module, str]]) -> 
         prune.remove(module, parameter_name)
 
 
-def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> nn.Module:
+def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> Any:
     """
     Returns a pretrained model with a new head and the specified model name.
 
@@ -1260,7 +1267,7 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
         for param in model.get_classifier().parameters():
             param.requires_grad = True
 
-    return model
+    return torch.compile(model, mode="default", backend="inductor")
 
 
 def calculate_class_weights(dataset: datasets.arrow_dataset.Dataset) -> torch.Tensor:
