@@ -28,6 +28,7 @@ from accelerate import (
 from accelerate.utils import set_seed
 
 import tempfile
+import ray
 from ray import train, tune
 from ray.train import Checkpoint
 from ray.tune.schedulers import ASHAScheduler, PopulationBasedTraining
@@ -342,6 +343,10 @@ def main(args):
         config["pruning_rate"] = tune.quniform(0.1, 1.0, 0.1)
         hyperparam_mutations["pruning_rate"] = [0.1, 1.0]
 
+    if ray.is_initialized():
+        ray.shutdown()
+    ray.init()
+
     scheduler = None
     if args.asha:
         scheduler = ASHAScheduler(
@@ -439,7 +444,7 @@ def get_args():
     Returns:
         argparse.Namespace: A namespace containing parsed command line arguments.
     """
-    parser = argparse.ArgumentParser(description="Image Classification")
+    parser = argparse.ArgumentParser(description="Image Classification Hyperparameter Tuning")
 
     # General Configuration
     parser.add_argument(
