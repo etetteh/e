@@ -836,6 +836,8 @@ def get_args():
 
 
 if __name__ == "__main__":
+    torch.jit.enable_onednn_fusion(True)
+
     warnings.filterwarnings("ignore")
     cfgs = get_args()
 
