@@ -1267,7 +1267,7 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
         for param in model.get_classifier().parameters():
             param.requires_grad = True
 
-    return torch.compile(model, mode="default", backend="inductor")
+    return model
 
 
 def calculate_class_weights(dataset: datasets.arrow_dataset.Dataset) -> torch.Tensor:
