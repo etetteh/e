@@ -14,7 +14,7 @@ from accelerate import (
 from accelerate.utils import set_seed
 from argparse import Namespace
 from glob import glob
-from typing import Any, Callable, Dict, Optional, Tuple, List
+from typing import Any, Callable, Dict, Tuple, List
 
 import mlflow
 import mlflow.pytorch
@@ -836,6 +836,8 @@ def get_args():
 
 
 if __name__ == "__main__":
+    torch.jit.enable_onednn_fusion(True)
+
     warnings.filterwarnings("ignore")
     cfgs = get_args()
 
