@@ -72,7 +72,7 @@ def tune_classifier(config, args):
             args.aug_type = config["aug_type"]
 
         if args.tune_interpolation:
-            args.aug_type = config["interpolation"]
+            args.interpolation = config["interpolation"]
 
         if args.tune_mag_bins:
             args.mag_bins = config["mag_bins"]
@@ -282,7 +282,7 @@ def main(args):
         hyperparam_mutations["weight_decay"] = [5e-3, 1e-1]
 
     if args.tune_batch_size:
-        config["batch_size"] = tune.grid_search([16, 32, 64, 128])
+        config["batch_size"] = tune.choice([16, 32, 64, 128])
         hyperparam_mutations["batch_size"] = [16, 128]
 
     if args.tune_smoothing:
@@ -317,10 +317,10 @@ def main(args):
         hyperparam_mutations["dropout"] = [0.0, 0.4]
 
     if args.tune_aug_type:
-        config["aug_type"] = tune.grid_search(["augmix", "rand", "trivial"])
+        config["aug_type"] = tune.choice(["augmix", "rand", "trivial"])
 
     if args.tune_interpolation:
-        config["interpolation"] = tune.grid_search(["nearest", "bilinear", "bicubic"])
+        config["interpolation"] = tune.choice(["nearest", "bilinear", "bicubic"])
 
     if args.tune_mag_bins:
         config["mag_bins"] = tune.qrandint(4, 32, 4)
