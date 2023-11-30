@@ -309,22 +309,55 @@ def main(args: argparse.Namespace, accelerator) -> None:
             pass
 
         for i, model_name in enumerate(args.models):
-            if args.test_only:
-                results_list = utils.read_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
-                model_name = results_list[0]["model"]
-
             if not os.path.isdir(os.path.join(args.output_dir, model_name)):
                 os.makedirs(os.path.join(args.output_dir, model_name), exist_ok=True)
 
-            model = utils.get_pretrained_model(args, model_name=model_name, num_classes=num_classes)
-            model = accelerator.prepare_model(model)
-
-            optimizer = utils.get_optimizer(args, model)
-            lr_scheduler = utils.get_lr_scheduler(args, optimizer, len(train_loader))
-
             if args.test_only:
                 test_loader = accelerator.prepare_data_loader(test_loader)
+
+                results_list = utils.read_json_lines_file(os.path.join(args.output_dir, "performance_metrics.jsonl"))
+                model_name = results_list[0]["model"]
+
+                model = utils.get_pretrained_model(args, model_name=model_name, num_classes=num_classes)
+
+                accelerator.print(f"Running evaluation on test data with the best model: {model_name}")
+                with accelerator.main_process_first():
+                    if args.avg_ckpts:
+                        checkpoint_file = os.path.join(args.output_dir, model_name, "averaged", "best_model.pth")
+                    else:
+                        checkpoint_file = os.path.join(args.output_dir, model_name, "best_model.pth")
+                    checkpoint = torch.load(checkpoint_file, map_location="cpu")
+                    model.load_state_dict(checkpoint["model"])
+                    model = accelerator.prepare_model(model)
+                total_test_metrics, total_roc_metric = evaluate(classes, test_loader, model, val_metrics,
+                                                                roc_metric, accelerator)
+
+                test_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for
+                                key, value in
+                                total_test_metrics.items()}
+                fpr, tpr, _ = total_roc_metric
+                fpr, tpr = [ff.detach().tolist() for ff in fpr], [tt.detach().tolist() for tt in tpr]
+
+                best_results = {**{"model": model_name, "fpr": fpr, "tpr": tpr}, **test_results}
+                with open(os.path.join(args.output_dir, "test_results.jsonl"), "w") as file:
+                    json.dump(best_results, file)
+                    file.write("\n")
+
+                results_df = process.display_results_dataframe(args.output_dir, args.sorting_metric, args.test_only)
+                results_drop = results_df.drop(columns=["loss", "fpr", "tpr", "cm"])
+                results_drop = results_drop.reset_index(drop=True)
+                results_drop.to_json(path_or_buf=os.path.join(args.output_dir, "test_performance_metrics.jsonl"),
+                                     orient="records",
+                                     lines=True)
+                return
+
             else:
+                model = utils.get_pretrained_model(args, model_name=model_name, num_classes=num_classes)
+                model = accelerator.prepare_model(model)
+
+                optimizer = utils.get_optimizer(args, model)
+                lr_scheduler = utils.get_lr_scheduler(args, optimizer, len(train_loader))
+
                 train_loader, val_loader = accelerator.prepare_data_loader(
                     train_loader), accelerator.prepare_data_loader(val_loader)
                 optimizer, lr_scheduler = accelerator.prepare_optimizer(optimizer), accelerator.prepare_scheduler(
@@ -351,38 +384,6 @@ def main(args: argparse.Namespace, accelerator) -> None:
                 if run_id is None:
                     run_id_pair = {model_name: run.info.run_id}
                     utils.append_dictionary_to_json_file(file_path=run_ids_path, new_dict=run_id_pair)
-
-                if args.test_only:
-                    accelerator.print(f"Running evaluation on test data with the best model: {model_name}")
-                    with accelerator.main_process_first():
-                        if args.avg_ckpts:
-                            checkpoint_file = os.path.join(args.output_dir, model_name, "averaged", "best_model.pth")
-                            checkpoint = torch.load(checkpoint_file, map_location="cpu")
-                        else:
-                            checkpoint_file = os.path.join(args.output_dir, model_name, "best_model.pth")
-                            checkpoint = torch.load(checkpoint_file, map_location="cpu")
-                        model.load_state_dict(checkpoint["model"])
-                    total_test_metrics, total_roc_metric = evaluate(classes, test_loader, model, val_metrics,
-                                                                    roc_metric, accelerator)
-
-                    test_results = {key: value.detach().tolist() if key == "cm" else round(value.item(), 4) for
-                                    key, value in
-                                    total_test_metrics.items()}
-                    fpr, tpr, _ = total_roc_metric
-                    fpr, tpr = [ff.detach().tolist() for ff in fpr], [tt.detach().tolist() for tt in tpr]
-
-                    best_results = {**{"model": model_name, "fpr": fpr, "tpr": tpr}, **test_results}
-                    with open(os.path.join(args.output_dir, "test_results.jsonl"), "w") as file:
-                        json.dump(best_results, file)
-                        file.write("\n")
-
-                    results_df = process.display_results_dataframe(args.output_dir, args.sorting_metric, args.test_only)
-                    results_drop = results_df.drop(columns=["loss", "fpr", "tpr", "cm"])
-                    results_drop = results_drop.reset_index(drop=True)
-                    results_drop.to_json(path_or_buf=os.path.join(args.output_dir, "test_performance_metrics.jsonl"),
-                                         orient="records",
-                                         lines=True)
-                    return
 
                 if os.path.isfile(checkpoint_file):
                     with accelerator.main_process_first():
