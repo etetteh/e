@@ -8,7 +8,6 @@ import warnings
 import accelerate
 from accelerate import (
     Accelerator,
-    DeepSpeedPlugin,
     find_executable_batch_size
 )
 from accelerate.utils import set_seed
@@ -844,13 +843,10 @@ if __name__ == "__main__":
 
     set_seed(cfgs.seed)
 
-    deepspeed_plugin = DeepSpeedPlugin(gradient_accumulation_steps=2, gradient_clipping=1.0)
-
     accelerator_var = Accelerator(
         even_batches=True,
         gradient_accumulation_steps=2,
         mixed_precision="fp16",
-        deepspeed_plugin=deepspeed_plugin,
     )
 
     if not os.path.isdir(cfgs.output_dir):
