@@ -22,7 +22,6 @@ from train import train_one_epoch, evaluate
 
 from accelerate import (
     Accelerator,
-    DeepSpeedPlugin,
     find_executable_batch_size,
 )
 from accelerate.utils import set_seed
@@ -90,12 +89,10 @@ def tune_classifier(config, args):
         if args.tune_prune:
             args.pruning_rate = config["pruning_rate"]
 
-        deepspeed_plugin = DeepSpeedPlugin(gradient_accumulation_steps=2, gradient_clipping=1.0)
         accelerator = Accelerator(
             even_batches=True,
             gradient_accumulation_steps=2,
             mixed_precision="fp16",
-            deepspeed_plugin=deepspeed_plugin,
         )
 
         accelerator.free_memory()
