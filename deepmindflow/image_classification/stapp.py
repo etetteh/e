@@ -356,6 +356,8 @@ if __name__ == "__main__":
                       ]
         )
 
+        tune_cfgs.asha = tune_cfgs.pbt = tune_cfgs.pb2 = False
+
         if scheduler == "Use ASHA":
             tune_cfgs.asha = True
         elif scheduler == "Use PBT":
