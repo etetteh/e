@@ -364,8 +364,6 @@ def main(args):
             synch=True,
         )
 
-        config["checkpoint_interval"] = perturbation_interval
-
     if args.pb2:
         scheduler = PB2(
             time_attr="training_iteration",
@@ -374,8 +372,6 @@ def main(args):
             hyperparam_bounds=hyperparam_mutations,
             synch=True,
         )
-
-        config["checkpoint_interval"] = perturbation_interval
 
     search_algo = None
     if args.search_algo == "bohb":
@@ -417,7 +413,7 @@ def main(args):
                 log_to_file=True,
                 stop={
                     args.sorting_metric: 0.9998,
-                    # "training_iteration": args.epochs,
+                    "training_iteration": args.epochs,
                 },
                 checkpoint_config=train.CheckpointConfig(
                     checkpoint_score_attribute=args.sorting_metric,
@@ -803,7 +799,7 @@ def get_args():
     parser.add_argument(
         "--tune_opt",
         action="store_true",
-        help="whether to tune optimization algorithm hyperparameters"
+        help="whether to tune optimizer hyperparameters"
     )
     parser.add_argument(
         "--tune_sched",
