@@ -840,6 +840,8 @@ def get_args():
 
 
 if __name__ == "__main__":
+    os.system("env TORCH_LOGS='graph_breaks,recompiles'")
+
     torch.jit.enable_onednn_fusion(True)
 
     warnings.filterwarnings("ignore")
@@ -855,7 +857,7 @@ if __name__ == "__main__":
     accelerator_var = Accelerator(
         even_batches=True,
         gradient_accumulation_steps=2,
-        mixed_precision="fp16",
+        mixed_precision="bf16",
         fsdp_plugin=fsdp_plugin
     )
 
