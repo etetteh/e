@@ -5,7 +5,6 @@ import random
 import shutil
 
 from glob import glob
-from os import PathLike
 from pathlib import Path
 from argparse import Namespace
 from collections import OrderedDict
@@ -22,7 +21,6 @@ import torch.nn.utils.prune as prune
 import torch.optim.lr_scheduler as lr_scheduler
 
 from datasets import load_dataset
-from torch.optim import swa_utils
 from torch import nn, optim, Tensor
 from torch.distributions import Beta
 from torch.utils.data import DataLoader
@@ -30,7 +28,6 @@ from torchvision import transforms
 from torchvision.transforms import functional as f
 from timm.optim import create_optimizer_v2
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
-
 
 torch.jit.enable_onednn_fusion(True)
 
@@ -694,8 +691,6 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
         ValueError: If the provided augmentation type is not one of the supported types.
 
     Examples:
-        >>> import utils
-
         >>> args = Namespace( \
                 crop_size=224, \
                 val_resize=256,\
@@ -923,6 +918,8 @@ def convert_to_onnx(
         # >>> num_classes = 2
         # >>> convert_to_onnx(args, model_name, checkpoint_path, num_classes)
     """
+    torch.jit.enable_onednn_fusion(True)
+
     if not os.path.isfile(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint file '{checkpoint_path}' not found.")
 
