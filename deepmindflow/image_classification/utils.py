@@ -29,7 +29,6 @@ from torchvision.transforms import functional as f
 from timm.optim import create_optimizer_v2
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
-
 torch.jit.enable_onednn_fusion(True)
 
 
@@ -920,7 +919,7 @@ def convert_to_onnx(
         # >>> convert_to_onnx(args, model_name, checkpoint_path, num_classes)
     """
     torch.jit.enable_onednn_fusion(True)
-    
+
     if not os.path.isfile(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint file '{checkpoint_path}' not found.")
 
@@ -1265,7 +1264,7 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
         for param in model.get_classifier().parameters():
             param.requires_grad = True
 
-    return torch.compile(model, mode="max-autotune", options={"triton.cudagraphs": True, "shape_padding": True})
+    return model
 
 
 def calculate_class_weights(dataset: datasets.arrow_dataset.Dataset) -> torch.Tensor:
