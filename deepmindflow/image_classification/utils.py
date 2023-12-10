@@ -5,7 +5,6 @@ import random
 import shutil
 
 from glob import glob
-from os import PathLike
 from pathlib import Path
 from argparse import Namespace
 from collections import OrderedDict
@@ -22,7 +21,6 @@ import torch.nn.utils.prune as prune
 import torch.optim.lr_scheduler as lr_scheduler
 
 from datasets import load_dataset
-from torch.optim import swa_utils
 from torch import nn, optim, Tensor
 from torch.distributions import Beta
 from torch.utils.data import DataLoader
@@ -694,8 +692,6 @@ def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
         ValueError: If the provided augmentation type is not one of the supported types.
 
     Examples:
-        >>> import utils
-
         >>> args = Namespace( \
                 crop_size=224, \
                 val_resize=256,\
@@ -1269,7 +1265,7 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
         for param in model.get_classifier().parameters():
             param.requires_grad = True
 
-    return model
+    return torch.compile(model, mode="max-autotune", options={"triton.cudagraphs": True, "shape_padding": True})
 
 
 def calculate_class_weights(dataset: datasets.arrow_dataset.Dataset) -> torch.Tensor:
