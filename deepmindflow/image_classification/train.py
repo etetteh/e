@@ -489,7 +489,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
                 train_time = f"{elapsed_time // 60:.0f}m {elapsed_time % 60:.0f}s"
 
                 accelerator.print(f"{model_name} training completed in {train_time}")
-                accelerator.print(f"{model_name} best Val F1-score {best_f1:.4f}\n")
+                accelerator.print(f"{model_name} best Val {args.sorting_metric}: {best_results[args.sorting_metric]:.4f}\n")
 
                 if args.avg_ckpts:
                     path = os.path.join(args.output_dir, model_name, "averaged")
@@ -840,11 +840,9 @@ def get_args():
 
 
 if __name__ == "__main__":
-    os.system("env TORCH_LOGS='graph_breaks,recompiles'")
+    warnings.filterwarnings("ignore")
 
     torch.jit.enable_onednn_fusion(True)
-
-    warnings.filterwarnings("ignore")
     cfgs = get_args()
 
     set_seed(cfgs.seed)
@@ -857,7 +855,7 @@ if __name__ == "__main__":
     accelerator_var = Accelerator(
         even_batches=True,
         gradient_accumulation_steps=2,
-        mixed_precision="bf16",
+        mixed_precision="fp16",
         fsdp_plugin=fsdp_plugin
     )
 
