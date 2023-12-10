@@ -923,6 +923,8 @@ def convert_to_onnx(
         # >>> num_classes = 2
         # >>> convert_to_onnx(args, model_name, checkpoint_path, num_classes)
     """
+    torch.jit.enable_onednn_fusion(True)
+    
     if not os.path.isfile(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint file '{checkpoint_path}' not found.")
 
