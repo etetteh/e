@@ -10,6 +10,9 @@ from accelerate import (
     Accelerator,
     find_executable_batch_size
 )
+from accelerate import FullyShardedDataParallelPlugin
+from torch.distributed.fsdp.fully_sharded_data_parallel import FullOptimStateDictConfig, FullStateDictConfig
+
 from accelerate.utils import set_seed
 from argparse import Namespace
 from glob import glob
@@ -214,11 +217,12 @@ def main(args: argparse.Namespace, accelerator) -> None:
         g.manual_seed(args.seed)
         set_seed(args.seed)
 
-        data_transforms = utils.get_data_augmentation(args)
-        image_dataset = utils.load_image_dataset(args)
-        image_dataset.set_format("torch")
+        with accelerator.main_process_first():
+            data_transforms = utils.get_data_augmentation(args)
+            image_dataset = utils.load_image_dataset(args)
+            image_dataset.set_format("torch")
 
-        train_dataset, val_dataset, test_dataset = utils.preprocess_train_eval_data(image_dataset, data_transforms)
+            train_dataset, val_dataset, test_dataset = utils.preprocess_train_eval_data(image_dataset, data_transforms)
 
         image_datasets = {
             "train": train_dataset,
@@ -843,10 +847,16 @@ if __name__ == "__main__":
 
     set_seed(cfgs.seed)
 
+    fsdp_plugin = FullyShardedDataParallelPlugin(
+        state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
+        optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=False, rank0_only=False),
+    )
+
     accelerator_var = Accelerator(
         even_batches=True,
         gradient_accumulation_steps=2,
         mixed_precision="fp16",
+        fsdp_plugin=fsdp_plugin
     )
 
     if not os.path.isdir(cfgs.output_dir):
