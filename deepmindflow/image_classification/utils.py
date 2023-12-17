@@ -3,6 +3,7 @@ import re
 import json
 import random
 import shutil
+from torch.distributions import Beta
 
 from glob import glob
 from pathlib import Path
@@ -20,16 +21,54 @@ import splitfolders
 import torch.nn.utils.prune as prune
 import torch.optim.lr_scheduler as lr_scheduler
 
+from accelerate import Accelerator
 from datasets import load_dataset
 from torch import nn, optim, Tensor
-from torch.distributions import Beta
 from torch.utils.data import DataLoader
-from torchvision import transforms
-from torchvision.transforms import functional as f
+from torchvision.transforms import v2
+from torchvision.transforms.v2 import functional as f
 from timm.optim import create_optimizer_v2
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 torch.jit.enable_onednn_fusion(True)
+
+
+def set_seed_for_worker(worker_id: Optional[int]) -> Union[int, None]:
+    """
+    Sets the seed for NumPy and Python's random module for the given worker.
+    If no worker ID is provided, uses the initial seed for PyTorch and returns "<initial_seed_value>" as a string.
+
+    Parameters:
+        worker_id (Optional[int]): The ID of the worker. If None, uses the initial seed.
+
+    Returns:
+        Union[int, None]: The seed used for the worker, or None if no worker ID was provided.
+
+    Raises:
+        ValueError: If the worker ID is not an integer.
+
+    Examples:
+        >>> worker_id = 1  # Example worker ID
+        >>> seed = set_seed_for_worker(worker_id)
+        >>> print(seed)  # Seed used for the worker
+        1
+
+        >>> seed = set_seed_for_worker(None)  # No worker ID provided
+        >>> print(seed)  # Initial seed for PyTorch
+        None
+    """
+    if worker_id is not None:
+        if not isinstance(worker_id, int):
+            raise ValueError("Worker ID must be an integer.")
+        worker_seed = worker_id
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+        return worker_seed
+    else:
+        initial_seed = torch.initial_seed() % 2 ** 32
+        np.random.seed(initial_seed)
+        random.seed(initial_seed)
+        return None
 
 
 def print_header(message: str, sep: str = "=") -> None:
@@ -363,42 +402,49 @@ def keep_best_f1_score_files(directory: Path, num_files_to_keep: int):
     [file_to_remove.unlink() for file_to_remove in files_to_remove]
 
 
-def set_seed_for_worker(worker_id: Optional[int]) -> Union[int, None]:
-    """
-    Sets the seed for NumPy and Python's random module for the given worker.
-    If no worker ID is provided, uses the initial seed for PyTorch and returns "<initial_seed_value>" as a string.
+def remove_items(items: List[str], to_remove: str | List[str] = None) -> List[str]:
+    """Removes items from a list of strings that contain the specified string or strings.
 
-    Parameters:
-        worker_id (Optional[int]): The ID of the worker. If None, uses the initial seed.
+    If `to_remove` is a string, it matches entire words. If it's a list, it matches any of the strings in the list.
+
+    Args:
+        items: A list of strings to be filtered.
+        to_remove: The string or list of strings to be removed from the items.
 
     Returns:
-        Union[int, None]: The seed used for the worker, or None if no worker ID was provided.
+        A filtered list of strings, where all items containing the specified string or strings have been removed.
 
     Raises:
-        ValueError: If the worker ID is not an integer.
+        TypeError: If `items` is not a list of strings.
 
-    Examples:
-        >>> worker_id = 1  # Example worker ID
-        >>> seed = set_seed_for_worker(worker_id)
-        >>> print(seed)  # Seed used for the worker
-        1
-
-        >>> seed = set_seed_for_worker(None)  # No worker ID provided
-        >>> print(seed)  # Initial seed for PyTorch
-        None
+    Example:
+        >>> items = ["eva02_base_patch14_224.mim_in22k",
+        ...          "eva02_base_patch14_448.mim_in22k_ft_in1k",
+        ...          "eva02_base_patch14_448.mim_in22k_ft_in22k",
+        ...          "eva02_base_patch14_448.mim_in22k_ft_in22k_in1k",
+        ...          "eva02_base_patch16_clip_224.merged2b",
+        ...          "eva02_large_patch14_clip_224.merged2b",
+        ...          "eva02_large_patch14_clip_336.merged2b"]
+        >>> filtered_list = remove_items(items, "large")
+        >>> print(filtered_list)
     """
-    if worker_id is not None:
-        if not isinstance(worker_id, int):
-            raise ValueError("Worker ID must be an integer.")
-        worker_seed = worker_id
-        np.random.seed(worker_seed)
-        random.seed(worker_seed)
-        return worker_seed
+
+    if not isinstance(items, list):
+        raise TypeError("'items' argument must be a list of strings")
+
+    if to_remove is None:
+        return items
+
+    if isinstance(to_remove, str):
+        to_remove_pattern = re.escape(to_remove)
+    elif isinstance(to_remove, list):
+        to_remove_pattern = "|".join(re.escape(item) for item in to_remove)
     else:
-        initial_seed = torch.initial_seed() % 2 ** 32
-        np.random.seed(initial_seed)
-        random.seed(initial_seed)
-        return None
+        raise TypeError("'to_remove' argument must be a string or list of strings")
+
+    filtered_list = [item for item in items if not re.search(to_remove_pattern, item)]
+
+    return filtered_list
 
 
 def load_image_dataset(args: Namespace) -> datasets.arrow_dataset.Dataset:
@@ -589,148 +635,6 @@ def apply_fgsm_attack(image: torch.Tensor, epsilon: float, data_grad: torch.Tens
     return adversarial_image
 
 
-def apply_normalization(args: Namespace, aug_list: List) -> List:
-    """
-    Apply normalization to the augmentation list based on grayscale conversion.
-
-    Parameters:
-        args (Namespace): Namespace object containing arguments.
-            grayscale (bool): Whether to convert the images to grayscale.
-        aug_list (List): The list of transformation functions for data augmentation.
-
-    Returns:
-        List: The updated list of transformation functions with normalization applied.
-
-    Examples:
-        >>> from argparse import Namespace
-        >>> args = Namespace(grayscale=True)
-        >>> aug_list = [transforms.RandomResizedCrop(224), transforms.ToTensor()]
-        >>> updated_aug_list = apply_normalization(args, aug_list)
-
-        If 'grayscale' is True, the updated_aug_list will contain additional transformations:
-        [transforms.RandomResizedCrop(224), transforms.Grayscale(), transforms.ToTensor(),
-         transforms.Normalize(mean=[0.5], std=[0.5])]
-
-        If 'grayscale' is False, the updated_aug_list will contain different normalization values:
-        [transforms.RandomResizedCrop(224), transforms.ToTensor(),
-         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]
-    """
-    if args.grayscale:
-        aug_list.append(transforms.Grayscale())
-
-    normalization_mean = [0.5] if args.grayscale else IMAGENET_DEFAULT_MEAN
-    normalization_std = [0.5] if args.grayscale else IMAGENET_DEFAULT_STD
-
-    aug_list.extend([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=normalization_mean, std=normalization_std)
-    ])
-
-    return aug_list
-
-
-def get_augmentation_by_type(args: Namespace) -> Callable:
-    """
-    Returns an augmentation transform based on the specified augmentation type.
-
-    Parameters:
-        args (Namespace): A namespace object containing the following attributes:
-            aug_type (str): The type of augmentation to apply. Must be one of "trivial", "augmix", or "rand".
-            mag_bins (int): The number of magnitude bins for augmentation (used for "trivial" and "rand" types).
-            interpolation (str): The interpolation method for resizing and cropping (e.g., "bilinear").
-
-    Returns:
-        Callable: A callable augmentation transform based on the specified augmentation type.
-
-    Raises:
-        ValueError: If the specified augmentation type is invalid.
-
-    Examples:
-        >>> from argparse import Namespace
-        >>> args = Namespace(aug_type="trivial", mag_bins=30, interpolation="bilinear")
-        >>> augmentation = get_augmentation_by_type(args)
-        >>> isinstance(augmentation, transforms.TrivialAugmentWide)
-        True
-    """
-    valid_aug_types = ["trivial", "augmix", "rand"]
-    if args.aug_type not in valid_aug_types:
-        raise ValueError(f"Invalid augmentation type: '{args.aug_type}'. "
-                         f"Valid options are: {', '.join(valid_aug_types)}")
-
-    interpolation_mode = f.InterpolationMode(args.interpolation)
-
-    if args.aug_type == "trivial":
-        # Trivial augmentation
-        return transforms.TrivialAugmentWide(num_magnitude_bins=args.mag_bins, interpolation=interpolation_mode)
-    elif args.aug_type == "augmix":
-        # AugMix augmentation
-        return transforms.AugMix(interpolation=interpolation_mode)
-    elif args.aug_type == "rand":
-        # RandAugment augmentation
-        return transforms.RandAugment(num_magnitude_bins=args.mag_bins, interpolation=interpolation_mode)
-
-
-def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
-    """
-    Returns data augmentation transforms for training and validation sets.
-
-    Parameters:
-        args (Namespace): A namespace object containing the following attributes:
-            crop_size (int): The size of the crop for the training and validation sets.
-            val_resize (int): The target size for resizing the validation images.
-                              The validation images will be resized to this size while maintaining their aspect ratio.
-            interpolation (int): The interpolation method for resizing and cropping.
-            hflip (float): The probability of applying random horizontal flip to the training set, a float between 0 and 1.
-            aug_type (str): The type of augmentation to apply to the training set.
-                             Must be one of "trivial", "augmix", or "rand".
-
-    Returns:
-        Dict[str, Callable]: A dictionary of data augmentation transforms for the training and validation sets.
-
-    Raises:
-        ValueError: If the provided augmentation type is not one of the supported types.
-
-    Examples:
-        >>> args = Namespace( \
-                crop_size=224, \
-                val_resize=256,\
-                interpolation="bilinear", \
-                hflip=0.5, \
-                aug_type="augmix", \
-                mag_bins=30, \
-                grayscale=False, \
-            )
-
-        >>> data_transforms = get_data_augmentation(args)
-        >>> data_transforms["train"]
-        Compose(
-            RandomResizedCrop(size=(224, 224), scale=(0.08, 1.0), ratio=(0.75, 1.3333), interpolation=bilinear, antialias=warn)
-            RandomHorizontalFlip(p=0.5)
-            AugMix(severity=3, mixture_width=3, chain_depth=-1, alpha=1.0, all_ops=True, interpolation=InterpolationMode.BILINEAR, fill=None)
-            ToTensor()
-            Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-        )
-    """
-    supported_aug_types = ["trivial", "augmix", "rand"]
-
-    if args.aug_type not in supported_aug_types:
-        raise ValueError(f"Unsupported augmentation type: '{args.aug_type}'. "
-                         f"Supported types are: {', '.join(supported_aug_types)}")
-
-    train_aug = [transforms.RandomResizedCrop(args.crop_size, interpolation=f.InterpolationMode(args.interpolation)),
-                 transforms.RandomHorizontalFlip(p=args.hflip), get_augmentation_by_type(args)]
-
-    train_transform = transforms.Compose(apply_normalization(args, train_aug))
-
-    val_aug = [
-        transforms.Resize(args.val_resize, interpolation=f.InterpolationMode(args.interpolation)),
-        transforms.CenterCrop(args.crop_size),
-    ]
-    val_transform = transforms.Compose(apply_normalization(args, val_aug))
-
-    return {"train": train_transform, "val": val_transform}
-
-
 def apply_mixup(images: Tensor, targets: Tensor, alpha: float = 1.0) -> Tuple[Tensor, Tensor, Tensor, float]:
     """
     Applies Mixup augmentation to input data.
@@ -802,7 +706,6 @@ def apply_cutmix(images: torch.Tensor,
 
     Examples:
         >>> import torch
-        >>> import numpy as np
         >>> images = torch.tensor([[[[1.0, 2.0], [3.0, 4.0]]]])
         >>> targets = torch.tensor([[0.0, 1.0]])
         >>> mixed_images, mixed_labels, original_labels, lam = apply_cutmix(images, targets, alpha=0.5)
@@ -817,24 +720,188 @@ def apply_cutmix(images: torch.Tensor,
     """
     batch_size, channels, height, width = images.size()
     index = torch.randperm(batch_size)
-    lam = torch.max(torch.tensor(np.random.beta(alpha, alpha)), torch.tensor(1.0 - alpha))
+    lam = torch.tensor(np.random.beta(alpha, alpha))  # Convert lam to a PyTorch tensor
+    lam = torch.max(lam, 1 - lam)  # Ensure lambda is always greater than 0.5
 
+    # Generate random bounding box coordinates
     cut_ratio = torch.sqrt(1.0 - lam)
-    cut_h = (height * cut_ratio).to(torch.int)
-    cut_w = (width * cut_ratio).to(torch.int)
-    cx = torch.randint(0, width, (batch_size,))
-    cy = torch.randint(0, height, (batch_size,))
-    bbx1 = torch.clamp(cx - cut_w // 2, min=0)
-    bby1 = torch.clamp(cy - cut_h // 2, min=0)
-    bbx2 = torch.clamp(cx + cut_w // 2, max=width)
-    bby2 = torch.clamp(cy + cut_h // 2, max=height)
+    cut_h = torch.tensor(height * cut_ratio, dtype=torch.int)
+    cut_w = torch.tensor(width * cut_ratio, dtype=torch.int)
+    cx = torch.randint(width, (1,)).item()
+    cy = torch.randint(height, (1,)).item()
+    bbx1 = torch.clamp(cx - cut_w // 2, 0, width)
+    bby1 = torch.clamp(cy - cut_h // 2, 0, height)
+    bbx2 = torch.clamp(cx + cut_w // 2, 0, width)
+    bby2 = torch.clamp(cy + cut_h // 2, 0, height)
 
+    # Apply CutMix
     mixed_images = images.clone()
     mixed_images[:, :, bby1:bby2, bbx1:bbx2] = images[index, :, bby1:bby2, bbx1:bbx2]
     lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1)) / (width * height)
 
+    # Adjust the labels
     targets_a, targets_b = targets, targets[index]
-    return mixed_images, targets_a, targets_b, lam.item()
+    return mixed_images, targets_a, targets_b, lam
+
+
+def apply_normalization(args: Namespace, aug_list: List) -> List:
+    """
+    Apply normalization to the augmentation list based on grayscale conversion.
+
+    Parameters:
+        args (Namespace): Namespace object containing arguments.
+            grayscale (bool): Whether to convert the images to grayscale.
+        aug_list (List): The list of transformation functions for data augmentation.
+
+    Returns:
+        List: The updated list of transformation functions with normalization applied.
+
+    Examples:
+        >>> from argparse import Namespace
+        >>> args = Namespace(grayscale=True)
+        >>> aug_list = [v2.RandomResizedCrop(224), v2.ToImage(), v2.ToDtype(torch.float32, scale=True)]
+        >>> updated_aug_list = apply_normalization(args, aug_list)
+
+        If 'grayscale' is True, the updated_aug_list will contain additional transformations:
+        [v2.RandomResizedCrop(224), v2.Grayscale(), v2.ToImage(), v2.ToDtype(torch.float32, scale=True),
+         v2.Normalize(mean=[0.5], std=[0.5])]
+
+        If 'grayscale' is False, the updated_aug_list will contain different normalization values:
+        [v2.RandomResizedCrop(224), v2.ToImage(), v2.ToDtype(torch.float32, scale=True),
+         v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]
+    """
+    if args.grayscale:
+        aug_list.append(v2.Grayscale())
+
+    normalization_mean = [0.5] if args.grayscale else IMAGENET_DEFAULT_MEAN
+    normalization_std = [0.5] if args.grayscale else IMAGENET_DEFAULT_STD
+
+    aug_list.extend([
+        v2.ToImage(),
+        v2.ToDtype(torch.float32, scale=True),
+        v2.Normalize(mean=normalization_mean, std=normalization_std),
+    ])
+
+    return aug_list
+
+
+def get_augmentation_by_type(args: Namespace) -> Callable:
+    """
+    Returns an augmentation transform based on the specified augmentation type.
+
+    Parameters:
+        args (Namespace): A namespace object containing the following attributes:
+            aug_type (str): The type of augmentation to apply. Must be one of "trivial", "augmix", or "rand".
+            mag_bins (int): The number of magnitude bins for augmentation (used for "trivial" and "rand" types).
+            interpolation (str): The interpolation method for resizing and cropping (e.g., "bilinear").
+
+    Returns:
+        Callable: A callable augmentation transform based on the specified augmentation type.
+
+    Raises:
+        ValueError: If the specified augmentation type is invalid.
+
+    Examples:
+        >>> from argparse import Namespace
+        >>> args = Namespace(aug_type="trivial", mag_bins=30, interpolation="bilinear")
+        >>> augmentation = get_augmentation_by_type(args)
+        >>> isinstance(augmentation, v2.TrivialAugmentWide)
+        True
+    """
+    valid_aug_types = ["trivial", "augmix", "rand", "auto"]
+    if args.aug_type not in valid_aug_types:
+        raise ValueError(f"Invalid augmentation type: '{args.aug_type}'. "
+                         f"Valid options are: {', '.join(valid_aug_types)}")
+
+    interpolation_mode = f.InterpolationMode(args.interpolation)
+
+    if args.aug_type == "trivial":
+        # Trivial augmentation
+        return v2.TrivialAugmentWide(num_magnitude_bins=args.mag_bins, interpolation=interpolation_mode)
+    elif args.aug_type == "augmix":
+        # AugMix augmentation
+        return v2.AugMix(interpolation=interpolation_mode)
+    elif args.aug_type == "rand":
+        # RandAugment augmentation
+        return v2.RandAugment(num_magnitude_bins=args.mag_bins, interpolation=interpolation_mode)
+    elif args.aug_type == "auto":
+        # AutoAugment augmentation
+        return v2.AutoAugment(interpolation=interpolation_mode)
+
+
+def get_data_augmentation(args: Namespace) -> Dict[str, Callable]:
+    """
+    Returns data augmentation transforms for training and validation sets.
+
+    Parameters:
+        args (Namespace): A namespace object containing the following attributes:
+            crop_size (int): The size of the crop for the training and validation sets.
+            val_resize (int): The target size for resizing the validation images.
+                              The validation images will be resized to this size while maintaining their aspect ratio.
+            interpolation (int): The interpolation method for resizing and cropping.
+            hflip (float): The probability of applying random horizontal flip to the training set, a float between 0 and 1.
+            aug_type (str): The type of augmentation to apply to the training set.
+                             Must be one of "trivial", "augmix", or "rand".
+
+    Returns:
+        Dict[str, Callable]: A dictionary of data augmentation transforms for the training and validation sets.
+
+    Raises:
+        ValueError: If the provided augmentation type is not one of the supported types.
+
+    Examples:
+        >>> args = Namespace( \
+                crop_size=224, \
+                val_resize=256,\
+                interpolation="bilinear", \
+                hflip=0.5, \
+                aug_type="augmix", \
+                mag_bins=30, \
+                grayscale=False, \
+            )
+
+        >>> data_transforms = get_data_augmentation(args)
+        >>> data_transforms["train"]
+        Compose(
+            RandomResizedCrop(size=(224, 224), scale=(0.08, 1.0), ratio=(0.75, 1.3333), interpolation=bilinear, antialias=warn),
+            RandomHorizontalFlip(p=0.5)
+            AugMix(severity=3, mixture_width=3, chain_depth=-1, alpha=1.0, all_ops=True, interpolation=InterpolationMode.BILINEAR, fill=None),
+            v2.ToImage(),
+            v2.ToDtype(torch.float32, scale=True),
+            Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+        )
+    """
+    supported_aug_types = ["trivial", "augmix", "rand", "auto"]
+
+    if args.aug_type not in supported_aug_types:
+        raise ValueError(f"Unsupported augmentation type: '{args.aug_type}'. "
+                         f"Supported types are: {', '.join(supported_aug_types)}")
+
+    train_aug = [
+        v2.RandomResizedCrop(
+            args.crop_size, interpolation=f.InterpolationMode(args.interpolation), antialias=True
+        ),
+        v2.RandomHorizontalFlip(p=args.hflip), get_augmentation_by_type(args)]
+
+    norm_train_aug = apply_normalization(args, train_aug)
+    if args.rand_erase_prob:
+        norm_train_aug.extend([
+            v2.RandomErasing(p=args.rand_erase_prob),
+            v2.ToPureTensor()
+        ])
+    else:
+        norm_train_aug.append(v2.ToPureTensor())
+    train_transform = v2.Compose(norm_train_aug)
+
+    val_aug = [
+        v2.Resize(args.val_resize, interpolation=f.InterpolationMode(args.interpolation), antialias=True),
+        v2.CenterCrop(args.crop_size),
+    ]
+    norm_val_aug = apply_normalization(args, val_aug)
+    norm_val_aug.append(v2.ToPureTensor())
+    val_transform = v2.Compose(norm_val_aug)
+
+    return {"train": train_transform, "val": val_transform}
 
 
 def to_channels_first(image: torch.Tensor) -> torch.Tensor:
@@ -959,12 +1026,12 @@ def convert_to_onnx(
         raise RuntimeError(f"Failed to export the model to ONNX: {e}")
 
 
-def get_explanation_transforms() -> Tuple[transforms.Compose, transforms.Compose]:
+def get_explanation_transforms() -> Tuple[v2.Compose, v2.Compose]:
     """
     Get transforms for preprocessing and inverse preprocessing of images used in an explanation pipeline.
 
     Returns:
-        Tuple[transforms.Compose, transforms.Compose]: A tuple of two torchvision.transforms.Compose objects.
+        Tuple[v2.Compose, v2.Compose]: A tuple of two torchvision.transforms.v2.Compose objects.
             - The first transform is used for preprocessing an image for explanation.
             - The second transform is used for inverse preprocessing to revert the explanation to the original image.
 
@@ -973,20 +1040,20 @@ def get_explanation_transforms() -> Tuple[transforms.Compose, transforms.Compose
         preprocessed_image = transform(original_image)
         inverted_image = inv_transform(explanation_image)
     """
-    transform = transforms.Compose([
-        transforms.Lambda(to_channels_first),
-        transforms.Lambda(lambda image: image * (1 / 255)),
-        transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
-        transforms.Lambda(to_channels_last),
+    transform = v2.Compose([
+        v2.Lambda(to_channels_first),
+        v2.Lambda(lambda image: image * (1 / 255)),
+        v2.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD),
+        v2.Lambda(to_channels_last),
     ])
 
-    inv_transform = transforms.Compose([
-        transforms.Lambda(to_channels_first),
-        transforms.Normalize(
+    inv_transform = v2.Compose([
+        v2.Lambda(to_channels_first),
+        v2.Normalize(
             mean=(-1 * np.array(IMAGENET_DEFAULT_MEAN) / np.array(IMAGENET_DEFAULT_STD)).tolist(),
             std=(1 / np.array(IMAGENET_DEFAULT_STD)).tolist()
         ),
-        transforms.Lambda(to_channels_last),
+        v2.Lambda(to_channels_last),
     ])
 
     return transform, inv_transform
@@ -1132,6 +1199,7 @@ def get_matching_model_names(args: Namespace) -> List[str]:
     if args.module:
         model_names = timm.list_models(pretrained=True, module=args.module)
         matching_models = filter_models(model_names, args.crop_size)
+        matching_models = remove_items(matching_models, args.filter_module)
     else:
         model_names = timm.list_models(pretrained=True)
 
@@ -1194,7 +1262,6 @@ def prune_model(model: nn.Module, pruning_rate: float) -> List[Tuple[nn.Module, 
         >>> pruning_rate = 0.5
         >>> pruned_params = prune_model(model, pruning_rate)
         >>> print(pruned_params)
-        [(Conv2d(3, 16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)), 'weight'), (Conv2d(16, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)), 'weight'), (Linear(in_features=2048, out_features=128, bias=True), 'weight'), (Linear(in_features=128, out_features=10, bias=True), 'weight')]
     """
 
     parameters_to_prune = [
@@ -1254,6 +1321,7 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
         scriptable=True,
         exportable=True,
         drop_rate=args.dropout,
+        drop_path_rate=args.dropout,
         in_chans=1 if args.grayscale else 3,
         num_classes=num_classes
     )
@@ -1441,6 +1509,22 @@ def get_lr_scheduler(args: Namespace,
                                               milestones=[args.warmup_epochs])
 
     return scheduler
+
+
+def gather_for_metrics(accelerator: Accelerator, output: Tensor, labels: Tensor):
+    """
+    Helper function to efficiently gather predictions and labels across multiple accelerator devices for computing metrics.
+
+    Args:
+        accelerator (accelerate.Accelerator): The PyTorch accelerator object.
+        output (torch.Tensor): The model's output predictions.
+        labels (torch.Tensor): The ground truth labels.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: A tuple containing the aggregated predictions and labels.
+    """
+
+    return accelerator.gather_for_metrics(output), accelerator.gather_for_metrics(labels)
 
 
 class CreateImgSubclasses:
