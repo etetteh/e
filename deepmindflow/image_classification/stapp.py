@@ -5,9 +5,11 @@ import subprocess
 
 from accelerate import (
     Accelerator,
+    FullyShardedDataParallelPlugin
 )
 from accelerate.utils import set_seed
-
+# noinspection PyProtectedMember
+from torch.distributed.fsdp.fully_sharded_data_parallel import FullOptimStateDictConfig, FullStateDictConfig
 import pandas as pd
 
 import torch
@@ -75,7 +77,7 @@ def get_input_config(key):
         if model_selection == "Module":
             modules = ['beit', 'convnext', 'deit', 'resnet', 'vision_transformer', 'efficientnet', 'xcit', 'regnet',
                        'nfnet', 'metaformer', 'fastvit', 'efficientvit_msra', "Other"]
-            module = st.selectbox("Select Model Submodule", modules,
+            module = st.selectbox("Select Models' Submodule", modules,
                                   help="If you want to select a specific model submodule, such as 'resnet' or 'deit', "
                                        "you can use this command to make that choice. It's not compatible with the "
                                        "--model_size or --model_name commands")
@@ -83,16 +85,30 @@ def get_input_config(key):
                 cfgs.module = st.text_input("Enter your preferred submodule")
             else:
                 cfgs.module = module
+
+            if key == "train":
+                filter_module = st.text_input(
+                    f"Optionally, Exclude Model Size(s)",
+                    help="Use this to specify the model size(s) to exclude. "
+                         "Choose from 'enormous', 'huge', 'giant', 'large'",
+                    key=f"filter_module_{key}",
+
+                )
+                cfgs.filter_module = filter_module.split()
+
         elif model_selection == "Model Size":
-            cfgs.model_size = st.selectbox("Select Model Size", ["nano", "tiny", "small", "base", "large", "giant"],
-                                           help="If you prefer to specify the size of the model, you can use this "
-                                                "command. It's not used when Model Name or Module are specified "
-                                                "specified.")
+            cfgs.model_size = st.selectbox(
+                "Select Model Size", ["nano", "tiny", "small", "base", "large", "giant"],
+                help="If you prefer to specify the size of the model, you can use this "
+                     "command. It's not used when Model Name or Module are specified specified."
+            )
         elif model_selection == "Model Name":
-            model_name = st.text_input("Model Name(s)",
-                                       help="Use this to specify the name of the model(s) you want to use from the TIMM"
-                                            " library. It's not compatible with the Model Size or Module commands.",
-                                       key=f"model_name_{key}")
+            model_name = st.text_input(
+                "Model Name(s)",
+                help="Use this to specify the name of the model(s) you want to use from the TIMM"
+                     " library. It's not compatible with the Model Size or Module commands.",
+                key=f"model_name_{key}",
+            )
             cfgs.model_name = model_name.split()
 
     opt_col1, opt_col2 = st.columns(2)
@@ -299,10 +315,19 @@ if __name__ == "__main__":
         st.header("Image Classification Training")
         warnings.filterwarnings("ignore")
 
+        if torch.cuda.is_available():
+            fsdp_plugin = FullyShardedDataParallelPlugin(
+                state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
+                optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=False, rank0_only=False),
+            )
+        else:
+            fsdp_plugin = None
+
         accelerator_var = Accelerator(
             even_batches=True,
             gradient_accumulation_steps=2,
             mixed_precision="fp16",
+            fsdp_plugin=fsdp_plugin
         )
 
         train_cfgs = get_input_config("train")
