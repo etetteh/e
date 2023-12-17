@@ -990,8 +990,15 @@ def convert_to_onnx(
     if not os.path.isfile(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint file '{checkpoint_path}' not found.")
 
-    model = get_pretrained_model(args, model_name, num_classes)
-    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    model = timm.create_model(
+        model_name,
+        scriptable=True,
+        drop_rate=args.dropout,
+        drop_path_rate=args.dropout,
+        in_chans=1 if args.grayscale else 3,
+        num_classes=num_classes
+    )
+    checkpoint = torch.load(checkpoint_path, mmap=True)
 
     if "n_averaged" in checkpoint["model"]:
         del checkpoint["model"]["n_averaged"]
@@ -1318,8 +1325,6 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
     model = timm.create_model(
         model_name,
         pretrained=True,
-        scriptable=True,
-        exportable=True,
         drop_rate=args.dropout,
         drop_path_rate=args.dropout,
         in_chans=1 if args.grayscale else 3,
