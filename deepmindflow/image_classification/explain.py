@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 
 import shap
 import torch
+import timm
 from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 
@@ -103,6 +104,7 @@ def explain_model(args: argparse.Namespace) -> None:
 
     image_dataset = utils.load_image_dataset(args)
     classes = utils.get_classes(image_dataset["train"])
+    num_classes = len(classes)
 
     augmentation = v2.Compose([
         v2.RandomResizedCrop(args.crop_size),
@@ -129,15 +131,24 @@ def explain_model(args: argparse.Namespace) -> None:
     else:
         model_name = args.model_output_dir.split("/")[-1]
 
-    model = utils.get_pretrained_model(args, model_name=model_name, num_classes=len(classes))
-    model = accelerator_var.prepare_model(model)
+    model = timm.create_model(
+        model_name,
+        exportable=True,
+        drop_rate=args.dropout,
+        drop_path_rate=args.dropout,
+        in_chans=1 if args.grayscale else 3,
+        num_classes=num_classes
+    )
 
     checkpoint_file = os.path.join(os.path.join(args.model_output_dir, "best_model.pth"))
-    checkpoint = torch.load(checkpoint_file, map_location="cpu")
+    checkpoint = torch.load(checkpoint_file, mmap=True)
+
     if "n_averaged" in checkpoint["model"]:
         del checkpoint["model"]["n_averaged"]
         torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(checkpoint["model"], "module.")
+
     model.load_state_dict(checkpoint["model"])
+    model = accelerator_var.prepare_model(model)
 
     model.eval()
     model.to(device)
