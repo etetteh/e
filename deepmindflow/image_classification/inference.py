@@ -5,7 +5,7 @@ import warnings
 
 import onnxruntime
 import torch.nn.functional as f
-import torchvision.transforms as transforms
+from torchvision.transforms import v2
 
 from glob import glob
 from PIL import Image
@@ -21,8 +21,8 @@ def run_inference(args: argparse.Namespace) -> dict:
         args (argparse.Namespace):
             onnx_model_path (str): Path to the ONNX model.
             img_path (str): Path to a single image or a directory containing images to be classified.
-            dataset_dir_or_classes_file (str): Path to the directory containing the dataset classes or Path to a text file
-                                               containing class names (each class name on a separate line).
+            dataset_dir_or_classes_file (str): Path to the directory containing the dataset classes or Path to a text
+                                               file containing class names (each class name on a separate line).
             grayscale (bool): Whether to use grayscale images or not.
             crop_size (int): The size of the crop for the training and validation sets.
             val_resize (int): The target size for resizing the validation images.
@@ -37,8 +37,8 @@ def run_inference(args: argparse.Namespace) -> dict:
         >>> onnx_model_path = "path/to/onnx/model.onnx"
         >>> img_path = "path/to/image.jpg"
         >>> dataset_dir_or_classes_file = "path/to/dataset_classes.txt"
-        >>> results = run_inference(onnx_model_path, img_path, dataset_dir_or_classes_file)
-        >>> print(results)
+        >>> infer_results = run_inference(onnx_model_path, img_path, dataset_dir_or_classes_file)
+        >>> print(infer_results)
         {
             'image.jpg': [
                 {'Predicted class': 'cat', 'Probability': 0.68},
@@ -57,10 +57,10 @@ def run_inference(args: argparse.Namespace) -> dict:
         classes = utils.get_classes(image_dataset["train"])
 
     data_aug = [
-        transforms.Resize(args.val_resize),
-        transforms.CenterCrop(args.crop_size),
+        v2.Resize(args.val_resize),
+        v2.CenterCrop(args.crop_size),
     ]
-    transform_img = transforms.Compose(utils.apply_normalization(args, data_aug))
+    transform_img = v2.Compose(utils.apply_normalization(args, data_aug))
 
     if os.path.isdir(args.img_path):
         imgs_path = glob(os.path.join(args.img_path, "*"))
@@ -101,10 +101,6 @@ def get_args():
 
     Returns:
         argparse.Namespace: An object containing the parsed arguments.
-
-    Example:
-        >>> args = get_args()
-        >>> print(args.img_path)
     """
     parser = argparse.ArgumentParser(description="Run inference with an ONNX model")
 
@@ -165,12 +161,12 @@ def get_args():
 if __name__ == "__main__":
     warnings.filterwarnings("ignore", category=UserWarning)
 
-    args = get_args()
+    cfgs = get_args()
 
-    if not os.path.isdir(args.output_dir):
-        os.makedirs(args.output_dir, exist_ok=True)
+    if not os.path.isdir(cfgs.output_dir):
+        os.makedirs(cfgs.output_dir, exist_ok=True)
 
-    result = run_inference(args)
-    utils.write_dictionary_to_json(dictionary=result, file_path=f"{args.output_dir}/inference_results.json")
+    result = run_inference(cfgs)
+    utils.write_dictionary_to_json(dictionary=result, file_path=f"{cfgs.output_dir}/inference_results.json")
 
-    print(f"Inference results have been saved to {args.output_dir}/inference_results.json")
+    print(f"Inference results have been saved to {cfgs.output_dir}/inference_results.json")
