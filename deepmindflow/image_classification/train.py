@@ -215,7 +215,8 @@ def main(args: argparse.Namespace, accelerator) -> None:
         g.manual_seed(args.seed)
         set_seed(args.seed)
 
-        with accelerator.is_main_process():
+        image_dataset, train_dataset, val_dataset, test_dataset = None, None, None, None
+        if accelerator.is_main_process:
             data_transforms = utils.get_data_augmentation(args)
             image_dataset = utils.load_image_dataset(args)
             image_dataset.set_format("torch")
