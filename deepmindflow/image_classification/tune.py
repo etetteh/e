@@ -23,8 +23,11 @@ from train import train_one_epoch, evaluate
 from accelerate import (
     Accelerator,
     find_executable_batch_size,
+    FullyShardedDataParallelPlugin
 )
 from accelerate.utils import set_seed
+# noinspection PyProtectedMember
+from torch.distributed.fsdp.fully_sharded_data_parallel import FullOptimStateDictConfig, FullStateDictConfig
 
 import tempfile
 import ray
@@ -89,10 +92,19 @@ def tune_classifier(config, args):
         if args.tune_prune:
             args.pruning_rate = config["pruning_rate"]
 
+        if torch.cuda.is_available():
+            fsdp_plugin = FullyShardedDataParallelPlugin(
+                state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
+                optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=False, rank0_only=False),
+            )
+        else:
+            fsdp_plugin = None
+
         accelerator = Accelerator(
             even_batches=True,
             gradient_accumulation_steps=2,
             mixed_precision="fp16",
+            fsdp_plugin=fsdp_plugin
         )
 
         accelerator.free_memory()
@@ -443,9 +455,9 @@ def get_args():
     parser.add_argument(
         "--experiment_name",
         required=True,
-        type=str,
         default="Experiment_1",
-        help="The name of the Ray Tune experiment to organize and categorize experimental runs."
+        type=str,
+        help="The name of the MLflow experiment to organize and categorize experimental runs."
     )
     parser.add_argument(
         "--dataset",
@@ -455,8 +467,8 @@ def get_args():
     )
     parser.add_argument(
         "--dataset_kwargs",
-        type=str,
         default="",
+        type=str,
         help="Path to a JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset."
     )
     parser.add_argument(
@@ -464,6 +476,12 @@ def get_args():
         required=True,
         type=str,
         help="The directory where output files, such as trained models and evaluation results, will be saved."
+    )
+    parser.add_argument(
+        "--seed",
+        default=999333666,
+        type=int,
+        help="Set the random seed for reproducibility of training results."
     )
 
     # Model Configuration
@@ -474,13 +492,18 @@ def get_args():
     )
     parser.add_argument(
         "--model_name",
-        type=str,
+        nargs="*",
         default=None,
-        help="Specify the name of the model from the TIMM library."
+        help="Specify the name(s) of the model(s) from the TIMM library. Not compatible with --model_size or --module."
+    )
+    parser.add_argument(
+        "--to_onnx",
+        action="store_true",
+        help="Convert the trained model(s) to ONNX format. If not used, only the best model will be converted."
     )
 
     # Training Configuration
-    # Checkpoint Averaging:
+    # Checkpoint Averaging
     parser.add_argument(
         "--avg_ckpts",
         action="store_true",
@@ -488,8 +511,8 @@ def get_args():
     )
     parser.add_argument(
         "--num_ckpts",
-        type=int,
         default=1,
+        type=int,
         help="The number of best checkpoints to save when checkpoint averaging is active."
     )
 
@@ -501,8 +524,8 @@ def get_args():
     )
     parser.add_argument(
         "--epsilon",
-        type=float,
         default=0.03,
+        type=float,
         help="Set the epsilon value for the FGSM attack if FGSM adversarial training is enabled."
     )
 
@@ -514,17 +537,9 @@ def get_args():
     )
     parser.add_argument(
         "--pruning_rate",
-        type=float,
         default=0.25,
+        type=float,
         help="Set the pruning rate to control the extent of pruning applied to the model."
-    )
-
-    # Random Seed
-    parser.add_argument(
-        "--seed",
-        default=999333666,
-        type=int,
-        help="Set the random seed for reproducibility of training results."
     )
 
     # Data Augmentation
@@ -553,14 +568,14 @@ def get_args():
     )
     parser.add_argument(
         "--aug_type",
-        default="rand",
+        default="auto",
         type=str,
         help="The type of data augmentation to use.",
-        choices=["augmix", "rand", "trivial"]
+        choices=["augmix", "auto", "rand", "trivial"]
     )
     parser.add_argument(
         "--interpolation",
-        default="bilinear",
+        default="bicubic",
         type=str,
         help="The type of interpolation method to use.",
         choices=["nearest", "bicubic", "bilinear"]
@@ -580,8 +595,8 @@ def get_args():
     )
     parser.add_argument(
         "--mixup_alpha",
-        type=float,
         default=1.0,
+        type=float,
         help="Set the mixup hyperparameter alpha to control the interpolation factor."
     )
 
@@ -593,9 +608,15 @@ def get_args():
     )
     parser.add_argument(
         "--cutmix_alpha",
-        type=float,
         default=1.0,
+        type=float,
         help="Set the cutmix hyperparameter alpha to control the interpolation factor."
+    )
+    parser.add_argument(
+        '--rand_erase_prob',
+        default=0.0,
+        type=float,
+        help='Probability of applying Random Erase augmentation.'
     )
 
     # Training Parameters
@@ -619,8 +640,8 @@ def get_args():
     )
     parser.add_argument(
         "--dropout",
-        type=float,
         default=0.2,
+        type=float,
         help="The dropout rate for the classifier head of the model."
     )
     parser.add_argument(
@@ -660,8 +681,8 @@ def get_args():
     )
     parser.add_argument(
         '--max_lr',
-        type=float,
         default=0.1,
+        type=float,
         help='The maximum learning rate when using cyclic learning rate scheduling.'
     )
     parser.add_argument(
@@ -696,19 +717,21 @@ def get_args():
     )
     parser.add_argument(
         "--t0",
-        type=int,
         default=5,
+        type=int,
         help="The number of iterations for the first restart in learning rate scheduling strategies."
     )
 
+    # Evaluation Metrics and Testing
     parser.add_argument(
         "--sorting_metric",
         default="f1",
         type=str,
         help="The metric by which the model results will be sorted.",
-        choices=["f1", "auc", "accuracy", "precision", "recall"]
+        choices=["accuracy", "auc", "f1", "precision", "recall"]
     )
 
+    # Hparams tuning arguments
     parser.add_argument(
         "--num_samples",
         type=int,
@@ -825,8 +848,8 @@ if __name__ == "__main__":
 
     set_seed(cfgs.seed)
 
-    results = main(cfgs)
-    best_result = results.get_best_result(metric=cfgs.sorting_metric, mode="max")
+    tune_results = main(cfgs)
+    best_result = tune_results.get_best_result(metric=cfgs.sorting_metric, mode="max")
 
     print(f"\nBest trial config: {best_result.config}")
     print(f"Best trial final validation loss: {best_result.metrics['loss']}")
