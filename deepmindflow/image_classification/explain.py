@@ -7,14 +7,15 @@ import matplotlib.pyplot as plt
 
 import shap
 import torch
-import torchvision
 from torch.utils.data import DataLoader
+from torchvision.transforms import v2
 
 from accelerate import (
     Accelerator,
-    DeepSpeedPlugin,
-    find_executable_batch_size
+    FullyShardedDataParallelPlugin,
 )
+# noinspection PyProtectedMember
+from torch.distributed.fsdp.fully_sharded_data_parallel import FullOptimStateDictConfig, FullStateDictConfig
 
 import utils
 
@@ -25,11 +26,14 @@ def explain_model(args: argparse.Namespace) -> None:
 
     Parameters:
         args (argparse.Namespace): Arguments passed to the script. Argument definitions are as follows:
-            - dataset (str): Path to the dataset directory or the name of a HuggingFace dataset, defining the data source for model training and evaluation.
-            - dataset_kwargs (str): Optional. JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset.
+            - dataset (str): Path to the dataset directory or the name of a HuggingFace dataset, defining the data
+            source for model training and evaluation.
+            - dataset_kwargs (str): Optional. JSON file containing keyword arguments (kwargs) specific to a HuggingFace
+            dataset.
             - model_output_dir (str): Output directory where the model is contained.
-            - feat_extract (bool): Include this flag to enable feature extraction during training, useful when using pretrained models.
-            - grayscale (bool): Optional. Use this flag to indicate that grayscale images should be used during training.
+            - feat_extract (bool): Include this flag to enable feature extraction during training, useful when using
+            pretrained models.
+            - grayscale (bool): Optional. Use this flag to indicate that grayscale images should be used during training
             - crop_size (int): Size to which input images will be cropped.
             - batch_size (int): Batch size for both training and evaluation stages.
             - num_workers (int): Number of workers for training and evaluation.
@@ -42,7 +46,7 @@ def explain_model(args: argparse.Namespace) -> None:
         None
 
     Examples:
-        To explain a model's predictions on a dataset, you can use this function with appropriate arguments. For example:
+        To explain a model's predictions on a dataset, you can use this function with appropriate arguments. Example:
 
         >>> import argparse
 
@@ -79,13 +83,19 @@ def explain_model(args: argparse.Namespace) -> None:
         output = model(img)
         return output
 
-    deepspeed_plugin = DeepSpeedPlugin(gradient_accumulation_steps=2, gradient_clipping=1.0)
+    if torch.cuda.is_available():
+        fsdp_plugin = FullyShardedDataParallelPlugin(
+            state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
+            optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=False, rank0_only=False),
+        )
+    else:
+        fsdp_plugin = None
 
     accelerator_var = Accelerator(
         even_batches=True,
         gradient_accumulation_steps=2,
         mixed_precision="fp16",
-        deepspeed_plugin=deepspeed_plugin,
+        fsdp_plugin=fsdp_plugin
     )
 
     device = accelerator_var.device
@@ -94,9 +104,9 @@ def explain_model(args: argparse.Namespace) -> None:
     image_dataset = utils.load_image_dataset(args)
     classes = utils.get_classes(image_dataset["train"])
 
-    augmentation = torchvision.transforms.Compose([
-        torchvision.transforms.RandomResizedCrop(args.crop_size),
-        torchvision.transforms.PILToTensor(),
+    augmentation = v2.Compose([
+        v2.RandomResizedCrop(args.crop_size),
+        v2.PILToTensor(),
     ])
 
     def preprocess_val(example_batch):
@@ -138,6 +148,7 @@ def explain_model(args: argparse.Namespace) -> None:
     images = images.permute(0, 2, 3, 1)
     images = transform(images)
 
+    # noinspection PyUnresolvedReferences
     masker_blur = shap.maskers.Image("blur(128,128)", images[0].shape)
     explainer = shap.Explainer(predict, masker_blur, output_names=classes)
 
@@ -181,7 +192,8 @@ def get_args():
         "--dataset",
         required=True,
         type=str,
-        help="Specify the path to the dataset directory or the name of a HuggingFace dataset, defining the data source for model training and evaluation."
+        help="Specify the path to the dataset directory or the name of a HuggingFace dataset, defining the data source "
+             "for model training and evaluation."
     )
 
     parser.add_argument(
@@ -265,9 +277,9 @@ def get_args():
 if __name__ == "__main__":
     warnings.filterwarnings("ignore", category=UserWarning)
 
-    args = get_args()
+    cfgs = get_args()
 
     print(f"Model explanation in progress")
-    explain_model(args)
+    explain_model(cfgs)
 
-    print(f"Model explanation complete. Result has been saved to {args.model_output_dir}/explanation.png")
+    print(f"Model explanation complete. Result has been saved to {cfgs.model_output_dir}/explanation.png")
