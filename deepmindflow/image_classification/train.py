@@ -8,9 +8,10 @@ import warnings
 import accelerate
 from accelerate import (
     Accelerator,
-    find_executable_batch_size
+    find_executable_batch_size,
+    FullyShardedDataParallelPlugin
 )
-from accelerate import FullyShardedDataParallelPlugin
+# noinspection PyProtectedMember
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullOptimStateDictConfig, FullStateDictConfig
 
 from accelerate.utils import set_seed
@@ -68,16 +69,15 @@ def train_one_epoch(
             with accelerator.accumulate([model]):
                 optimizer.zero_grad()
                 if args.mixup:
-                    mixed_images, labels_a, labels_b, lam = utils.apply_mixup(images, labels, alpha=args.mixup_alpha)
-                    output = model(mixed_images.contiguous(memory_format=torch.channels_last))
-                    loss = lam * criterion(output, labels_a) + (1 - lam) * criterion(output, labels_b)
+                    images, labels_a, labels_b, lam = utils.apply_mixup(images, labels, alpha=args.mixup_alpha)
                 elif args.cutmix:
-                    mixed_images, labels_a, labels_b, lam = utils.apply_cutmix(images, labels,
-                                                                               alpha=args.cutmix_alpha)
-                    output = model(mixed_images.contiguous(memory_format=torch.channels_last))
+                    images, labels_a, labels_b, lam = utils.apply_cutmix(images, labels, alpha=args.cutmix_alpha)
+
+                output = model(images.contiguous(memory_format=torch.channels_last))
+
+                if args.mixup or args.cutmix:
                     loss = lam * criterion(output, labels_a) + (1 - lam) * criterion(output, labels_b)
                 else:
-                    output = model(images.contiguous(memory_format=torch.channels_last))
                     loss = criterion(output, labels)
 
                 accelerator.backward(loss)
@@ -91,17 +91,13 @@ def train_one_epoch(
                     accelerator.backward(adversarial_loss)
 
                 if accelerator.sync_gradients:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
 
-            if len(classes) == 2:
-                _, pred = torch.max(output, 1)
-            else:
-                pred = output
-            train_metrics.update(
-                accelerator.gather_for_metrics(pred),
-                accelerator.gather_for_metrics(labels)
-            )
+            pred = torch.max(output, 1)[1] if len(classes) == 2 else output
+
+            pred, labels = utils.gather_for_metrics(accelerator, pred, labels)
+            train_metrics.update(pred, labels)
 
     total_train_metrics = train_metrics.compute()
     loss, acc, auc, f1, recall, prec, cm = (
@@ -159,12 +155,14 @@ def evaluate(
 
             if len(classes) == 2:
                 _, pred = torch.max(output, 1)
-                val_metrics.update(accelerator.gather_for_metrics(pred),
-                                   accelerator.gather_for_metrics(labels))
-                roc_metric.update(accelerator.gather_for_metrics(output[:, 1]),
-                                  accelerator.gather_for_metrics(labels))
+
+                pred, labels = utils.gather_for_metrics(accelerator, pred, labels)
+                out, _ = utils.gather_for_metrics(accelerator, output[:, 1], labels)
+
+                val_metrics.update(pred, labels)
+                roc_metric.update(out, labels)
             else:
-                output, labels = accelerator.gather_for_metrics(output), accelerator.gather_for_metrics(labels)
+                output, labels = utils.gather_for_metrics(accelerator, output, labels)
                 val_metrics.update(output, labels)
                 roc_metric.update(output, labels)
 
@@ -217,7 +215,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
         g.manual_seed(args.seed)
         set_seed(args.seed)
 
-        with accelerator.main_process_first():
+        with accelerator.is_main_process():
             data_transforms = utils.get_data_augmentation(args)
             image_dataset = utils.load_image_dataset(args)
             image_dataset.set_format("torch")
@@ -489,7 +487,8 @@ def main(args: argparse.Namespace, accelerator) -> None:
                 train_time = f"{elapsed_time // 60:.0f}m {elapsed_time % 60:.0f}s"
 
                 accelerator.print(f"{model_name} training completed in {train_time}")
-                accelerator.print(f"{model_name} best Val {args.sorting_metric}: {best_results[args.sorting_metric]:.4f}\n")
+                accelerator.print(f"{model_name} best Val {args.sorting_metric}: "
+                                  f"{best_results[args.sorting_metric]:.4f}\n")
 
                 if args.avg_ckpts:
                     path = os.path.join(args.output_dir, model_name, "averaged")
@@ -544,8 +543,8 @@ def get_args():
     parser.add_argument(
         "--experiment_name",
         required=True,
-        type=str,
         default="Experiment_1",
+        type=str,
         help="The name of the MLflow experiment to organize and categorize experimental runs."
     )
     parser.add_argument(
@@ -556,8 +555,8 @@ def get_args():
     )
     parser.add_argument(
         "--dataset_kwargs",
-        type=str,
         default="",
+        type=str,
         help="Path to a JSON file containing keyword arguments (kwargs) specific to a HuggingFace dataset."
     )
     parser.add_argument(
@@ -565,6 +564,12 @@ def get_args():
         required=True,
         type=str,
         help="The directory where output files, such as trained models and evaluation results, will be saved."
+    )
+    parser.add_argument(
+        "--seed",
+        default=999333666,
+        type=int,
+        help="Set the random seed for reproducibility of training results."
     )
 
     # Model Configuration
@@ -574,14 +579,6 @@ def get_args():
         help="Enable feature extraction during training when using pretrained models."
     )
     parser.add_argument(
-        "--module",
-        type=str,
-        help="Select a specific model submodule. Choose any of ['beit', 'convnext', 'deit', 'resnet', "
-             "'vision_transformer', 'efficientnet', 'xcit', 'regnet', 'nfnet', 'metaformer', 'fastvit', "
-             "'efficientvit_msra']"
-             "or your favourite from the TIMM  library. Not compatible with --model_size or --model_name."
-    )
-    parser.add_argument(
         "--model_name",
         nargs="*",
         default=None,
@@ -589,10 +586,25 @@ def get_args():
     )
     parser.add_argument(
         "--model_size",
-        type=str,
         default="small",
+        type=str,
         help="Specify the model size. Not used when --model_name or --module is specified.",
-        choices=["nano", "tiny", "small", "base", "large", "giant"]
+        choices=["nano", "tiny", "small", "base", "large", "giant", "huge",]
+    )
+    parser.add_argument(
+        "--module",
+        type=str,
+        help="Select a specific models' submodule. Choose any of ['beit', 'convnext', 'deit', 'resnet', "
+             "'vision_transformer', 'efficientnet', 'xcit', 'regnet', 'nfnet', 'metaformer', 'fastvit', "
+             "'efficientvit_msra']"
+             "or your favourite from the TIMM  library. Not compatible with --model_size or --model_name."
+    )
+    parser.add_argument(
+        "--filter_module",
+        nargs="*",
+        default=None,
+        help="Specify the model size to filter out based on your compute resources",
+        choices=["large", "giant", "enormous", "huge"]
     )
     parser.add_argument(
         "--to_onnx",
@@ -601,7 +613,7 @@ def get_args():
     )
 
     # Training Configuration
-    # Checkpoint Averaging:
+    # Checkpoint Averaging
     parser.add_argument(
         "--avg_ckpts",
         action="store_true",
@@ -609,8 +621,8 @@ def get_args():
     )
     parser.add_argument(
         "--num_ckpts",
-        type=int,
         default=1,
+        type=int,
         help="The number of best checkpoints to save when checkpoint averaging is active."
     )
 
@@ -622,8 +634,8 @@ def get_args():
     )
     parser.add_argument(
         "--epsilon",
-        type=float,
         default=0.03,
+        type=float,
         help="Set the epsilon value for the FGSM attack if FGSM adversarial training is enabled."
     )
 
@@ -635,17 +647,9 @@ def get_args():
     )
     parser.add_argument(
         "--pruning_rate",
-        type=float,
         default=0.25,
+        type=float,
         help="Set the pruning rate to control the extent of pruning applied to the model."
-    )
-
-    # Random Seed
-    parser.add_argument(
-        "--seed",
-        default=999333666,
-        type=int,
-        help="Set the random seed for reproducibility of training results."
     )
 
     # Data Augmentation
@@ -674,14 +678,14 @@ def get_args():
     )
     parser.add_argument(
         "--aug_type",
-        default="rand",
+        default="auto",
         type=str,
         help="The type of data augmentation to use.",
-        choices=["augmix", "rand", "trivial"]
+        choices=["augmix", "auto", "rand", "trivial"]
     )
     parser.add_argument(
         "--interpolation",
-        default="bilinear",
+        default="bicubic",
         type=str,
         help="The type of interpolation method to use.",
         choices=["nearest", "bicubic", "bilinear"]
@@ -701,8 +705,8 @@ def get_args():
     )
     parser.add_argument(
         "--mixup_alpha",
-        type=float,
         default=1.0,
+        type=float,
         help="Set the mixup hyperparameter alpha to control the interpolation factor."
     )
 
@@ -714,9 +718,15 @@ def get_args():
     )
     parser.add_argument(
         "--cutmix_alpha",
-        type=float,
         default=1.0,
+        type=float,
         help="Set the cutmix hyperparameter alpha to control the interpolation factor."
+    )
+    parser.add_argument(
+        '--rand_erase_prob',
+        default=0.0,
+        type=float,
+        help='Probability of applying Random Erase augmentation.'
     )
 
     # Training Parameters
@@ -740,8 +750,8 @@ def get_args():
     )
     parser.add_argument(
         "--dropout",
-        type=float,
         default=0.2,
+        type=float,
         help="The dropout rate for the classifier head of the model."
     )
     parser.add_argument(
@@ -781,8 +791,8 @@ def get_args():
     )
     parser.add_argument(
         '--max_lr',
-        type=float,
         default=0.1,
+        type=float,
         help='The maximum learning rate when using cyclic learning rate scheduling.'
     )
     parser.add_argument(
@@ -817,8 +827,8 @@ def get_args():
     )
     parser.add_argument(
         "--t0",
-        type=int,
         default=5,
+        type=int,
         help="The number of iterations for the first restart in learning rate scheduling strategies."
     )
 
@@ -828,7 +838,7 @@ def get_args():
         default="f1",
         type=str,
         help="The metric by which the model results will be sorted.",
-        choices=["f1", "auc", "accuracy", "precision", "recall"]
+        choices=["accuracy", "auc", "f1", "precision", "recall"]
     )
     parser.add_argument(
         "--test_only",
@@ -847,10 +857,13 @@ if __name__ == "__main__":
 
     set_seed(cfgs.seed)
 
-    fsdp_plugin = FullyShardedDataParallelPlugin(
-        state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
-        optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=False, rank0_only=False),
-    )
+    if torch.cuda.is_available():
+        fsdp_plugin = FullyShardedDataParallelPlugin(
+            state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
+            optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=False, rank0_only=False),
+        )
+    else:
+        fsdp_plugin = None
 
     accelerator_var = Accelerator(
         even_batches=True,
