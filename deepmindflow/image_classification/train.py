@@ -208,12 +208,15 @@ def main(args: argparse.Namespace, accelerator) -> None:
     @find_executable_batch_size(starting_batch_size=args.batch_size)
     def inner_main_loop(batch_size):
         nonlocal accelerator
+        gradient_accumulation_steps = args.batch_size // batch_size
+        accelerator.gradient_accumulation_steps = gradient_accumulation_steps
+
         accelerator.free_memory()
 
+        set_seed(args.seed)
         device = accelerator.device
         g = torch.Generator()
         g.manual_seed(args.seed)
-        set_seed(args.seed)
 
         image_dataset, train_dataset, val_dataset, test_dataset = None, None, None, None
         if accelerator.is_main_process:
@@ -572,6 +575,13 @@ def get_args():
         type=int,
         help="Set the random seed for reproducibility of training results."
     )
+    parser.add_argument(
+        "--mixed_precision",
+        default=None,
+        type=str,
+        help="Enable to use mixed precision, and the type of precision to use",
+        choices=["no", "fp16", "bf16", "fp8"]
+    )
 
     # Model Configuration
     parser.add_argument(
@@ -868,8 +878,7 @@ if __name__ == "__main__":
 
     accelerator_var = Accelerator(
         even_batches=True,
-        gradient_accumulation_steps=2,
-        mixed_precision="fp16",
+        mixed_precision=cfgs.mixed_precision,
         fsdp_plugin=fsdp_plugin
     )
 
