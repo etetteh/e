@@ -73,12 +73,13 @@ def train_one_epoch(
                 elif args.cutmix:
                     images, labels_a, labels_b, lam = utils.apply_cutmix(images, labels, alpha=args.cutmix_alpha)
 
-                output = model(images.contiguous(memory_format=torch.channels_last))
+                with accelerator.autocast():
+                    output = model(images.contiguous(memory_format=torch.channels_last))
 
-                if args.mixup or args.cutmix:
-                    loss = lam * criterion(output, labels_a) + (1 - lam) * criterion(output, labels_b)
-                else:
-                    loss = criterion(output, labels)
+                    if args.mixup or args.cutmix:
+                        loss = lam * criterion(output, labels_a) + (1 - lam) * criterion(output, labels_b)
+                    else:
+                        loss = criterion(output, labels)
 
                 accelerator.backward(loss)
 
@@ -415,9 +416,8 @@ def main(args: argparse.Namespace, accelerator) -> None:
                 for epoch in range(start_epoch, args.epochs):
                     train_metrics.reset()
 
-                    with accelerator.autocast():
-                        total_train_metrics = train_one_epoch(args, epoch, classes, train_loader, model,
-                                                              optimizer, criterion, train_metrics, accelerator)
+                    total_train_metrics = train_one_epoch(args, epoch, classes, train_loader, model,
+                                                          optimizer, criterion, train_metrics, accelerator)
 
                     if not accelerator.optimizer_step_was_skipped:
                         lr_scheduler.step()
