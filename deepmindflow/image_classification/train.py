@@ -592,18 +592,19 @@ def get_args():
     parser.add_argument(
         "--model_name",
         nargs="*",
-        default=None,
+        default="eva02_base_patch14_224.mim_in22k",
         help="Specify the name(s) of the model(s) from the TIMM library. Not compatible with --model_size or --module."
     )
     parser.add_argument(
         "--model_size",
-        default="small",
+        default="base",
         type=str,
         help="Specify the model size. Not used when --model_name or --module is specified.",
         choices=["nano", "tiny", "small", "base", "large", "giant", "huge",]
     )
     parser.add_argument(
         "--module",
+        default="eva",
         type=str,
         help="Select a specific models' submodule. Choose any of ['beit', 'convnext', 'deit', 'resnet', "
              "'vision_transformer', 'efficientnet', 'xcit', 'regnet', 'nfnet', 'metaformer', 'fastvit', "
