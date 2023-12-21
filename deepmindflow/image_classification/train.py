@@ -615,7 +615,6 @@ def get_args():
         nargs="*",
         default=None,
         help="Specify the model size to filter out based on your compute resources",
-        choices=["large", "giant", "enormous", "huge"]
     )
     parser.add_argument(
         "--to_onnx",
