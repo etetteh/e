@@ -998,7 +998,7 @@ def convert_to_onnx(
         in_chans=1 if args.grayscale else 3,
         num_classes=num_classes
     )
-    checkpoint = torch.load(checkpoint_path, mmap=True)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
 
     if "n_averaged" in checkpoint["model"]:
         del checkpoint["model"]["n_averaged"]
