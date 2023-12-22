@@ -41,6 +41,20 @@ from ray.tune.search.flaml import CFO
 
 
 def tune_classifier(config, args):
+    if torch.cuda.is_available():
+        fsdp_plugin = FullyShardedDataParallelPlugin(
+            state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
+            optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=False, rank0_only=False),
+        )
+    else:
+        fsdp_plugin = None
+
+    accelerator = Accelerator(
+        even_batches=True,
+        mixed_precision=args.mixed_precision,
+        fsdp_plugin=fsdp_plugin
+    )
+
     if args.tune_batch_size:
         args.batch_size = config["batch_size"]
 
@@ -92,33 +106,24 @@ def tune_classifier(config, args):
         if args.tune_prune:
             args.pruning_rate = config["pruning_rate"]
 
-        if torch.cuda.is_available():
-            fsdp_plugin = FullyShardedDataParallelPlugin(
-                state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
-                optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=False, rank0_only=False),
-            )
-        else:
-            fsdp_plugin = None
-
-        accelerator = Accelerator(
-            even_batches=True,
-            gradient_accumulation_steps=2,
-            mixed_precision="fp16",
-            fsdp_plugin=fsdp_plugin
-        )
+        nonlocal accelerator
+        gradient_accumulation_steps = args.batch_size // batch_size
+        accelerator.gradient_accumulation_steps = gradient_accumulation_steps
 
         accelerator.free_memory()
 
+        set_seed(args.seed)
         device = accelerator.device
         g = torch.Generator()
         g.manual_seed(args.seed)
-        set_seed(args.seed)
 
-        data_transforms = utils.get_data_augmentation(args)
-        image_dataset = utils.load_image_dataset(args)
-        image_dataset.set_format("torch")
+        image_dataset, train_dataset, val_dataset = None, None, None
+        if accelerator.is_main_process:
+            data_transforms = utils.get_data_augmentation(args)
+            image_dataset = utils.load_image_dataset(args)
+            image_dataset.set_format("torch")
 
-        train_dataset, val_dataset, _ = utils.preprocess_train_eval_data(image_dataset, data_transforms)
+            train_dataset, val_dataset, _ = utils.preprocess_train_eval_data(image_dataset, data_transforms)
 
         image_datasets = {
             "train": train_dataset,
@@ -222,9 +227,8 @@ def tune_classifier(config, args):
         for epoch in range(start_epoch, args.epochs):
             train_metrics.reset()
 
-            with accelerator.autocast():
-                train_one_epoch(args, epoch, classes, train_loader, model, optimizer, criterion, train_metrics,
-                                accelerator)
+            train_one_epoch(args, epoch, classes, train_loader, model, optimizer, criterion, train_metrics,
+                            accelerator)
 
             if not accelerator.optimizer_step_was_skipped:
                 lr_scheduler.step()
@@ -255,12 +259,10 @@ def tune_classifier(config, args):
                         os.path.join(tempdir, "best_model.pth"))
 
                 metrics = {
-                    "loss": best_results["loss"],
-                    "acc": best_results["acc"],
                     "auc": best_results["auc"],
                     "f1": best_results["f1"],
-                    "recall": best_results["recall"],
                     "precision": best_results["precision"]
+                    "recall": best_results["recall"],
                 }
                 accelerator.save(
                     {
@@ -357,7 +359,7 @@ def main(args):
     ray.init()
 
     scheduler = None
-    if args.asha:
+    if args.scheduler == "asha":
         scheduler = ASHAScheduler(
             time_attr="training_iteration",
             max_t=args.epochs,
@@ -366,7 +368,7 @@ def main(args):
         )
 
     perturbation_interval = 300.0
-    if args.pbt:
+    if args.scheduler == "pbt":
         scheduler = PopulationBasedTraining(
             time_attr="training_iteration",
             perturbation_interval=perturbation_interval,
@@ -376,7 +378,7 @@ def main(args):
             synch=True,
         )
 
-    if args.pb2:
+    if args.scheduler == "pb2":
         scheduler = PB2(
             time_attr="training_iteration",
             perturbation_interval=perturbation_interval,
@@ -385,11 +387,7 @@ def main(args):
             synch=True,
         )
 
-    search_algo = None
-    if args.search_algo == "bohb":
-        search_algo = TuneBOHB(metric=args.sorting_metric, mode="max")
-    elif args.search_algo == "cfo":
-        search_algo = CFO(metric=args.sorting_metric, mode="max")
+    search_algo = TuneBOHB(metric=args.sorting_metric, mode="max")
 
     storage_path = os.path.expanduser(f"~/{args.output_dir}")
     exp_dir = os.path.join(storage_path, args.experiment_name)
@@ -416,7 +414,7 @@ def main(args):
                 mode="max",
                 scheduler=scheduler,
                 num_samples=args.num_samples,
-                search_alg=search_algo if args.asha else None,
+                search_alg=search_algo if args.scheduler == "asha" else None,
                 max_concurrent_trials=10,
             ),
             run_config=train.RunConfig(
@@ -483,6 +481,13 @@ def get_args():
         type=int,
         help="Set the random seed for reproducibility of training results."
     )
+    parser.add_argument(
+        "--mixed_precision",
+        default=None,
+        type=str,
+        help="Enable to use mixed precision, and the type of precision to use",
+        choices=["no", "fp16", "bf16", "fp8"]
+    )
 
     # Model Configuration
     parser.add_argument(
@@ -492,30 +497,11 @@ def get_args():
     )
     parser.add_argument(
         "--model_name",
-        nargs="*",
-        default=None,
-        help="Specify the name(s) of the model(s) from the TIMM library. Not compatible with --model_size or --module."
-    )
-    parser.add_argument(
-        "--to_onnx",
-        action="store_true",
-        help="Convert the trained model(s) to ONNX format. If not used, only the best model will be converted."
+        type=str,
+        help="Specify the name of the model from the TIMM library."
     )
 
     # Training Configuration
-    # Checkpoint Averaging
-    parser.add_argument(
-        "--avg_ckpts",
-        action="store_true",
-        help="Enable checkpoint averaging during training to stabilize the process."
-    )
-    parser.add_argument(
-        "--num_ckpts",
-        default=1,
-        type=int,
-        help="The number of best checkpoints to save when checkpoint averaging is active."
-    )
-
     # FGSM Adversarial Training
     parser.add_argument(
         "--fgsm",
@@ -758,19 +744,12 @@ def get_args():
     )
 
     parser.add_argument(
-        "--asha",
-        action="store_true",
-        help="whether to use ASHA optimization algorithm"
-    )
-    parser.add_argument(
-        "--pbt",
-        action="store_true",
-        help="whether to use Population Based Training optimization algorithm"
-    )
-    parser.add_argument(
-        "--pb2",
-        action="store_true",
-        help="whether to use Population Based Training 2 optimization algorithm"
+        "--scheduler",
+        default="asha",
+        type=str,
+        help="Type of optimization algorithm to use. Available are Population Based Training (PBT), Population Based "
+             "Bandits (PB2), and Adaptive Successive Halving",
+        choices=["pbt", "pb2", "asha"]
     )
 
     parser.add_argument(
@@ -852,5 +831,6 @@ if __name__ == "__main__":
     best_result = tune_results.get_best_result(metric=cfgs.sorting_metric, mode="max")
 
     print(f"\nBest trial config: {best_result.config}")
-    print(f"Best trial final validation loss: {best_result.metrics['loss']}")
-    print(f"Best trial final validation {cfgs.sorting_metric}: {best_result.metrics[cfgs.sorting_metric]}")
+    print(f"Best trial final validation metrics: {[{metric: best_result.metrics[metric] for metric in ['auc', 'f1', 
+                                                    'precision', 'recall']}][0]}")
+
