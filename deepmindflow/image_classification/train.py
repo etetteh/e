@@ -592,7 +592,6 @@ def get_args():
     parser.add_argument(
         "--model_name",
         nargs="*",
-        default="eva02_base_patch14_224.mim_in22k",
         help="Specify the name(s) of the model(s) from the TIMM library. Not compatible with --model_size or --module."
     )
     parser.add_argument(
