@@ -831,6 +831,5 @@ if __name__ == "__main__":
     best_result = tune_results.get_best_result(metric=cfgs.sorting_metric, mode="max")
 
     print(f"\nBest trial config: {best_result.config}")
-    print(f"Best trial final validation metrics: {[{metric: best_result.metrics[metric] for metric in ['auc', 'f1', 
-                                                    'precision', 'recall']}][0]}")
+    print(f"Best trial final validation metrics: {[{metric: best_result.metrics[metric] for metric in ['auc', 'f1', 'precision', 'recall']}][0]}")
 
