@@ -261,7 +261,7 @@ def tune_classifier(config, args):
                 metrics = {
                     "auc": best_results["auc"],
                     "f1": best_results["f1"],
-                    "precision": best_results["precision"]
+                    "precision": best_results["precision"],
                     "recall": best_results["recall"],
                 }
                 accelerator.save(
