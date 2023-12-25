@@ -37,7 +37,6 @@ from ray.tune.schedulers import ASHAScheduler, PopulationBasedTraining
 from ray.tune.schedulers.pb2 import PB2
 
 from ray.tune.search.bohb import TuneBOHB
-from ray.tune.search.flaml import CFO
 
 
 def tune_classifier(config, args):
