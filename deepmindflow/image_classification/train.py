@@ -609,10 +609,10 @@ def get_args():
              "or your favourite from the TIMM  library. Not compatible with --model_size or --model_name."
     )
     parser.add_argument(
-        "--filter_module",
+        "--filter_models",
         nargs="*",
         default=None,
-        help="Specify the model size to filter out based on your compute resources",
+        help="Specify the model size or type to filter out based on your compute resources or personal preference",
     )
     parser.add_argument(
         "--to_onnx",

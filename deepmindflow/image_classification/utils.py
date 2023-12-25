@@ -1217,7 +1217,7 @@ def get_matching_model_names(args: Namespace) -> List[str]:
         }
         matching_models = [name for name in model_names if is_matching_model(name)]
         matching_models = [name for name in matching_models if name not in models_to_remove.get(args.model_size, set())]
-
+        matching_models = remove_items(matching_models, args.filter_models)
     return matching_models
 
 
