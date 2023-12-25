@@ -141,7 +141,7 @@ def explain_model(args: argparse.Namespace) -> None:
     )
 
     checkpoint_file = os.path.join(os.path.join(args.model_output_dir, "best_model.pth"))
-    checkpoint = torch.load(checkpoint_file, mmap=True)
+    checkpoint = torch.load(checkpoint_file, map_location="cpu")
 
     if "n_averaged" in checkpoint["model"]:
         del checkpoint["model"]["n_averaged"]
