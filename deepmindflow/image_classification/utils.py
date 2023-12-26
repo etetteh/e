@@ -1206,7 +1206,7 @@ def get_matching_model_names(args: Namespace) -> List[str]:
     if args.module:
         model_names = timm.list_models(pretrained=True, module=args.module)
         matching_models = filter_models(model_names, args.crop_size)
-        matching_models = remove_items(matching_models, args.filter_module)
+        matching_models = remove_items(matching_models, args.filter_models)
     else:
         model_names = timm.list_models(pretrained=True)
 
