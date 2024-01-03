@@ -332,7 +332,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
                         checkpoint_file = os.path.join(args.output_dir, model_name, "averaged", "best_model.pth")
                     else:
                         checkpoint_file = os.path.join(args.output_dir, model_name, "best_model.pth")
-                    checkpoint = torch.load(checkpoint_file, map_location="cpu")
+                    checkpoint = torch.load(checkpoint_file, map_location=torch.device("cpu"))
                     model.load_state_dict(checkpoint["model"])
                     model = accelerator.prepare_model(model)
                 total_test_metrics, total_roc_metric = evaluate(classes, test_loader, model, val_metrics,
@@ -393,7 +393,7 @@ def main(args: argparse.Namespace, accelerator) -> None:
 
                 if os.path.isfile(checkpoint_file):
                     with accelerator.main_process_first():
-                        checkpoint = torch.load(checkpoint_file, map_location="cpu")
+                        checkpoint = torch.load(checkpoint_file, map_location=torch.device("cpu"))
                         model.load_state_dict(checkpoint["model"])
                         if not args.test_only:
                             optimizer.load_state_dict(checkpoint["optimizer"])
