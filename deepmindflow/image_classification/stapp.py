@@ -49,7 +49,7 @@ def get_input_config(key):
                                                  "dataset.",
                                             key=f"datasets_kwargs_{key}")
 
-    cfgs.aug_type = st.selectbox("Data Augmentation Type", ["rand", "trivial", "augmix"],
+    cfgs.aug_type = st.selectbox("Data Augmentation Type", ["augmix", "auto", "rand", "trivial"],
                                  help="Choose the type of data augmentation to use",
                                  key=f"aug_type_{key}")
     cfgs.interpolation = st.selectbox("Interpolation", ["bilinear", "nearest", "bicubic"],
@@ -86,16 +86,6 @@ def get_input_config(key):
             else:
                 cfgs.module = module
 
-            if key == "train":
-                filter_module = st.text_input(
-                    f"Optionally, Exclude Model Size(s)",
-                    help="Use this to specify the model size(s) to exclude. "
-                         "Choose from 'enormous', 'huge', 'giant', 'large'",
-                    key=f"filter_module_{key}",
-
-                )
-                cfgs.filter_module = filter_module.split()
-
         elif model_selection == "Model Size":
             cfgs.model_size = st.selectbox(
                 "Select Model Size", ["nano", "tiny", "small", "base", "large", "giant"],
@@ -110,6 +100,16 @@ def get_input_config(key):
                 key=f"model_name_{key}",
             )
             cfgs.model_name = model_name.split()
+
+        if model_selection == "Module" or model_selection == "Model Size":
+            if key == "train":
+                filter_model = st.text_input(
+                    f"Optionally, Exclude Models.",
+                    help="Use this to specify the model size(s) or name(s) to exclude.",
+                    key=f"filter_module_{key}",
+
+                )
+                cfgs.filter_models = filter_model.split()
 
     opt_col1, opt_col2 = st.columns(2)
 
@@ -177,7 +177,7 @@ def get_input_config(key):
                                         "training.",
                                    key=f"grayscale_{key}")
 
-        cfgs.prune = st.toggle("Enable Pruning",
+        cfgs.prune = st.toggle("Enable Model Pruning",
                                help="Include this flag to enable pruning during training, which helps reduce model "
                                     "complexity and size.",
                                key=f"prune_{key}")
@@ -312,7 +312,7 @@ if __name__ == "__main__":
                                             "Inference", "Model Explanation"])
 
     with tab1:
-        st.header("Image Classification Training")
+        st.header("Model Training")
         warnings.filterwarnings("ignore")
 
         if torch.cuda.is_available():
@@ -403,7 +403,7 @@ if __name__ == "__main__":
                 st.image(os.path.join(best_compare_model_name, "roc_curve.png"))
 
     with tab3:
-        st.header("Image Classification Hyperparameter Tuning")
+        st.header("Hyperparameter Tuning")
         torch.jit.enable_onednn_fusion(True)
 
         warnings.filterwarnings("ignore")
