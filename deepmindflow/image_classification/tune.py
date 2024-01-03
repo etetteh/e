@@ -328,7 +328,7 @@ def main(args):
         hyperparam_mutations["dropout"] = [0.0, 0.4]
 
     if args.tune_aug_type:
-        config["aug_type"] = tune.choice(["augmix", "rand", "trivial"])
+        config["aug_type"] = tune.choice(["augmix", "auto", "rand", "trivial"])
 
     if args.tune_interpolation:
         config["interpolation"] = tune.choice(["nearest", "bilinear", "bicubic"])
@@ -823,6 +823,7 @@ if __name__ == "__main__":
     cfgs = get_args()
     cfgs.module = None
     cfgs.model_size = None
+    cfgs.filter_models = None
 
     set_seed(cfgs.seed)
 
