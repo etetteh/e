@@ -318,6 +318,14 @@ def main(args: argparse.Namespace, accelerator) -> None:
             if not os.path.isdir(os.path.join(args.output_dir, model_name)):
                 os.makedirs(os.path.join(args.output_dir, model_name), exist_ok=True)
 
+            checkpoint_file = os.path.join(args.output_dir, model_name, "checkpoint.pth")
+            best_model_file = os.path.join(args.output_dir, model_name, "best_model")
+
+            if os.path.isfile(checkpoint_file):
+                args.pretrained = False
+            else:
+                args.pretrained = True
+
             if args.test_only:
                 test_loader = accelerator.prepare_data_loader(test_loader)
 
@@ -375,9 +383,6 @@ def main(args: argparse.Namespace, accelerator) -> None:
             best_checkpoints = []
 
             run_id = utils.get_model_run_id(run_ids, model_name) if run_ids is not None else None
-
-            checkpoint_file = os.path.join(args.output_dir, model_name, "checkpoint.pth")
-            best_model_file = os.path.join(args.output_dir, model_name, "best_model")
 
             mlflow.set_experiment(args.experiment_name)
 
@@ -598,7 +603,7 @@ def get_args():
         "--model_size",
         type=str,
         help="Specify the model size. Not used when --model_name or --module is specified.",
-        choices=["nano", "tiny", "small", "base", "large", "giant", "huge",]
+        choices=["nano", "tiny", "small", "base", "large", "giant", "huge"]
     )
     parser.add_argument(
         "--module",
