@@ -39,7 +39,7 @@ from ray.tune.schedulers.pb2 import PB2
 from ray.tune.search.bohb import TuneBOHB
 
 
-def tune_classifier(config, args):
+def tune_classifier(config, args, image_dataset):
     if torch.cuda.is_available():
         fsdp_plugin = FullyShardedDataParallelPlugin(
             state_dict_config=FullStateDictConfig(offload_to_cpu=False, rank0_only=False),
@@ -116,12 +116,9 @@ def tune_classifier(config, args):
         g = torch.Generator()
         g.manual_seed(args.seed)
 
-        image_dataset, train_dataset, val_dataset = None, None, None
+        train_dataset, val_dataset = None, None
         if accelerator.is_main_process:
             data_transforms = utils.get_data_augmentation(args)
-            image_dataset = utils.load_image_dataset(args)
-            image_dataset.set_format("torch")
-
             train_dataset, val_dataset, _ = utils.preprocess_train_eval_data(image_dataset, data_transforms)
 
         image_datasets = {
@@ -282,6 +279,9 @@ def tune_classifier(config, args):
 
 
 def main(args):
+    image_dataset = utils.load_image_dataset(args)
+    image_dataset.set_format("torch")
+
     config = {}
     hyperparam_mutations = {}
 
@@ -395,7 +395,7 @@ def main(args):
         tuner = tune.Tuner.restore(
             path=exp_dir,
             trainable=tune.with_resources(
-                tune.with_parameters(partial(tune_classifier, args=args)),
+                tune.with_parameters(partial(tune_classifier, args=args, image_dataset=image_dataset)),
                 resources={"cpu": args.cpus_per_trial, "gpu": args.gpus_per_trial}
             ),
             resume_unfinished=True,
@@ -405,7 +405,7 @@ def main(args):
     else:
         tuner = tune.Tuner(
             tune.with_resources(
-                tune.with_parameters(partial(tune_classifier, args=args)),
+                tune.with_parameters(partial(tune_classifier, args=args, image_dataset=image_dataset)),
                 resources={"cpu": args.cpus_per_trial, "gpu": args.gpus_per_trial}
             ),
             tune_config=tune.TuneConfig(
@@ -824,6 +824,7 @@ if __name__ == "__main__":
     cfgs.module = None
     cfgs.model_size = None
     cfgs.filter_models = None
+    cfgs.pretrained = True
 
     set_seed(cfgs.seed)
 
