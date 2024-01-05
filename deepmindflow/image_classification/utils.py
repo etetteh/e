@@ -993,6 +993,7 @@ def convert_to_onnx(
     model = timm.create_model(
         model_name,
         scriptable=True,
+        exportable=True,
         drop_rate=args.dropout,
         drop_path_rate=args.dropout,
         in_chans=1 if args.grayscale else 3,
@@ -1311,6 +1312,7 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
 
     Parameters:
         args (Namespace): A namespace object containing the following attributes:
+            -pretrained (bool): Whether to load pretrained weights or not.
             - feat_extract (bool): Whether to freeze the parameters of the model.
             - dropout (float): The dropout rate.
         model_name (str): The name of the model to be created using the `timm` library.
@@ -1325,7 +1327,7 @@ def get_pretrained_model(args: Namespace, model_name: str, num_classes: int) -> 
     """
     model = timm.create_model(
         model_name,
-        pretrained=True,
+        pretrained=args.pretrained,
         drop_rate=args.dropout,
         drop_path_rate=args.dropout,
         in_chans=1 if args.grayscale else 3,
